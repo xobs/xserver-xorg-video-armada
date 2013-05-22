@@ -1,0 +1,84 @@
+.\" $XFree86: xc/programs/Xserver/hw/xfree86/drivers/fbdev/fbdev.man,v 1.2 2001/01/27 18:20:47 dawes Exp $ 
+.\" shorthand for double quote that works everywhere.
+.ds q \N'34'
+.TH ARMADA __drivermansuffix__ __vendorversion__
+.SH NAME
+armada \- Marvell Armada 510 Xorg driver
+.SH SYNOPSIS
+.nf
+.B "Section \*qDevice\*q"
+.BI "  Identifier \*q"  devname \*q
+.B  "  Driver \*qarmada\*q"
+.BI "  BusID  \*qplatform:armada-drm:" id \*q
+\ \ ...
+.B EndSection
+.fi
+.SH DESCRIPTION
+.B armada
+is an __xservername__ driver for Marvell Armada SoCs.  This is an accelerated
+driver, the following framebuffer depths are supported: 8, 15, 16, 24.
+All visual types are supported for depth 8, and TrueColor visual is
+supported for the other depths.  The driver has preliminary support for
+the Direct Rendering Infrastructure (DRI).  Multi-head configurations are
+supported.
+.PP
+Support for video overlay is provided, supporting I420, YV12, I422, YUY2,
+UYVY, VYUY and YV16 formats.  The common I420 and YV12 formats are
+converted on the fly by this driver to I422 and YV16 for the hardware.
+Support is also provided for video overlay using an XVBO format, which
+can be used to pass a drm buffer handle to the video overlay backend, as
+well as Marvell's special
+.B libbmm
+based method.
+.SH SUPPORTED HARDWARE
+The 
+.B armada
+driver currently supports the Marvell Armada 510 LCD controller(s).
+.PP
+.B armada
+communicates with the Linux Kernel Direct Rendering Manager (drm) layer
+to control and arbitrate access to the hardware.  Kernel drm support is
+required.
+.SH CONFIGURATION DETAILS
+Please refer to __xconfigfile__(__filemansuffix__) for general configuration
+details.  This section only covers configuration details specific to
+this driver.
+.PP
+For this driver it is not required to specify modes in the screen 
+section of the config file.  The
+.B armada
+driver will request video mode information from the Linux Kernel drm layer.
+.PP
+The VideoRAM option is ignored by this driver; video memory is managed
+by the Linux Kernel drm layer using system memory.
+.PP
+The following driver 
+.B Options
+are supported:
+.TP
+.BI "Option \*qHotplug\*q \*q" boolean \*q
+This option controls whether the driver automatically notifies when
+monitors are connected or disconnected.
+.IP
+Default: enabled.
+.TP
+.BI "Option \*qHWcursor\*q \*q" boolean \*q
+Enable or disable use of the hardware cursor.
+.IP
+Default: disabled.
+.TP
+.BI "Option \*qUseGPU\*q \*q" boolean \*q
+Enable or disable use of the Vivante GPU for acceleration.
+.IP
+Default: enabled.
+.TP
+.BI "Option \*qXvAccel\*q \*q" boolean \*q
+Enable or disable the X Video backend.
+.IP
+Default: enabled.
+.TP
+.SH "SEE ALSO"
+__xservername__(__appmansuffix__), __xconfigfile__(__filemansuffix__), xorgconfig(__appmansuffix__), Xserver(__appmansuffix__),
+X(__miscmansuffix__)
+.SH AUTHORS
+Authors include: Gerd Knorr, Michel Dänzer, Geert Uytterhoeven, Russell King.

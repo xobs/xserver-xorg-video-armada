@@ -1,0 +1,5 @@
+xf86-video-armada (0.0.0-1) precise; urgency=low
+
+  * Initial release
+
+ -- Russell King <rmk_cubox@arm.linux.org.uk>  Wed, 22 May 2013 22:59:30 +0100
