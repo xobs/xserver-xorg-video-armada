@@ -42,6 +42,7 @@ struct armada_drm_info;
 #define dbg(fmt...) fprintf(stderr, fmt)
 
 struct vivante {
+	int drm_fd;
 	gcoOS os;
 	gcoHAL hal;
 	gco2D e2d;
@@ -65,7 +66,6 @@ struct vivante {
 	int scrnIndex;
 #ifdef HAVE_DRI2
 	struct vivante_dri2_info *dri2;
-	int drm_fd;
 #endif
 
 	CloseScreenProcPtr CloseScreen;

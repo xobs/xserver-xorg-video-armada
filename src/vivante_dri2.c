@@ -674,7 +674,7 @@ vivante_dri2_ScheduleWaitMSC(ClientPtr client, DrawablePtr draw,
 
 static int dri2_server_generation;
 
-Bool vivante_dri2_ScreenInit(ScreenPtr pScreen, int drm_fd)
+Bool vivante_dri2_ScreenInit(ScreenPtr pScreen)
 {
 	struct vivante *vivante = vivante_get_screen_priv(pScreen);
 	struct vivante_dri2_info *dri;
@@ -711,14 +711,13 @@ Bool vivante_dri2_ScreenInit(ScreenPtr pScreen, int drm_fd)
 	}
 
 	dri = xnfcalloc(1, sizeof *dri);
-	dri->devname = drmGetDeviceNameFromFd(drm_fd);
+	dri->devname = drmGetDeviceNameFromFd(vivante->drm_fd);
 
 	vivante->dri2 = dri;
-	vivante->drm_fd = drm_fd;
 
 	memset(&info, 0, sizeof(info));
 	info.version = 4;
-	info.fd = drm_fd;
+	info.fd = vivante->drm_fd;
 	info.driverName = "galdri";
 	info.deviceName = dri->devname;
 

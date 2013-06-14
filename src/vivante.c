@@ -558,7 +558,6 @@ vivante_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask, PicturePtr pDst,
 Bool vivante_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 {
 	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
-	int drm_fd = GET_DRM_INFO(pScrn)->fd;
 #ifdef RENDER
 	PictureScreenPtr ps = GetPictureScreenIfSet(pScreen);
 #endif
@@ -572,6 +571,7 @@ Bool vivante_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 	if (!vivante)
 		return FALSE;
 
+	vivante->drm_fd = GET_DRM_INFO(pScrn)->fd;
 	vivante->scrnIndex = pScrn->scrnIndex;
 	list_init(&vivante->batch_list);
 	vivante->bufmgr = mgr;
@@ -609,7 +609,7 @@ Bool vivante_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 	vivante_set_screen_priv(pScreen, vivante);
 
 #ifdef HAVE_DRI2
-	if (!vivante_dri2_ScreenInit(pScreen, drm_fd))
+	if (!vivante_dri2_ScreenInit(pScreen))
 		goto fail;
 #endif
 
