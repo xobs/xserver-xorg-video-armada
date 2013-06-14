@@ -27,6 +27,8 @@
 
 #include <gc_hal.h>
 
+#include "gal_extension.h"
+
 #include "vivante.h"
 #include "vivante_accel.h"
 #include "vivante_dri2.h"
@@ -39,7 +41,36 @@ vivante_Key vivante_screen_index;
 static Bool vivante_map_bo_to_gpu(struct vivante *vivante,
 	struct drm_armada_bo *bo, void **info, uint32_t *handle)
 {
-	*handle = drm_armada_bo_phys(bo);
+	struct map_dma_buf map;
+	gceSTATUS status;
+	int fd;
+
+	if (drm_armada_bo_to_fd(bo, &fd)) {
+		xf86DrvMsg(vivante->scrnIndex, X_ERROR,
+			   "vivante: unable to get prime fd for bo: %s\n",
+			   strerror(errno));
+		return FALSE;
+	}
+
+	map.zero = 0;
+	map.fd = fd;
+
+	status = gcoOS_DeviceControl(vivante->os, IOC_GDMABUF_MAP,
+				     &map, sizeof(map), &map, sizeof(map));
+
+	/* we don't need to keep the fd around anymore */
+	close(fd);
+
+	if (gcmIS_ERROR(status)) {
+		xf86DrvMsg(vivante->scrnIndex, X_INFO,
+			   "vivante: gpu dmabuf map failed: %d\n",
+			   status);
+		return FALSE;
+	}
+
+	*handle = map.Address;
+	*info = map.Info;
+
 	return TRUE;
 }
 
@@ -54,6 +85,13 @@ void vivante_free_pixmap(PixmapPtr pixmap)
 		if (vPix->owner == GPU)
 			vivante_unmap_gpu(vivante, vPix);
 		drm_armada_bo_put(vPix->bo);
+		/*
+		 * Those vPix which still have a handle have been mapped
+		 * to the GPU, and have to be unmapped.
+		 */
+		if (vPix->handle != -1)
+			gcoOS_UnmapUserMemory(vivante->os, (void *)1, 1,
+					      vPix->info, vPix->handle);
 		free(vPix);
 	}
 }
@@ -405,6 +443,10 @@ static Bool vivante_CloseScreen(int scrnIndex, ScreenPtr pScreen)
 	pScreen->BitmapToRegion = vivante->BitmapToRegion;
 	pScreen->BlockHandler = vivante->BlockHandler;
 
+	gcoOS_UnmapUserMemory(vivante->os, (void *)1, 1,
+			      vivante->batch_info,
+			      vivante->batch_handle);
+
 	vivante_accel_shutdown(vivante);
 
 	drm_armada_bo_put(vivante->batch_bo);
@@ -653,6 +695,10 @@ Bool vivante_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 	return TRUE;
 
 fail:
+	if (vivante->batch_info)
+		gcoOS_UnmapUserMemory(vivante->os, (void *)1, 1,
+				      vivante->batch_info,
+				      vivante->batch_handle);
 	vivante_accel_shutdown(vivante);
 	if (vivante->batch_bo)
 		drm_armada_bo_put(vivante->batch_bo);

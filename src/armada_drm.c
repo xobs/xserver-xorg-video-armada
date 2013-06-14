@@ -1367,12 +1367,27 @@ static Bool armada_drm_pre_init(ScrnInfoPtr pScrn)
 	return TRUE;
 }
 
+static int armada_get_cap(struct armada_drm_info *drm, uint64_t cap,
+	uint64_t *val, int scrnIndex, const char *name)
+{
+	int err;
+
+	err = drmGetCap(drm->fd, DRM_CAP_PRIME, val);
+	if (err)
+		xf86DrvMsg(scrnIndex, X_ERROR,
+			   "[drm] failed to get %s capability: %s\n",
+			   name, strerror(errno));
+
+	return err;
+}
+
 static Bool armada_drm_open_master(ScrnInfoPtr pScrn)
 {
 	struct armada_drm_info *drm;
 	EntityInfoPtr pEnt;
 	drmSetVersion sv;
 	const char *busid = DRM_DEFAULT_BUS_ID;
+	uint64_t val;
 	int err;
 
 	pEnt = xf86GetEntityInfo(pScrn->entityList[0]);
@@ -1409,6 +1424,24 @@ static Bool armada_drm_open_master(ScrnInfoPtr pScrn)
 		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
 			   "[drm] failed to set DRM interface version: %s\n",
 			   strerror(errno));
+		goto err_drm_close;
+	}
+
+	if (armada_get_cap(drm, DRM_CAP_PRIME, &val,
+			   pScrn->scrnIndex, "DRM_CAP_PRIME"))
+		goto err_drm_close;
+	if (!(val & DRM_PRIME_CAP_EXPORT)) {
+		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+			   "[drm] kernel doesn't support prime export.\n");
+		goto err_drm_close;
+	}
+
+	if (armada_get_cap(drm, DRM_CAP_DUMB_BUFFER, &val,
+			   pScrn->scrnIndex, "DRM_CAP_DUMB_BUFFER"))
+		goto err_drm_close;
+	if (!val) {
+		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+			   "[drm] kernel doesn't support dumb buffer.\n");
 		goto err_drm_close;
 	}
 
