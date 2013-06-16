@@ -152,11 +152,6 @@ struct drm_xv {
 	drmModePlanePtr plane;
 	drmModePlanePtr planes[2];
 	const struct armada_format *plane_format;
-#ifdef LEGACY_OVERLAY
-	/* Overlay information */
-	const XF86ImageRec *image;
-	struct drm_armada_overlay_put_image arg;
-#endif
 
 	struct drm_armada_overlay_attrs attrs;
 };
@@ -457,45 +452,6 @@ armada_drm_get_stdbo(struct drm_xv *drmxv, unsigned char *src, uint32_t *id)
 	return bo;
 }
 
-#ifdef LEGACY_OVERLAY
-static struct drm_armada_bo *
-armada_drm_get_cvtbo(struct drm_xv *drmxv, unsigned char *src)
-{
-	struct drm_armada_bo *bo;
-
-	/* Standard XV protocol */
-	bo = drmxv->bufs[drmxv->bo_idx].bo;
-	if (bo) {
-		/* Convert YV12 to YV16 or I420 to I422 */
-		unsigned char *dst = bo->ptr;
-		size_t size = drmxv->offsets[1];
-		int i;
-
-		/* Copy Y */
-		memcpy(dst, src, size);
-
-		dst += size;
-		src += size;
-
-		/* Copy U and V, doubling the number of pixels vertically */
-		size = drmxv->pitches[1];
-		for (i = drmxv->height; i > 0; i--) {
-			memcpy(dst, src, size);
-			dst += size;
-			memcpy(dst, src, size);
-			dst += size;
-			src += size;
-		}
-
-		drm_armada_bo_get(bo);
-
-		if (id)
-			*id = drmxv->bufs[drmxv->bo_idx].fb_id;
-	}
-	return bo;
-}
-#endif
-
 /* Common methods */
 static int
 armada_drm_Xv_SetPortAttribute(ScrnInfoPtr pScrn, Atom attribute,
@@ -626,305 +582,6 @@ armada_drm_Xv_QueryImageAttributes(ScrnInfoPtr pScrn, int image,
 
 	return ret;
 }
-
-#ifdef LEGACY_OVERLAY
-static void
-armada_drm_ovl_StopVideo(ScrnInfoPtr pScrn, pointer data, Bool cleanup)
-{
-	struct drm_xv *drmxv = data;
-	struct drm_armada_overlay_put_image arg;
-	int ret;
-
-	RegionEmpty(&drmxv->clipBoxes);
-
-	memset(&arg, 0, sizeof(arg));
-	ret = drmIoctl(drmxv->drm->fd, DRM_IOCTL_ARMADA_OVERLAY_PUT_IMAGE, &arg);
-	if (ret)
-		xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
-			   "[drm] unable to stop overlay: %s\n", strerror(errno));
-
-	if (cleanup) {
-		drmxv->image = NULL;
-		armada_drm_bufs_free(drmxv);
-	}
-}
-
-static int armada_drm_ovl_SetupStd(struct drm_xv *drmxv, int image,
-	short width, short height)
-{
-	int i, size, image2 = image;
-	const struct armada_format *fmt;
-	const XF86ImageRec *img;
-
-	drmxv->image = NULL;
-#if 0
-	/*
-	 * We can't actually do YV12 or I420 - we convert to YV16
-	 * or YV16 with U and V swapped.
-	 */
-	if (image2 == FOURCC_YV12)
-		image2 = FOURCC_YV16;
-	if (image2 == FOURCC_I420)
-		image2 = FOURCC_I422;
-#endif
-
-	/*
-	 * Lookup the image type.  Note that the server already did this in
-	 * Xext/xvdisp.c, but xf86XVPutImage() in hw/xfree86/common/xf86xv.c
-	 * threw that information away.
-	 */
-	fmt = armada_drm_lookup_xvfourcc(image);
-	if (!fmt)
-		return BadMatch;
-
-	size = armada_drm_get_fmt_info(fmt, drmxv->pitches, drmxv->offsets,
-				       width, height);
-	if (!size)
-		return BadAlloc;
-
-	drmxv->arg.flags = ARMADA_OVERLAY_ENABLE | fmt->flags;
-
-	img = &fmt->xv_image;
-	if (img->format == XvPlanar) {
-		for (i = 0; i < img->num_planes; i++) {
-			switch (img->component_order[i]) {
-			case 'Y':
-				drmxv->arg.offset_Y = drmxv->offsets[i];
-				drmxv->arg.stride_Y = drmxv->pitches[i];
-				break;
-			case 'U':
-				drmxv->arg.offset_U = drmxv->offsets[i];
-				drmxv->arg.stride_UV = drmxv->pitches[i];
-				break;
-			case 'V':
-				drmxv->arg.offset_V = drmxv->offsets[i];
-				drmxv->arg.stride_UV = drmxv->pitches[i];
-				break;
-			}
-		}
-	} else {
-		drmxv->arg.offset_Y = drmxv->offsets[0];
-		drmxv->arg.offset_U = drmxv->offsets[0];
-		drmxv->arg.offset_V = drmxv->offsets[0];
-		drmxv->arg.stride_Y = drmxv->pitches[0];
-		drmxv->arg.stride_UV = drmxv->pitches[0];
-	}
-
-	armada_drm_bufs_free(drmxv);
-
-	drmxv->image_size = size;
-	drmxv->width = width;
-	drmxv->height = height;
-	drmxv->fourcc = image;
-
-	if (!drmxv->is_bmm) {
-		int ret;
-
-		if (image != image2)
-			drmxv->get_bo = armada_drm_get_cvtbo;
-		else
-			drmxv->get_bo = armada_drm_get_stdbo;
-
-		ret = armada_drm_bufs_alloc(drmxv);
-		if (ret != Success)
-			return ret;
-	}
-
-	drmxv->image = img;
-
-	return Success;
-}
-
-static int armada_drm_ovl_Put(ScrnInfoPtr pScrn, struct drm_xv *drmxv,
-	short src_x, short src_y, short src_w, short src_h,
-	short width, short height, BoxPtr dst, RegionPtr clipBoxes)
-{
-	xf86CrtcPtr crtc = NULL;
-	INT32 x1, x2, y1, y2;
-
-	x1 = src_x;
-	x2 = src_x + src_w;
-	y1 = src_y;
-	y2 = src_y + src_h;
-
-	if (!xf86_crtc_clip_video_helper(pScrn, &crtc, drmxv->desired_crtc,
-					 dst, &x1, &x2, &y1, &y2, clipBoxes,
-					 width, height))
-		return BadAlloc;
-
-	if (!crtc) {
-		armada_drm_ovl_StopVideo(pScrn, drmxv, TRUE);
-		return Success;
-	}
-
-	drmxv->arg.src_width = width;
-	drmxv->arg.src_height = height;
-	drmxv->arg.src_scan_width = x2 - x1;
-	drmxv->arg.src_scan_height = y2 - y1;
-	drmxv->arg.crtc_id = armada_crtc(crtc)->mode_crtc->crtc_id;
-	drmxv->arg.dst_x = dst->x1 - crtc->x;
-	drmxv->arg.dst_y = dst->y1 - crtc->y;
-	drmxv->arg.dst_width = dst->x2 - dst->x1;
-	drmxv->arg.dst_height = dst->y2 - dst->y1;
-
-	drmIoctl(drmxv->drm->fd, DRM_IOCTL_ARMADA_OVERLAY_PUT_IMAGE,
-		 &drmxv->arg);
-
-	/*
-	 * Finally, fill the clip boxes; do this after we've done the ioctl
-	 * so we don't impact on latency.
-	 */
-	if (drmxv->autopaint_colorkey &&
-	    !RegionEqual(&drmxv->clipBoxes, clipBoxes)) {
-		RegionCopy(&drmxv->clipBoxes, clipBoxes);
-		xf86XVFillKeyHelper(pScrn->pScreen, drmxv->attrs.color_key,
-				    clipBoxes);
-	}
-
-	return Success;
-}
-
-static int armada_drm_ovl_PutImage(ScrnInfoPtr pScrn,
-	short src_x, short src_y, short drw_x, short drw_y,
-	short src_w, short src_h, short drw_w, short drw_h,
-	int image, unsigned char *buf, short width, short height,
-	Bool sync, RegionPtr clipBoxes, pointer data, DrawablePtr pDraw)
-{
-	struct drm_xv *drmxv = data;
-	struct drm_armada_bo *bo;
-	BoxRec dst;
-	Bool is_bo;
-	int ret;
-
-	/* Lock out overlay if plane overlay is in use */
-	if (drmxv->plane_format)
-		return BadAlloc;
-
-	armada_drm_coords_to_box(&dst, drw_x, drw_y, drw_w, drw_h);
-
-	is_bo = image == FOURCC_XVBO;
-	if (is_bo)
-		/*
-		 * XVBO support allows applications to prepare the DRM buffer
-		 * object themselves, and pass a global name to the X server to
-		 * update the hardware with.  This is similar to Intel XvMC
-		 * support, except we also allow the image format to be
-		 * specified via a fourcc as the first word.
-		 */
-		image = ((uint32_t *)buf)[0];
-
-	if (!drmxv->image || drmxv->fourcc != image ||
-	    drmxv->width != width || drmxv->height != height) {
-		if (is_bo) {
-			drmxv->is_bmm = TRUE;
-			drmxv->get_bo = armada_drm_get_xvbo;
-		} else if (armada_drm_is_bmm(buf)) {
-			drmxv->is_bmm = TRUE;
-			drmxv->get_bo = armada_drm_get_bmm;
-		} else {
-			drmxv->is_bmm = FALSE;
-		}
-
-		ret = armada_drm_ovl_SetupStd(drmxv, image, width, height);
-		if (ret != Success) {
-			xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
-				   "[drm] Xv: SetupStd failed: %d\n", ret);
-			return ret;
-		}
-
-		xf86DrvMsg(pScrn->scrnIndex, X_INFO,
-			   "[drm] bmm %u xvbo %u fourcc %08x flags %08x\n",
-			   drmxv->is_bmm, is_bo, image, drmxv->arg.flags);
-	}
-
-	bo = drmxv->get_bo(drmxv, buf, NULL);
-	if (!bo) {
-		uint32_t *p = (uint32_t *)buf;
-		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
-			   "[drm] Xv: failed to get buffer %08x %08x %08x %08x\n",
-				p[0], p[1], p[2], p[3]);
-		return BadAlloc;
-	}
-
-	if (++drmxv->bo_idx >= ARRAY_SIZE(drmxv->bufs))
-		drmxv->bo_idx = 0;
-
-	drmxv->arg.bo_handle = bo->handle;
-
-	ret = armada_drm_ovl_Put(pScrn, drmxv, src_x, src_y, src_w, src_h,
-				 width, height, &dst, clipBoxes);
-
-	/*
-	 * The kernel will keep a reference internally to
-	 * the buffer object while it is being displayed.
-	 */
-	drm_armada_bo_put(bo);
-
-	return ret;
-}
-
-static int armada_drm_ovl_ReputImage(ScrnInfoPtr pScrn,
-	short src_x, short src_y, short drw_x, short drw_y,
-	short src_w, short src_h, short drw_w, short drw_h,
-	RegionPtr clipBoxes, pointer data, DrawablePtr pDraw)
-{
-	struct drm_xv *drmxv = data;
-	BoxRec dst;
-
-	if (!drmxv->image)
-		return Success;
-
-	armada_drm_coords_to_box(&dst, drw_x, drw_y, drw_w, drw_h);
-
-	return armada_drm_ovl_Put(pScrn, drmxv, src_x, src_y, src_w, src_h,
-				  drmxv->width, drmxv->height,
-				  &dst, clipBoxes);
-}
-
-static XF86VideoAdaptorPtr
-armada_drm_XvInitOverlay(ScrnInfoPtr pScrn, DevUnion *priv)
-{
-	XF86VideoAdaptorPtr p;
-	XF86ImageRec *images;
-	unsigned i, num_images = ARRAY_SIZE(armada_drm_formats);
-
-	p = xf86XVAllocateVideoAdaptorRec(pScrn);
-	if (!p)
-		return NULL;
-
-	images = calloc(num_images, sizeof(*images));
-	if (!images) {
-		free(p);
-		return NULL;
-	}
-
-	for (i = 0; i < num_images; i++)
-		images[i] = armada_drm_formats[i].xv_image;
-
-	p->type = XvWindowMask | XvInputMask | XvImageMask;
-	p->flags = VIDEO_OVERLAID_IMAGES;
-	p->name = "Marvell Armada Overlay Video";
-	p->nEncodings = sizeof(OverlayEncodings) / sizeof(XF86VideoEncodingRec);
-	p->pEncodings = OverlayEncodings;
-	p->nFormats = sizeof(OverlayFormats) / sizeof(XF86VideoFormatRec);
-	p->pFormats = OverlayFormats;
-	p->nPorts = 1;
-	p->pPortPrivates = priv;
-	p->nAttributes = sizeof(OverlayAttributes) / sizeof(XF86AttributeRec);
-	p->pAttributes = OverlayAttributes;
-	p->nImages = num_images;
-	p->pImages = images;
-	p->StopVideo = armada_drm_ovl_StopVideo;
-	p->SetPortAttribute = armada_drm_Xv_SetPortAttribute;
-	p->GetPortAttribute = armada_drm_Xv_GetPortAttribute;
-	p->QueryBestSize = armada_drm_Xv_QueryBestSize;
-	p->PutImage = armada_drm_ovl_PutImage;
-	p->ReputImage = armada_drm_ovl_ReputImage;
-	p->QueryImageAttributes = armada_drm_Xv_QueryImageAttributes;
-
-	return p;
-}
-#endif
 
 /* Plane interface support */
 static int
@@ -1172,11 +829,6 @@ static int armada_drm_plane_PutImage(ScrnInfoPtr pScrn,
 	uint32_t fb_id;
 	int ret;
 
-#ifdef LEGACY_OVERLAY
-	/* Lock out plane overlay if overlay is in use */
-	if (drmxv->image)
-		return BadAlloc;
-#endif
 	armada_drm_coords_to_box(&dst, drw_x, drw_y, drw_w, drw_h);
 
 	ret = armada_drm_plane_fbid(pScrn, drmxv, image, buf, width, height,
@@ -1299,9 +951,6 @@ Bool armada_drm_XvInit(ScrnInfoPtr pScrn)
 	ScreenPtr scrn = screenInfo.screens[pScrn->scrnIndex];
 	struct armada_drm_info *drm = GET_DRM_INFO(pScrn);
 	XF86VideoAdaptorPtr xv[2], plane;
-#ifdef LEGACY_OVERLAY
-	XF86VideoAdapterPtr overlay;
-#endif
 	drmModePlaneResPtr res;
 	struct drm_xv *drmxv;
 	DevUnion priv[1];
@@ -1371,23 +1020,11 @@ Bool armada_drm_XvInit(ScrnInfoPtr pScrn)
 
 	num = 0;
 	priv[0].ptr = drmxv;
-#ifdef LEGACY_OVERLAY
-	overlay = armada_drm_XvInitOverlay(pScrn, priv);
-	if (!overlay)
-		goto err_free;
-
-	xv[num++] = overlay;
-#endif
 
 	if (drmxv->planes[0]) {
 		plane = armada_drm_XvInitPlane(pScrn, priv, drmxv);
-		if (!plane) {
-#ifdef LEGACY_OVERLAY
-			free(overlay->pImages);
-			free(overlay);
-#endif
+		if (!plane)
 			goto err_free;
-		}
 		xv[num++] = plane;
 	}
 
