@@ -520,7 +520,7 @@ static Bool armada_drm_crtc_apply(xf86CrtcPtr crtc, drmModeModeInfoPtr kmode)
 {
 	ScrnInfoPtr pScrn = crtc->scrn;
 	xf86CrtcConfigPtr xf86_config = XF86_CRTC_CONFIG_PTR(pScrn);
-	struct armada_crtc_info *drmc = crtc->driver_private;
+	struct armada_crtc_info *drmc = armada_crtc(crtc);
 	struct armada_drm_info *drm = drmc->drm;
 	uint32_t fb_id, *output_ids;
 	int x, y, i, ret, output_num;
@@ -598,7 +598,7 @@ armada_drm_crtc_set_mode_major(xf86CrtcPtr crtc, DisplayModePtr mode,
 	Rotation rotation, int x, int y)
 {
 	ScrnInfoPtr pScrn = crtc->scrn;
-	struct armada_crtc_info *drmc = crtc->driver_private;
+	struct armada_crtc_info *drmc = armada_crtc(crtc);
 	struct armada_drm_info *drm = drmc->drm;
 	drmModeModeInfo kmode;
 	DisplayModeRec saved_mode;
@@ -643,7 +643,7 @@ armada_drm_crtc_set_mode_major(xf86CrtcPtr crtc, DisplayModePtr mode,
 static void armada_drm_crtc_gamma_set(xf86CrtcPtr crtc, CARD16 *red,
 	CARD16 *green, CARD16 *blue, int size)
 {
-	struct armada_crtc_info *drmc = crtc->driver_private;
+	struct armada_crtc_info *drmc = armada_crtc(crtc);
 	struct armada_drm_info *drm = drmc->drm;
 
 	drmModeCrtcSetGamma(drm->fd, drmc->mode_crtc->crtc_id,
@@ -652,7 +652,7 @@ static void armada_drm_crtc_gamma_set(xf86CrtcPtr crtc, CARD16 *red,
 
 static void armada_drm_crtc_set_cursor_position(xf86CrtcPtr crtc, int x, int y)
 {
-	struct armada_crtc_info *drmc = crtc->driver_private;
+	struct armada_crtc_info *drmc = armada_crtc(crtc);
 	struct armada_drm_info *drm = drmc->drm;
 
 	drmModeMoveCursor(drm->fd, drmc->mode_crtc->crtc_id, x, y);
@@ -660,7 +660,7 @@ static void armada_drm_crtc_set_cursor_position(xf86CrtcPtr crtc, int x, int y)
 
 static void armada_drm_crtc_show_cursor(xf86CrtcPtr crtc)
 {
-	struct armada_crtc_info *drmc = crtc->driver_private;
+	struct armada_crtc_info *drmc = armada_crtc(crtc);
 	struct armada_drm_info *drm = drmc->drm;
 
 	drmModeSetCursor(drm->fd, drmc->mode_crtc->crtc_id,
@@ -670,7 +670,7 @@ static void armada_drm_crtc_show_cursor(xf86CrtcPtr crtc)
 
 static void armada_drm_crtc_hide_cursor(xf86CrtcPtr crtc)
 {
-	struct armada_crtc_info *drmc = crtc->driver_private;
+	struct armada_crtc_info *drmc = armada_crtc(crtc);
 	struct armada_drm_info *drm = drmc->drm;
 
 	drmModeSetCursor(drm->fd, drmc->mode_crtc->crtc_id, 0, 0, 0);
@@ -678,7 +678,7 @@ static void armada_drm_crtc_hide_cursor(xf86CrtcPtr crtc)
 
 static void armada_drm_crtc_load_cursor_argb(xf86CrtcPtr crtc, CARD32 *image)
 {
-	struct armada_crtc_info *drmc = crtc->driver_private;
+	struct armada_crtc_info *drmc = armada_crtc(crtc);
 
 	drm_armada_bo_subdata(drmc->cursor_bo, 0,
 			      CURSOR_MAX_WIDTH * CURSOR_MAX_HEIGHT * 4, image);
@@ -687,7 +687,7 @@ static void armada_drm_crtc_load_cursor_argb(xf86CrtcPtr crtc, CARD32 *image)
 static void *
 armada_drm_crtc_shadow_allocate(xf86CrtcPtr crtc, int width, int height)
 {
-	struct armada_crtc_info *drmc = crtc->driver_private;
+	struct armada_crtc_info *drmc = armada_crtc(crtc);
 	ScrnInfoPtr pScrn = crtc->scrn;
 	struct drm_armada_bo *bo;
 	int ret;
@@ -718,7 +718,7 @@ static PixmapPtr
 armada_drm_crtc_shadow_create(xf86CrtcPtr crtc, void *data,
 	int width, int height)
 {
-	struct armada_crtc_info *drmc = crtc->driver_private;
+	struct armada_crtc_info *drmc = armada_crtc(crtc);
 	ScrnInfoPtr scrn = crtc->scrn;
 	PixmapPtr rotate_pixmap;
 	struct drm_armada_bo *bo;
@@ -757,7 +757,7 @@ armada_drm_crtc_shadow_destroy(xf86CrtcPtr crtc, PixmapPtr rot_pixmap,
 		FreeScratchPixmapHeader(rot_pixmap);
 	}
 	if (data) {
-		struct armada_crtc_info *drmc = crtc->driver_private;
+		struct armada_crtc_info *drmc = armada_crtc(crtc);
 		struct armada_drm_info *drm = drmc->drm;
 
 		drmModeRmFB(drm->fd, drmc->rotate_fb_id);
@@ -769,7 +769,7 @@ armada_drm_crtc_shadow_destroy(xf86CrtcPtr crtc, PixmapPtr rot_pixmap,
 
 static void armada_drm_crtc_destroy(xf86CrtcPtr crtc)
 {
-	struct armada_crtc_info *drmc = crtc->driver_private;
+	struct armada_crtc_info *drmc = armada_crtc(crtc);
 	struct armada_drm_info *drm = drmc->drm;
 
 	if (drmc->cursor_bo) {
@@ -797,10 +797,13 @@ static const xf86CrtcFuncsRec drm_crtc_funcs = {
 
 static Bool
 armada_drm_crtc_init(ScrnInfoPtr pScrn, struct armada_drm_info *drm,
-	uint32_t id)
+	unsigned num)
 {
-	xf86CrtcPtr crtc;
 	struct armada_crtc_info *drmc;
+	xf86CrtcPtr crtc;
+	uint32_t id;
+
+	id = drm->mode_res->crtcs[num];
 
 	crtc = xf86CrtcCreate(pScrn, &drm_crtc_funcs);
 	if (!crtc)
@@ -811,6 +814,7 @@ armada_drm_crtc_init(ScrnInfoPtr pScrn, struct armada_drm_info *drm,
 		return FALSE;
 
 	drmc->drm = drm;
+	drmc->num = num;
 	drmc->mode_crtc = drmModeGetCrtc(drm->fd, id);
 	crtc->driver_private = drmc;
 
@@ -1024,7 +1028,7 @@ static Bool armada_drm_EnterVT(int scrnIndex, int flags)
 	/* Disable unused CRTCs */
 	for (i = 0; i < config->num_crtc; i++) {
 		xf86CrtcPtr crtc = config->crtc[i];
-		struct armada_crtc_info *drmc = crtc->driver_private;
+		struct armada_crtc_info *drmc = armada_crtc(crtc);
 		if (!crtc->enabled)
 			drmModeSetCrtc(drm->fd, drmc->mode_crtc->crtc_id,
 				       0, 0, 0, NULL, 0, NULL);
@@ -1329,7 +1333,7 @@ static Bool armada_drm_pre_init(ScrnInfoPtr pScrn)
 	xf86CrtcSetSizeRange(pScrn, 320, 200, pScrn->virtualX, pScrn->virtualY);
 
 	for (i = 0; i < drm->mode_res->count_crtcs; i++)
-		if (!armada_drm_crtc_init(pScrn, drm, drm->mode_res->crtcs[i]))
+		if (!armada_drm_crtc_init(pScrn, drm, i))
 			return FALSE;
 
 	for (i = 0; i < drm->mode_res->count_connectors; i++)

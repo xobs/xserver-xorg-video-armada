@@ -15,7 +15,7 @@ struct drm_armada_bo;
 
 struct armada_crtc_info {
 	struct armada_drm_info *drm;
-
+	unsigned num;
 	drmModeModeInfo kmode;
 	drmModeCrtcPtr mode_crtc;
 
@@ -23,6 +23,8 @@ struct armada_crtc_info {
 
 	uint32_t rotate_fb_id;
 };
+#define armada_crtc(crtc) \
+	((struct armada_crtc_info *)(crtc)->driver_private)
 
 struct armada_drm_info {
 	int fd;
