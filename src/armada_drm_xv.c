@@ -145,7 +145,13 @@ struct drm_xv {
 		uint32_t fb_id;
 	} bufs[NR_BUFS];
 
-	struct drm_armada_bo *(*get_bo)(struct drm_xv *, unsigned char *, uint32_t *);
+	union {
+		phys_t phys;
+		uint32_t name;
+	} last;
+
+	int (*get_fb)(ScrnInfoPtr, struct drm_xv *, unsigned char *,
+		uint32_t *);
 
 	/* Plane information */
 	uint32_t plane_fb_id;
@@ -306,6 +312,26 @@ static void armada_drm_bufs_free(struct drm_xv *drmxv)
 	}
 }
 
+static Bool
+armada_drm_create_fbid(struct drm_xv *drmxv, struct drm_armada_bo *bo,
+	uint32_t *id)
+{
+	uint32_t handles[3];
+
+	/* Just set the three plane handles to be the same */
+	handles[0] =
+	handles[1] =
+	handles[2] = bo->handle;
+
+	/* Create the framebuffer object for this buffer */
+	if (drmModeAddFB2(drmxv->drm->fd, drmxv->width, drmxv->height,
+			  drmxv->plane_format->drm_format, handles,
+			  drmxv->pitches, drmxv->offsets, id, 0))
+		return FALSE;
+
+	return TRUE;
+}
+
 static int armada_drm_bufs_alloc(struct drm_xv *drmxv)
 {
 	struct drm_armada_bufmgr *bufmgr = drmxv->drm->bufmgr;
@@ -318,7 +344,8 @@ static int armada_drm_bufs_alloc(struct drm_xv *drmxv)
 
 		bo = drm_armada_bo_dumb_create(bufmgr, width, height, 32);
 		drmxv->bufs[i].bo = bo;
-		if (!bo || drm_armada_bo_map(bo)) {
+		if (!bo || drm_armada_bo_map(bo) ||
+		    !armada_drm_create_fbid(drmxv, bo, &drmxv->bufs[i].fb_id)) {
 			armada_drm_bufs_free(drmxv);
 			return BadAlloc;
 		}
@@ -328,9 +355,20 @@ static int armada_drm_bufs_alloc(struct drm_xv *drmxv)
 }
 
 /*
- * Marvell BMM hack handling.  This is pretty disgusting - it passes
- * the physical address of the buffer via the Xv image interface, with
- * a magic number, and a checksum.
+ * The Marvell Xv protocol hack.
+ *
+ * This is pretty disgusting - it passes a magic number, a count, the
+ * physical address of the BMM buffer, and a checksum via the Xv image
+ * interface.
+ *
+ * The X server is then expected to queue the frame for display, and
+ * then overwrite the SHM buffer with its own magic number, a count,
+ * the physical address of a used BMM buffer, and a checksum back to
+ * the application.
+ *
+ * Looking at other gstreamer implementations (such as fsl) this kind
+ * of thing seems to be rather common, though normally only in one
+ * direction.
  */
 #define BMM_SHM_MAGIC1  0x13572468
 #define BMM_SHM_MAGIC2  0x24681357
@@ -372,6 +410,10 @@ static phys_t armada_drm_bmm_getbuf(unsigned char *buf)
 		return INVALID_PHYS;
 
 	len = 2 + ptr[1];
+	/* Only one buffer per call please */
+	if (len > 3)
+		return INVALID_PHYS;
+
 	if (armada_drm_bmm_chk(buf, len) != ptr[len])
 		return INVALID_PHYS;
 
@@ -388,31 +430,26 @@ static void armada_drm_bmm_putbuf(unsigned char *buf, phys_t phys)
 	*ptr = armada_drm_bmm_chk(buf, 3);
 }
 
-static struct drm_armada_bo *
-armada_drm_get_bmm(struct drm_xv *drmxv, unsigned char *buf, uint32_t *id)
+static int
+armada_drm_get_bmm(ScrnInfoPtr pScrn, struct drm_xv *drmxv, unsigned char *buf,
+	uint32_t *id)
 {
 	struct drm_armada_bo *bo;
-	unsigned idx = drmxv->bo_idx;
 	phys_t phys;
 
-	/* Marvell Dove special protocol */
 	phys = armada_drm_bmm_getbuf(buf);
 	if (phys == INVALID_PHYS)
-		return NULL;
+		return BadAlloc;
 
-	if (idx == 0)
-		idx = ARRAY_SIZE(drmxv->bufs);
-	idx -= 1;
-	if (drmxv->bufs[idx].phys == phys) {
-		/* Re-display of previous frame */
-		if (id)
-			*id = drmxv->plane_fb_id;
-		drmxv->bo_idx = idx;
-		return (void *)1;
+	/* Is this a re-display of the previous frame? */
+	if (drmxv->last.phys == phys) {
+		*id = drmxv->plane_fb_id;
+		return Success;
 	}
 
 	/* Map the passed buffer into a bo */
-	bo = drm_armada_bo_create_phys(drmxv->drm->bufmgr, phys, drmxv->image_size);
+	bo = drm_armada_bo_create_phys(drmxv->drm->bufmgr, phys,
+				       drmxv->image_size);
 	if (bo) {
 		phys_t old;
 
@@ -421,35 +458,85 @@ armada_drm_get_bmm(struct drm_xv *drmxv, unsigned char *buf, uint32_t *id)
 		if (old != INVALID_PHYS)
 			armada_drm_bmm_putbuf(buf, old);
 		drmxv->bufs[drmxv->bo_idx].phys = phys;
-		drmxv->bufs[drmxv->bo_idx].fb_id = 0;
+
+		/* Move to the next buffer index now */
+		if (++drmxv->bo_idx >= ARRAY_SIZE(drmxv->bufs))
+			drmxv->bo_idx = 0;
+
+		if (!armada_drm_create_fbid(drmxv, bo, id)) {
+			xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+				"[drm] BMM: drmModeAddFB2 failed: %s\n",
+				strerror(errno));
+			return BadAlloc;
+		}
+
+		drmxv->last.phys = phys;
+
+		/*
+		 * We're done with this buffer object.  We can drop our
+		 * reference to it as it is now bound to the framebuffer,
+		 * which will keep its own refcount(s) on the buffer.
+		 */
+		drm_armada_bo_put(bo);
 	}
 
-	return bo;
+	return Success;
 }
 
-static struct drm_armada_bo *
-armada_drm_get_xvbo(struct drm_xv *drmxv, unsigned char *buf, uint32_t *id)
-{
-	return drm_armada_bo_create_from_name(drmxv->drm->bufmgr,
-					      ((uint32_t *)buf)[1]);
-}
-
-static struct drm_armada_bo *
-armada_drm_get_stdbo(struct drm_xv *drmxv, unsigned char *src, uint32_t *id)
+static int
+armada_drm_get_xvbo(ScrnInfoPtr pScrn, struct drm_xv *drmxv, unsigned char *buf,
+	uint32_t *id)
 {
 	struct drm_armada_bo *bo;
+	uint32_t name = ((uint32_t *)buf)[1];
 
-	/* Standard XV protocol */
-	bo = drmxv->bufs[drmxv->bo_idx].bo;
-	if (bo) {
-		memcpy(bo->ptr, src, drmxv->image_size);
-		drm_armada_bo_get(bo);
-
-		if (id)
-			*id = drmxv->bufs[drmxv->bo_idx].fb_id;
+	/* Is this a re-display of the previous frame? */
+	if (drmxv->last.name == name) {
+		*id = drmxv->plane_fb_id;
+		return Success;
 	}
 
-	return bo;
+	bo = drm_armada_bo_create_from_name(drmxv->drm->bufmgr, name);
+	if (bo) {
+		if (!armada_drm_create_fbid(drmxv, bo, id)) {
+			xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+				"[drm] XVBO: drmModeAddFB2 failed: %s\n",
+				strerror(errno));
+			return BadAlloc;
+		}
+
+		drmxv->last.name = name;
+
+		/*
+		 * We're done with this buffer object.  We can drop our
+		 * reference to it as it is now bound to the framebuffer,
+		 * which will keep its own refcount(s) on the buffer.
+		 */
+		drm_armada_bo_put(bo);
+	}
+
+	return Success;
+}
+
+static int
+armada_drm_get_std(ScrnInfoPtr pScrn, struct drm_xv *drmxv, unsigned char *src,
+	uint32_t *id)
+{
+	struct drm_armada_bo *bo = drmxv->bufs[drmxv->bo_idx].bo;
+
+	if (bo) {
+		/* Copy new image data into the buffer */
+		memcpy(bo->ptr, src, drmxv->image_size);
+
+		/* Return this buffer's framebuffer id */
+		*id = drmxv->bufs[drmxv->bo_idx].fb_id;
+
+		/* Move to the next buffer index now */
+		if (++drmxv->bo_idx >= ARRAY_SIZE(drmxv->bufs))
+			drmxv->bo_idx = 0;
+	}
+
+	return bo ? Success : BadAlloc;
 }
 
 /* Common methods */
@@ -591,6 +678,7 @@ armada_drm_plane_fbid(ScrnInfoPtr pScrn, struct drm_xv *drmxv, int image,
 	const struct armada_format *fmt;
 	struct drm_armada_bo *bo;
 	Bool is_bo = image == FOURCC_XVBO;
+	int ret;
 
 	if (is_bo)
 		/*
@@ -615,13 +703,15 @@ armada_drm_plane_fbid(ScrnInfoPtr pScrn, struct drm_xv *drmxv, int image,
 		/* Check whether this is XVBO mapping */
 		if (is_bo) {
 			drmxv->is_bmm = TRUE;
-			drmxv->get_bo = armada_drm_get_xvbo;
+			drmxv->get_fb = armada_drm_get_xvbo;
+			drmxv->last.name = 0;
 		} else if (armada_drm_is_bmm(buf)) {
 			drmxv->is_bmm = TRUE;
-			drmxv->get_bo = armada_drm_get_bmm;
+			drmxv->get_fb = armada_drm_get_bmm;
+			drmxv->last.phys = INVALID_PHYS;
 		} else {
 			drmxv->is_bmm = FALSE;
-			drmxv->get_bo = armada_drm_get_stdbo;
+			drmxv->get_fb = armada_drm_get_std;
 		}
 
 		armada_drm_bufs_free(drmxv);
@@ -640,70 +730,20 @@ armada_drm_plane_fbid(ScrnInfoPtr pScrn, struct drm_xv *drmxv, int image,
 
 		/* Pre-allocate the buffers if we aren't using XVBO or BMM */
 		if (!drmxv->is_bmm) {
-			uint32_t handles[3];
-			unsigned i;
 			int ret = armada_drm_bufs_alloc(drmxv);
 			if (ret != Success)
 				return ret;
-
-			/* And create framebuffers for each of these handles */
-			for (i = 0; i < ARRAY_SIZE(drmxv->bufs); i++) {
-				handles[0] =
-				handles[1] =
-				handles[2] = drmxv->bufs[i].bo->handle;
-
-				if (drmModeAddFB2(drmxv->drm->fd, width, height,
-						  fmt->drm_format, handles,
-						  drmxv->pitches,
-						  drmxv->offsets,
-						  &drmxv->bufs[i].fb_id, 0)) {
-					xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
-						"[drm] drmModeAddFB2 failed: %s\n",
-						strerror(errno));
-					return BadAlloc;
-				}
-			}
 		}
 
 		drmxv->plane_format = fmt;
 	}
 
-	bo = drmxv->get_bo(drmxv, buf, id);
-	if (!bo) {
+	ret = drmxv->get_fb(pScrn, drmxv, buf, id);
+	if (ret != Success) {
 		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
-			   "[drm] Xv: failed to get buffer\n");
-		return BadAlloc;
+			   "[drm] Xv: failed to get framebuffer\n");
+		return ret;
 	}
-
-	if (drmxv->is_bmm && *id == 0) {
-		uint32_t handles[3];
-
-		/* Just set the three plane handles to be the same */
-		handles[0] =
-		handles[1] =
-		handles[2] = bo->handle;
-
-		/* Create the framebuffer object for this buffer */
-		if (drmModeAddFB2(drmxv->drm->fd, width, height,
-				  drmxv->plane_format->drm_format, handles,
-				  drmxv->pitches, drmxv->offsets, id, 0)) {
-			xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
-				"[drm] XVBO: drmModeAddFB2 failed: %s\n",
-				strerror(errno));
-			return BadAlloc;
-		}
-
-		/*
-		 * We're done with this buffer object.  We can drop our
-		 * reference to it as it is now bound to the framebuffer,
-		 * which will keep its own refcount(s) on the buffer.
-		 */
-		drm_armada_bo_put(bo);
-	}
-
-	/* Move to the next buffer index now */
-	if (++drmxv->bo_idx >= ARRAY_SIZE(drmxv->bufs))
-		drmxv->bo_idx = 0;
 
 	return Success;
 }
