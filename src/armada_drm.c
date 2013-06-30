@@ -36,7 +36,7 @@
 #define CURSOR_MAX_HEIGHT	32
 
 #define DRM_MODULE_NAME		"armada-drm"
-#define DRM_DEFAULT_BUS_ID	"platform:armada-drm:00"
+#define DRM_DEFAULT_BUS_ID	NULL
 
 const OptionInfoRec armada_drm_options[] = {
 	{ OPTION_HW_CURSOR,	"HWcursor",	OPTV_BOOLEAN, {0}, FALSE },
@@ -1401,7 +1401,9 @@ static Bool armada_drm_open_master(ScrnInfoPtr pScrn)
 		free(pEnt);
 	}
 
-	xf86DrvMsg(pScrn->scrnIndex, X_INFO, "Using BusID \"%s\"\n", busid);
+	if (busid)
+		xf86DrvMsg(pScrn->scrnIndex, X_INFO, "Using BusID \"%s\"\n",
+			   busid);
 
 	drm = calloc(1, sizeof *drm);
 	if (!drm)
