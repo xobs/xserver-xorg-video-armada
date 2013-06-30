@@ -818,6 +818,10 @@ armada_drm_crtc_init(ScrnInfoPtr pScrn, struct armada_drm_info *drm,
 	drmc->mode_crtc = drmModeGetCrtc(drm->fd, id);
 	crtc->driver_private = drmc;
 
+	/* Test whether hardware cursor is supported */
+	if (drmModeSetCursor(drm->fd, id, 0, 0, 0))
+		drm->has_hw_cursor = FALSE;
+
 	drmc->cursor_bo = drm_armada_bo_dumb_create(drm->bufmgr,
 						    CURSOR_MAX_WIDTH,
 						    CURSOR_MAX_HEIGHT,
@@ -1227,18 +1231,24 @@ armada_drm_ScreenInit(int scrnIndex, ScreenPtr pScreen, int argc, char **argv)
 	/* software cursor */
 	miDCInitialize(pScreen, xf86GetPointerScreenFuncs());
 
-	drm->hw_cursor = xf86ReturnOptValBool(drm->Options, OPTION_HW_CURSOR, FALSE);
+	drm->hw_cursor = xf86ReturnOptValBool(drm->Options, OPTION_HW_CURSOR,
+					      drm->has_hw_cursor);
+	if (drm->hw_cursor && !drm->has_hw_cursor) {
+		xf86DrvMsg(pScrn->scrnIndex, X_INFO,
+			   "No hardware cursor support - disabling hardware cursors\n");
+		drm->hw_cursor = FALSE;
+	}
 	if (drm->hw_cursor &&
-	    xf86_cursors_init(pScreen,
-			      CURSOR_MAX_WIDTH, CURSOR_MAX_HEIGHT,
-			      HARDWARE_CURSOR_TRUECOLOR_AT_8BPP |
-			      HARDWARE_CURSOR_BIT_ORDER_MSBFIRST |
-			      HARDWARE_CURSOR_INVERT_MASK |
-			      HARDWARE_CURSOR_SWAP_SOURCE_AND_MASK |
-			      HARDWARE_CURSOR_AND_SOURCE_WITH_MASK |
-			      HARDWARE_CURSOR_SOURCE_MASK_INTERLEAVE_64 |
-			      HARDWARE_CURSOR_UPDATE_UNHIDDEN |
-			      HARDWARE_CURSOR_ARGB)) {
+		xf86_cursors_init(pScreen,
+				  CURSOR_MAX_WIDTH, CURSOR_MAX_HEIGHT,
+				  HARDWARE_CURSOR_TRUECOLOR_AT_8BPP |
+				  HARDWARE_CURSOR_BIT_ORDER_MSBFIRST |
+				  HARDWARE_CURSOR_INVERT_MASK |
+				  HARDWARE_CURSOR_SWAP_SOURCE_AND_MASK |
+				  HARDWARE_CURSOR_AND_SOURCE_WITH_MASK |
+				  HARDWARE_CURSOR_SOURCE_MASK_INTERLEAVE_64 |
+				  HARDWARE_CURSOR_UPDATE_UNHIDDEN |
+				  HARDWARE_CURSOR_ARGB)) {
 		xf86DrvMsg(pScrn->scrnIndex, X_INFO,
 			   "Using hardware cursors\n");
 	} else {
@@ -1330,8 +1340,11 @@ static Bool armada_drm_pre_init(ScrnInfoPtr pScrn)
 	pScrn->virtualX = drm->mode_res->max_width;
 	pScrn->virtualY = drm->mode_res->max_height;
 
-	xf86CrtcSetSizeRange(pScrn, 320, 200, pScrn->virtualX, pScrn->virtualY);
+	xf86CrtcSetSizeRange(pScrn, drm->mode_res->min_width,
+			     drm->mode_res->min_height,
+			     pScrn->virtualX, pScrn->virtualY);
 
+	drm->has_hw_cursor = TRUE;
 	for (i = 0; i < drm->mode_res->count_crtcs; i++)
 		if (!armada_drm_crtc_init(pScrn, drm, i))
 			return FALSE;

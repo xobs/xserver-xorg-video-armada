@@ -37,6 +37,7 @@ struct armada_drm_info {
 	uint32_t fb_id;
 	drmModeResPtr mode_res;
 
+	Bool has_hw_cursor;
 	Bool hw_cursor;
 	Bool accel;
 
