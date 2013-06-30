@@ -494,89 +494,11 @@ static Bool armada_drm_is_bmm(unsigned char *buf)
 	return armada_drm_bmm_chk(buf, len) == ptr[len];
 }
 
-static phys_t armada_drm_bmm_getbuf(unsigned char *buf)
-{
-	uint32_t *ptr, len;
-
-	if ((uintptr_t)buf & (sizeof(*ptr) - 1))
-		return INVALID_PHYS;
-
-	ptr = (uint32_t *)buf;
-	if (*ptr != BMM_SHM_MAGIC1)
-		return INVALID_PHYS;
-
-	len = 2 + ptr[1];
-	/* Only one buffer per call please */
-	if (len > 3)
-		return INVALID_PHYS;
-
-	if (armada_drm_bmm_chk(buf, len) != ptr[len])
-		return INVALID_PHYS;
-
-	return ptr[2];
-}
-
-static void armada_drm_bmm_putbuf(unsigned char *buf, phys_t phys)
-{
-	uint32_t *ptr = (uint32_t *)buf;
-
-	*ptr++ = BMM_SHM_MAGIC2;
-	*ptr++ = 1;
-	*ptr++ = phys;
-	*ptr = armada_drm_bmm_chk(buf, 3);
-}
-
 static int
 armada_drm_get_bmm(ScrnInfoPtr pScrn, struct drm_xv *drmxv, unsigned char *buf,
 	uint32_t *id)
 {
-	struct drm_armada_bo *bo;
-	phys_t phys;
-
-	phys = armada_drm_bmm_getbuf(buf);
-	if (phys == INVALID_PHYS)
-		return BadAlloc;
-
-	/* Is this a re-display of the previous frame? */
-	if (drmxv->last_phys == phys) {
-		*id = drmxv->plane_fb_id;
-		return Success;
-	}
-
-	/* Map the passed buffer into a bo */
-	bo = drm_armada_bo_create_phys(drmxv->drm->bufmgr, phys,
-				       drmxv->image_size);
-	if (bo) {
-		phys_t old;
-
-		/* Return the now unused phys buffer */
-		old = drmxv->bufs[drmxv->bo_idx].phys;
-		if (old != INVALID_PHYS)
-			armada_drm_bmm_putbuf(buf, old);
-		drmxv->bufs[drmxv->bo_idx].phys = phys;
-
-		/* Move to the next buffer index now */
-		if (++drmxv->bo_idx >= ARRAY_SIZE(drmxv->bufs))
-			drmxv->bo_idx = 0;
-
-		if (!armada_drm_create_fbid(drmxv, bo, id)) {
-			xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
-				"[drm] BMM: drmModeAddFB2 failed: %s\n",
-				strerror(errno));
-			return BadAlloc;
-		}
-
-		drmxv->last_phys = phys;
-
-		/*
-		 * We're done with this buffer object.  We can drop our
-		 * reference to it as it is now bound to the framebuffer,
-		 * which will keep its own refcount(s) on the buffer.
-		 */
-		drm_armada_bo_put(bo);
-	}
-
-	return Success;
+	return BadAlloc;
 }
 
 static int
