@@ -671,7 +671,9 @@ Bool vivante_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 	return TRUE;
 
  unmap:
-	gcoOS_UnmapUserMemory(vivante->os, bits, size, info, addr);
+	gcoOS_UnmapUserMemory(vivante->os, buf, size, info, addr);
+	if (buf != bits)
+		free(buf);
 
 	return FALSE;
 }
