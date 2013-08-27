@@ -19,6 +19,7 @@
 #include "xf86Crtc.h"
 #include "xf86xv.h"
 #include "fourcc.h"
+#include "utils.h"
 #include <X11/extensions/Xv.h>
 #include <X11/Xatom.h>
 

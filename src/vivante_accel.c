@@ -25,6 +25,7 @@
 #include "vivante_accel.h"
 #include "vivante_unaccel.h"
 #include "vivante_utils.h"
+#include "utils.h"
 
 #include <gc_hal_raster.h>
 #include <gc_hal_enum.h>

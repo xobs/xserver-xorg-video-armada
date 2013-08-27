@@ -62,11 +62,6 @@ enum {
 #define GET_DRM_INFO(pScrn)		((struct armada_drm_info *)(pScrn)->driverPrivate)
 #define SET_DRM_INFO(pScrn, ptr)	((pScrn)->driverPrivate = (ptr))
 
-#define ARRAY_SIZE(x)	(sizeof(x) / sizeof((x)[0]))
-
-#define mint(x,y)	({(void)(&x == &y); x < y ? x : y; })
-#define maxt(x,y)	({(void)(&x == &y); x < y ? y : x; })
-
 /* DRM core support */
 Bool armada_drm_init_screen(ScrnInfoPtr pScrn);
 

@@ -13,8 +13,6 @@
 struct vivante;
 struct vivante_pixmap;
 
-#define ARRAY_SIZE(x) (sizeof(x) / sizeof((x)[0]))
-
 const char *vivante_strerror(int err);
 #define vivante_error(v,w,e) __vivante_error(v,__func__,w,e)
 void __vivante_error(struct vivante *, const char *, const char *, int);
