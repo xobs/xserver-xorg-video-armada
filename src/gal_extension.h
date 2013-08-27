@@ -10,6 +10,7 @@
 /* Map a DMABUF fd into galcore */
 struct map_dma_buf {
 	unsigned zero;
+	unsigned status;
 	int fd;
 	gctPOINTER Info;
 	gctUINT32 Address;
