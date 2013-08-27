@@ -1090,7 +1090,7 @@ Bool armada_drm_XvInit(ScrnInfoPtr pScrn)
 	return TRUE;
 
  err_free:
-	for (i = 0; i < ARRAY_SIZE(drmxv->plane); i++)
+	for (i = 0; i < ARRAY_SIZE(drmxv->planes); i++)
 		if (drmxv->planes[i])
 			drmModeFreePlane(drmxv->planes[i]);
 	free(drmxv);
