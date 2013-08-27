@@ -195,7 +195,7 @@ void vivante_prepare_drawable(DrawablePtr pDrawable, int access)
 }
 
 #ifdef RENDER
-gceSURF_FORMAT vivante_format(PictFormatShort format, Bool force)
+gceSURF_FORMAT vivante_pict_format(PictFormatShort format, Bool force)
 {
 	switch (format) {
 #define C(pf,vf,af) case PICT_##pf: return force ? gcvSURF_##af : gcvSURF_##vf

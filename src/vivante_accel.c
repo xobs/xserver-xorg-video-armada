@@ -1208,7 +1208,7 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 	if (fill) {
 		*xout = 0;
 		*yout = 0;
-		*fout = vivante_format(PICT_a8r8g8b8, FALSE);
+		*fout = vivante_pict_format(PICT_a8r8g8b8, FALSE);
 		if (PICT_FORMAT_A(pict->format) == 0)
 			colour |= 0xff000000;
 		if (!vivante_fill_single(vivante, vTemp, clip, *fout, colour))
@@ -1226,7 +1226,7 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 		transform_is_integer_translation(pict->transform, &tx, &ty)) {
 		*xout = ox + x + tx + drawable->x;
 		*yout = ox + y + ty + drawable->y;
-		*fout = vivante_format(pict->format, FALSE);
+		*fout = vivante_pict_format(pict->format, FALSE);
 	} else {
 		PictFormatPtr f;
 		PicturePtr dest;
@@ -1246,7 +1246,7 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 		FreePicture(dest, 0);
 		*xout = 0;
 		*yout = 0;
-		*fout = vivante_format(PICT_a8r8g8b8, FALSE);
+		*fout = vivante_pict_format(PICT_a8r8g8b8, FALSE);
 		vSrc = vTemp;
 	}
 
@@ -1366,7 +1366,7 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	 * valid.
 	 */
 	if (op == PictOpClear) {
-		fSrc = vivante_format(pSrc->format, TRUE);
+		fSrc = vivante_pict_format(pSrc->format, TRUE);
 		if (!vivante_fill_single(vivante, vTemp, &clipTemp, fSrc, 0))
 			goto failed;
 		vSrc = vTemp;
@@ -1441,7 +1441,7 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 			 * while copying.  (If this doesn't work, use OR
 			 * in the brush with maximum alpha value.)
 			 */
-			fTemp = vivante_format(pSrc->format, TRUE);
+			fTemp = vivante_pict_format(pSrc->format, TRUE);
 
 			if (!vivante_blend(vivante, &clipTemp, NULL,
 					   vTemp, fTemp, &rdst,
@@ -1457,7 +1457,7 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 		rsrc.right = oMask_x + width;
 		rsrc.bottom = oMask_y + height;
 
-		fMask = vivante_format(pMask->format, FALSE);
+		fMask = vivante_pict_format(pMask->format, FALSE);
 
 #if 0
 if (pMask && pMask->pDrawable)
@@ -1479,7 +1479,7 @@ if (pMask && pMask->pDrawable)
 	}
 
 	/* Get the Vivante destination format early */
-	fDst = vivante_format(pDst->format, FALSE);
+	fDst = vivante_pict_format(pDst->format, FALSE);
 
 //vivante_batch_wait_commit(vivante, vSrc);
 //dump_vPix(buf, vivante, vSrc, 1, "A-TSRC%02.2x-%p", op, pSrc);

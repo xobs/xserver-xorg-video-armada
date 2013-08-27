@@ -40,7 +40,7 @@ enum {
 void vivante_finish_drawable(DrawablePtr pDrawable, int access);
 void vivante_prepare_drawable(DrawablePtr pDrawable, int access);
 
-gceSURF_FORMAT vivante_format(PictFormatShort format, Bool force);
+gceSURF_FORMAT vivante_pict_format(PictFormatShort format, Bool force);
 
 /*
  * The following functions are here to allow the compiler to inline them
