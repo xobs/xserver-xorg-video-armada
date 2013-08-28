@@ -84,7 +84,7 @@ PixmapPtr vivante_drawable_pixmap_deltas(DrawablePtr pDrawable, int *x, int *y)
 
 
 /*
- * Unmap a bo from the GPU.  Note that we must wait for any outstanding
+ * Unmap a pixmap from the GPU.  Note that we must wait for any outstanding
  * GPU operations to complete before unmapping the pixmap from the GPU.
  */
 void vivante_unmap_gpu(struct vivante *vivante, struct vivante_pixmap *vPix)
@@ -107,41 +107,34 @@ void vivante_unmap_gpu(struct vivante *vivante, struct vivante_pixmap *vPix)
 }
 
 /*
- * Map a bo to the GPU, and mark the GPU as owning this BO.
+ * Map a pixmap to the GPU, and mark the GPU as owning this BO.
  */
 Bool vivante_map_gpu(struct vivante *vivante, struct vivante_pixmap *vPix)
 {
-	if (vPix->owner != GPU) {
-		struct drm_armada_bo *bo = vPix->bo;
+	struct drm_armada_bo *bo = vPix->bo;
 
 #ifdef DEBUG_CHECK_DRAWABLE_USE
-		assert(vPix->in_use == 0);
+	assert(vPix->in_use == 0);
 #endif
-		if (bo->type == DRM_ARMADA_BO_SHMEM) {
-			gceSTATUS err;
-			gctUINT32 addr;
 
-			err = gcoOS_MapUserMemory(vivante->os, bo->ptr, bo->size,
-						  &vPix->info, &addr);
-			if (err != gcvSTATUS_OK) {
-				vivante_error(vivante, "gcoOS_MapUserMemory", err);
-				return FALSE;
-			}
+	if (bo->type == DRM_ARMADA_BO_SHMEM) {
+		gceSTATUS err;
+		gctUINT32 addr;
+
+		err = gcoOS_MapUserMemory(vivante->os, bo->ptr, bo->size,
+					  &vPix->info, &addr);
+		if (err != gcvSTATUS_OK) {
+			vivante_error(vivante, "gcoOS_MapUserMemory", err);
+			return FALSE;
+		}
 
 #ifdef DEBUG_MAP
-			dbg("Mapped vPix %p bo %p to 0x%08x\n", vPix, bo, addr);
+		dbg("Mapped vPix %p bo %p to 0x%08x\n", vPix, bo, addr);
 #endif
 
-			vPix->handle = addr;
-		}
-		vPix->owner = GPU;
+		vPix->handle = addr;
 	}
-
-	/*
-	 * This should never happen - if it does, and we proceeed, we will
-	 * take the machine out, so assert and kill ourselves instead.
-	 */
-	assert(vPix->handle != 0 && vPix->handle != -1);
+	vPix->owner = GPU;
 
 	return TRUE;
 }
@@ -295,10 +288,8 @@ static void dump_pix(struct vivante *vivante, struct vivante_pixmap *vPix,
 		close(fd);
 	}
 
-	if (vPix->owner == GPU && vPix->bo->type == DRM_ARMADA_BO_SHMEM) {
-		vPix->owner = CPU;
+	if (vPix->owner == GPU && vPix->bo->type == DRM_ARMADA_BO_SHMEM)
 		vivante_map_gpu(vivante, vPix);
-	}
 }
 
 void dump_Drawable(DrawablePtr pDraw, const char *fmt, ...)

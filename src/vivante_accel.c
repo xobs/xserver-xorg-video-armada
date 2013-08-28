@@ -277,8 +277,14 @@ gal_prepare_gpu(struct vivante *vivante, struct vivante_pixmap *vPix,
 
 	vivante_batch_wait(vivante, vPix);
 
-	if (!vivante_map_gpu(vivante, vPix))
+	if (vPix->owner != GPU && !vivante_map_gpu(vivante, vPix))
 		return FALSE;
+
+	/*
+	 * This should never happen - if it does, and we proceeed, we will
+	 * take the machine out, so assert and kill ourselves instead.
+	 */
+	assert(vPix->handle != 0 && vPix->handle != -1);
 
 	switch (id) {
 	case GPU2D_Target:
