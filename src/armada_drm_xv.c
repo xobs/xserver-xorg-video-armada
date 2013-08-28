@@ -74,11 +74,9 @@ struct drm_xv {
 	unsigned bo_idx;
 	struct {
 		struct drm_armada_bo *bo;
-		phys_t phys;
 		uint32_t fb_id;
 	} bufs[NR_BUFS];
 
-	phys_t last_phys;
 	struct drm_armada_bo *last_bo;
 
 	int (*get_fb)(ScrnInfoPtr, struct drm_xv *, unsigned char *,
@@ -393,7 +391,6 @@ static void armada_drm_bufs_free(struct drm_xv *drmxv)
 			drm_armada_bo_put(drmxv->bufs[i].bo);
 			drmxv->bufs[i].bo = NULL;
 		}
-		drmxv->bufs[i].phys = INVALID_PHYS;
 	}
 
 	if (drmxv->plane_fb_id) {
@@ -405,8 +402,6 @@ static void armada_drm_bufs_free(struct drm_xv *drmxv)
 		drm_armada_bo_put(drmxv->last_bo);
 		drmxv->last_bo = NULL;
 	}
-
-	drmxv->last_phys = INVALID_PHYS;
 }
 
 static Bool
@@ -1007,9 +1002,6 @@ Bool armada_drm_XvInit(ScrnInfoPtr pScrn)
 
 	drmxv->drm = drm;
 	drmxv->autopaint_colorkey = TRUE;
-
-	for (i = 0; i < ARRAY_SIZE(drmxv->bufs); i++)
-		drmxv->bufs[i].phys = INVALID_PHYS;
 
 	/* Get the plane resources and the overlay planes */
 	res = drmModeGetPlaneResources(drm->fd);
