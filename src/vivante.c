@@ -91,14 +91,10 @@ void vivante_free_pixmap(PixmapPtr pixmap)
 		vivante_batch_wait_commit(vivante, vPix);
 		if (vPix->bo->type == DRM_ARMADA_BO_SHMEM && vPix->owner == GPU)
 			vivante_unmap_gpu(vivante, vPix);
-		drm_armada_bo_put(vPix->bo);
-		/*
-		 * Those vPix which still have a handle have been mapped
-		 * to the GPU, and have to be unmapped.
-		 */
-		if (vPix->handle != -1)
+		if (vPix->bo->type != DRM_ARMADA_BO_SHMEM)
 			vivante_unmap_from_gpu(vivante, vPix->info,
 					       vPix->handle);
+		drm_armada_bo_put(vPix->bo);
 		free(vPix);
 	}
 }
