@@ -7,6 +7,12 @@
 #ifdef HAVE_CONFIG_H
 #include "config.h"
 #endif
+
+#include <errno.h>
+#include <stdarg.h>
+#include <stdio.h>
+#include <unistd.h>
+
 #ifdef HAVE_DIX_CONFIG_H
 #include "dix-config.h"
 #endif
@@ -15,6 +21,7 @@
 #include "xf86.h"
 
 #include <armada_bufmgr.h>
+#include "gal_extension.h"
 
 #include "vivante_accel.h"
 #include "vivante_utils.h"
@@ -102,6 +109,49 @@ void vivante_unmap_gpu(struct vivante *vivante, struct vivante_pixmap *vPix)
 
 	vPix->handle = -1;
 	vPix->info = NULL;
+}
+
+
+Bool vivante_map_bo_to_gpu(struct vivante *vivante, struct drm_armada_bo *bo,
+	void **info, uint32_t *handle)
+{
+	struct map_dma_buf map;
+	gceSTATUS status;
+	int fd;
+
+	if (drm_armada_bo_to_fd(bo, &fd)) {
+		xf86DrvMsg(vivante->scrnIndex, X_ERROR,
+			   "vivante: unable to get prime fd for bo: %s\n",
+			   strerror(errno));
+		return FALSE;
+	}
+
+	map.zero = 0;
+	map.fd = fd;
+
+	status = gcoOS_DeviceControl(vivante->os, IOC_GDMABUF_MAP,
+				     &map, sizeof(map), &map, sizeof(map));
+
+	/* we don't need to keep the fd around anymore */
+	close(fd);
+
+	if (gcmIS_ERROR(status)) {
+		xf86DrvMsg(vivante->scrnIndex, X_INFO,
+			   "vivante: gpu dmabuf map failed: %d\n",
+			   status);
+		return FALSE;
+	}
+
+	*handle = map.Address;
+	*info = map.Info;
+
+	return TRUE;
+}
+
+void vivante_unmap_from_gpu(struct vivante *vivante, void *info,
+	uint32_t handle)
+{
+	gcoOS_UnmapUserMemory(vivante->os, (void *)1, 1, info, handle);
 }
 
 /*

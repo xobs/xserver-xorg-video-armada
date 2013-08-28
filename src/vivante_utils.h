@@ -29,6 +29,12 @@ static inline PixmapPtr vivante_drawable_pixmap(DrawablePtr pDrawable)
 }
 
 PixmapPtr vivante_drawable_pixmap_deltas(DrawablePtr pDrawable, int *x, int *y);
+
+Bool vivante_map_bo_to_gpu(struct vivante *vivante, struct drm_armada_bo *bo,
+	void **info, uint32_t *handle);
+void vivante_unmap_from_gpu(struct vivante *vivante, void *info,
+	uint32_t handle);
+
 void vivante_unmap_gpu(struct vivante *vivante, struct vivante_pixmap *vPix);
 Bool vivante_map_gpu(struct vivante *vivante, struct vivante_pixmap *vPix);
 
