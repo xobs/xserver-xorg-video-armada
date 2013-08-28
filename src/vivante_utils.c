@@ -90,20 +90,18 @@ PixmapPtr vivante_drawable_pixmap_deltas(DrawablePtr pDrawable, int *x, int *y)
 void vivante_unmap_gpu(struct vivante *vivante, struct vivante_pixmap *vPix)
 {
 	struct drm_armada_bo *bo = vPix->bo;
+	gceSTATUS err;
 
-	if (bo->type == DRM_ARMADA_BO_SHMEM) {
-		gceSTATUS err;
 #ifdef DEBUG_MAP
-		dbg("Unmapping vPix %p bo %p\n", vPix, bo);
+	dbg("Unmapping vPix %p bo %p\n", vPix, bo);
 #endif
-		err = gcoOS_UnmapUserMemory(vivante->os, bo->ptr, bo->size,
-					    vPix->info, vPix->handle);
-		if (err != gcvSTATUS_OK)
-			vivante_error(vivante, "gcoOS_UnmapUserMemory", err);
+	err = gcoOS_UnmapUserMemory(vivante->os, bo->ptr, bo->size,
+				    vPix->info, vPix->handle);
+	if (err != gcvSTATUS_OK)
+		vivante_error(vivante, "gcoOS_UnmapUserMemory", err);
 
-		vPix->handle = -1;
-		vPix->info = NULL;
-	}
+	vPix->handle = -1;
+	vPix->info = NULL;
 }
 
 /*
@@ -253,7 +251,7 @@ static void dump_pix(struct vivante *vivante, struct vivante_pixmap *vPix,
 	char fn[160], n[80];
 	int fd;
 
-	if (vPix->owner == GPU)
+	if (vPix->bo->type == DRM_ARMADA_BO_SHMEM && vPix->owner == GPU)
 		vivante_unmap_gpu(vivante, vPix);
 
 	vsprintf(n, fmt, ap);

@@ -82,7 +82,7 @@ void vivante_free_pixmap(PixmapPtr pixmap)
 	if (vPix) {
 		vivante = vivante_get_screen_priv(pixmap->drawable.pScreen);
 		vivante_batch_wait_commit(vivante, vPix);
-		if (vPix->owner == GPU)
+		if (vPix->bo->type == DRM_ARMADA_BO_SHMEM && vPix->owner == GPU)
 			vivante_unmap_gpu(vivante, vPix);
 		drm_armada_bo_put(vPix->bo);
 		/*
