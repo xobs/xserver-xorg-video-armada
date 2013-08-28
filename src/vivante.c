@@ -74,12 +74,19 @@ static Bool vivante_map_bo_to_gpu(struct vivante *vivante,
 	return TRUE;
 }
 
+static void vivante_unmap_from_gpu(struct vivante *vivante, void *info,
+	uint32_t handle)
+{
+	gcoOS_UnmapUserMemory(vivante->os, (void *)1, 1, info, handle);
+}
+
 void vivante_free_pixmap(PixmapPtr pixmap)
 {
 	struct vivante_pixmap *vPix = vivante_get_pixmap_priv(pixmap);
-	struct vivante *vivante;
 
 	if (vPix) {
+		struct vivante *vivante;
+
 		vivante = vivante_get_screen_priv(pixmap->drawable.pScreen);
 		vivante_batch_wait_commit(vivante, vPix);
 		if (vPix->bo->type == DRM_ARMADA_BO_SHMEM && vPix->owner == GPU)
@@ -90,8 +97,8 @@ void vivante_free_pixmap(PixmapPtr pixmap)
 		 * to the GPU, and have to be unmapped.
 		 */
 		if (vPix->handle != -1)
-			gcoOS_UnmapUserMemory(vivante->os, (void *)1, 1,
-					      vPix->info, vPix->handle);
+			vivante_unmap_from_gpu(vivante, vPix->info,
+					       vPix->handle);
 		free(vPix);
 	}
 }
@@ -443,9 +450,8 @@ static Bool vivante_CloseScreen(int scrnIndex, ScreenPtr pScreen)
 	pScreen->BitmapToRegion = vivante->BitmapToRegion;
 	pScreen->BlockHandler = vivante->BlockHandler;
 
-	gcoOS_UnmapUserMemory(vivante->os, (void *)1, 1,
-			      vivante->batch_info,
-			      vivante->batch_handle);
+	vivante_unmap_from_gpu(vivante, vivante->batch_info,
+			       vivante->batch_handle);
 
 	vivante_accel_shutdown(vivante);
 
@@ -696,9 +702,8 @@ Bool vivante_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 
 fail:
 	if (vivante->batch_info)
-		gcoOS_UnmapUserMemory(vivante->os, (void *)1, 1,
-				      vivante->batch_info,
-				      vivante->batch_handle);
+		vivante_unmap_from_gpu(vivante, vivante->batch_info,
+				       vivante->batch_handle);
 	vivante_accel_shutdown(vivante);
 	if (vivante->batch_bo)
 		drm_armada_bo_put(vivante->batch_bo);
