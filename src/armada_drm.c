@@ -1389,7 +1389,7 @@ static int armada_get_cap(struct armada_drm_info *drm, uint64_t cap,
 {
 	int err;
 
-	err = drmGetCap(drm->fd, DRM_CAP_PRIME, val);
+	err = drmGetCap(drm->fd, cap, val);
 	if (err)
 		xf86DrvMsg(scrnIndex, X_ERROR,
 			   "[drm] failed to get %s capability: %s\n",
