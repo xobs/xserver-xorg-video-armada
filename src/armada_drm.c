@@ -1337,12 +1337,10 @@ static Bool armada_drm_pre_init(ScrnInfoPtr pScrn)
 		return FALSE;
 	}
 
-	pScrn->virtualX = drm->mode_res->max_width;
-	pScrn->virtualY = drm->mode_res->max_height;
-
 	xf86CrtcSetSizeRange(pScrn, drm->mode_res->min_width,
 			     drm->mode_res->min_height,
-			     pScrn->virtualX, pScrn->virtualY);
+			     drm->mode_res->max_width,
+			     drm->mode_res->max_height);
 
 	drm->has_hw_cursor = TRUE;
 	for (i = 0; i < drm->mode_res->count_crtcs; i++)
