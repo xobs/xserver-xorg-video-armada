@@ -892,12 +892,12 @@ static void armada_drm_handle_uevent(int fd, pointer data)
 	struct armada_drm_info *drm = GET_DRM_INFO(pScrn);
 	struct udev_device *ud;
 
-	ud = udev_monitor_receive_device(drm->udev_monitor);
+	ud = udev_monitor_receive_device(drm->udev.monitor);
 	if (ud) {
 		dev_t dev = udev_device_get_devnum(ud);
 		const char *hp = udev_device_get_property_value(ud, "HOTPLUG");
 
-		if (dev == drm->drm_dev && hp && strtol(hp, NULL, 10) == 1)
+		if (dev == drm->udev.drm_dev && hp && strtol(hp, NULL, 10) == 1)
 			RRGetInfo(screenInfo.screens[pScrn->scrnIndex], TRUE);
 
 		udev_device_unref(ud);
@@ -926,7 +926,7 @@ static Bool armada_drm_udev_init(ScrnInfoPtr pScrn)
 	if (fstat(drm->fd, &st) || !S_ISCHR(st.st_mode))
 		return FALSE;
 
-	drm->drm_dev = st.st_rdev;
+	drm->udev.drm_dev = st.st_rdev;
 
 	udev = udev_new();
 	if (!udev)
@@ -946,8 +946,8 @@ static Bool armada_drm_udev_init(ScrnInfoPtr pScrn)
 		return FALSE;
 	}
 
-	drm->udev_monitor = udev_mon;
-	drm->udev_handler = xf86AddGeneralHandler(udev_monitor_get_fd(udev_mon),
+	drm->udev.monitor = udev_mon;
+	drm->udev.handler = xf86AddGeneralHandler(udev_monitor_get_fd(udev_mon),
 						  armada_drm_handle_uevent,
 						  pScrn);
 
@@ -956,11 +956,11 @@ static Bool armada_drm_udev_init(ScrnInfoPtr pScrn)
 
 static void armada_drm_udev_fini(ScrnInfoPtr pScrn, struct armada_drm_info *drm)
 {
-	if (drm->udev_monitor) {
-		struct udev *udev = udev_monitor_get_udev(drm->udev_monitor);
+	if (drm->udev.monitor) {
+		struct udev *udev = udev_monitor_get_udev(drm->udev.monitor);
 
-		xf86RemoveGeneralHandler(drm->udev_handler);
-		udev_monitor_unref(drm->udev_monitor);
+		xf86RemoveGeneralHandler(drm->udev.handler);
+		udev_monitor_unref(drm->udev.monitor);
 		udev_unref(udev);
 	}
 }

@@ -26,6 +26,12 @@ struct armada_crtc_info {
 #define armada_crtc(crtc) \
 	((struct armada_crtc_info *)(crtc)->driver_private)
 
+struct drm_udev_info {
+	struct udev_monitor *monitor;
+	pointer *handler;
+	dev_t drm_dev;
+};
+
 struct armada_drm_info {
 	int fd;
 	struct drm_armada_bufmgr *bufmgr;
@@ -42,9 +48,7 @@ struct armada_drm_info {
 	Bool accel;
 
 #ifdef HAVE_UDEV
-	struct udev_monitor *udev_monitor;
-	pointer *udev_handler;
-	dev_t drm_dev;
+	struct drm_udev_info udev;
 #endif
 
 	CloseScreenProcPtr CloseScreen;
