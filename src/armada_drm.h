@@ -16,6 +16,8 @@ struct drm_armada_bo;
 struct armada_crtc_info {
 	struct armada_drm_info *drm;
 	unsigned num;
+	unsigned short cursor_max_width;
+	unsigned short cursor_max_height;
 	drmModeModeInfo kmode;
 	drmModeCrtcPtr mode_crtc;
 
