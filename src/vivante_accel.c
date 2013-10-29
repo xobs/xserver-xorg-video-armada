@@ -442,6 +442,7 @@ static Bool vivante_fill(struct vivante *vivante, struct vivante_pixmap *vPix,
 	} else {
 		fg = pGC->fgPixel;
 	}
+
 	err = gco2D_LoadSolidBrush(vivante->e2d, vPix->format, 0, fg, ~0ULL);
 	if (err != gcvSTATUS_OK) {
 		vivante_error(vivante, "gco2D_LoadSolidBrush", err);
@@ -644,11 +645,7 @@ Bool vivante_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 		goto unmap;
 	}
 
-	err = gco2D_LoadSolidBrush(vivante->e2d, vPix->format, 0, 0, ~0ULL);
-	if (err != gcvSTATUS_OK) {
-		vivante_error(vivante, "LoadSolidBrush", err);
-		goto unmap;
-	}
+	/* No need to load the brush here - the blit copy doesn't use it. */
 
 	total.x1 = x;
 	total.y1 = y;
@@ -726,11 +723,7 @@ void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 
 	vivante_disable_alpha_blend(vivante);
 
-	err = gco2D_LoadSolidBrush(vivante->e2d, vDst->format, 0, 0, ~0ULL);
-	if (err != gcvSTATUS_OK) {
-		what = "LoadSolidBrush";
-		goto fallback_msg;
-	}
+	/* No need to load the brush here - the blit copy doesn't use it. */
 
 	err = gco2D_SetColorSourceAdvanced(vivante->e2d, vSrc->handle,
 			  vSrc->pitch, vSrc->format, gcvSURF_0_DEGREE,
