@@ -350,9 +350,8 @@ armada_drm_crtc_shadow_destroy(xf86CrtcPtr crtc, PixmapPtr rot_pixmap,
 	}
 	if (data) {
 		struct armada_crtc_info *drmc = armada_crtc(crtc);
-		struct armada_drm_info *drm = drmc->drm;
 
-		drmModeRmFB(drm->fd, drmc->rotate_fb_id);
+		drmModeRmFB(drmc->drm->fd, drmc->rotate_fb_id);
 		drmc->rotate_fb_id = 0;
 
 		drm_armada_bo_put(data);
@@ -362,10 +361,10 @@ armada_drm_crtc_shadow_destroy(xf86CrtcPtr crtc, PixmapPtr rot_pixmap,
 static void armada_drm_crtc_destroy(xf86CrtcPtr crtc)
 {
 	struct armada_crtc_info *drmc = armada_crtc(crtc);
-	struct armada_drm_info *drm = drmc->drm;
 
 	if (drmc->cursor_bo) {
-		drmModeSetCursor(drm->fd, drmc->mode_crtc->crtc_id, 0, 0, 0);
+		drmModeSetCursor(drmc->drm->fd, drmc->mode_crtc->crtc_id,
+				 0, 0, 0);
 		drm_armada_bo_put(drmc->cursor_bo);
 	}
 	drmModeFreeCrtc(drmc->mode_crtc);
