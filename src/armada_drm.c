@@ -81,8 +81,9 @@ static void drmmode_ConvertToKMode(drmModeModeInfoPtr kmode, DisplayModePtr mode
 }
 
 static struct drm_armada_bo *armada_bo_alloc_framebuffer(ScrnInfoPtr pScrn,
-	struct armada_drm_info *drm, int width, int height, int bpp)
+	int width, int height, int bpp)
 {
+	struct armada_drm_info *drm = GET_DRM_INFO(pScrn);
 	struct drm_armada_bo *bo;
 	int ret;
 
@@ -284,7 +285,7 @@ armada_drm_crtc_shadow_allocate(xf86CrtcPtr crtc, int width, int height)
 	struct drm_armada_bo *bo;
 	int ret;
 
-	bo = armada_bo_alloc_framebuffer(pScrn, drmc->drm, width, height,
+	bo = armada_bo_alloc_framebuffer(pScrn, width, height,
 					 pScrn->bitsPerPixel);
 	if (!bo) {
 		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
@@ -435,7 +436,7 @@ static Bool armada_drm_xf86crtc_resize(ScrnInfoPtr pScrn, int width, int height)
 	if (pScrn->virtualX == width && pScrn->virtualY == height)
 		return TRUE;
 
-	bo = armada_bo_alloc_framebuffer(pScrn, drm, width, height,
+	bo = armada_bo_alloc_framebuffer(pScrn, width, height,
 					 pScrn->bitsPerPixel);
 	if (!bo)
 		return FALSE;
@@ -750,7 +751,7 @@ armada_drm_ScreenInit(int scrnIndex, ScreenPtr pScreen, int argc, char **argv)
 
 	drm->accel = xf86ReturnOptValBool(drm->Options, OPTION_USE_GPU, TRUE);
 
-	bo = armada_bo_alloc_framebuffer(pScrn, drm, pScrn->virtualX,
+	bo = armada_bo_alloc_framebuffer(pScrn, pScrn->virtualX,
 					 pScrn->virtualY, pScrn->bitsPerPixel);
 	if (!bo)
 		return FALSE;
