@@ -14,6 +14,7 @@
 struct drm_armada_bo;
 
 struct armada_crtc_info {
+	int drm_fd;
 	struct armada_drm_info *drm;
 	unsigned num;
 	unsigned short cursor_max_width;

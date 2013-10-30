@@ -118,7 +118,6 @@ static Bool armada_drm_crtc_apply(xf86CrtcPtr crtc, drmModeModeInfoPtr kmode)
 	ScrnInfoPtr pScrn = crtc->scrn;
 	xf86CrtcConfigPtr xf86_config = XF86_CRTC_CONFIG_PTR(pScrn);
 	struct armada_crtc_info *drmc = armada_crtc(crtc);
-	struct armada_drm_info *drm = drmc->drm;
 	uint32_t fb_id, *output_ids;
 	int x, y, i, ret, output_num;
 
@@ -151,13 +150,13 @@ static Bool armada_drm_crtc_apply(xf86CrtcPtr crtc, drmModeModeInfoPtr kmode)
 		fb_id = drmc->rotate_fb_id;
 		x = y = 0;
 	} else {
-		fb_id = drm->fb_id;
+		fb_id = drmc->drm->fb_id;
 		x = crtc->x;
 		y = crtc->y;
 	}
 
-	ret = drmModeSetCrtc(drm->fd, drmc->mode_crtc->crtc_id, fb_id, x, y,
-			     output_ids, output_num, kmode);
+	ret = drmModeSetCrtc(drmc->drm_fd, drmc->mode_crtc->crtc_id, fb_id,
+			     x, y, output_ids, output_num, kmode);
 	if (ret) {
 		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
 			   "[drm] failed to set mode on crtc %u: %s\n",
@@ -177,7 +176,7 @@ static Bool armada_drm_crtc_apply(xf86CrtcPtr crtc, drmModeModeInfoPtr kmode)
 	}
 
 	/* Work around stricter checks in X */
-	if (pScrn->pScreen && drm->hw_cursor)
+	if (pScrn->pScreen && drmc->drm->hw_cursor)
 		xf86_reload_cursors(pScrn->pScreen);
 
 done:
@@ -202,7 +201,8 @@ armada_drm_crtc_set_mode_major(xf86CrtcPtr crtc, DisplayModePtr mode,
 	int ret, saved_x, saved_y;
 
 	if (drm->fb_id == 0) {
-		ret = drmModeAddFB(drm->fd, pScrn->virtualX, pScrn->virtualY,
+		ret = drmModeAddFB(drmc->drm_fd,
+				   pScrn->virtualX, pScrn->virtualY,
 				   pScrn->depth, pScrn->bitsPerPixel,
 				   drm->front_bo->pitch, drm->front_bo->handle,
 				   &drm->fb_id);
@@ -241,7 +241,7 @@ static void armada_drm_crtc_gamma_set(xf86CrtcPtr crtc, CARD16 *red,
 {
 	struct armada_crtc_info *drmc = armada_crtc(crtc);
 
-	drmModeCrtcSetGamma(drmc->drm->fd, drmc->mode_crtc->crtc_id,
+	drmModeCrtcSetGamma(drmc->drm_fd, drmc->mode_crtc->crtc_id,
 			    size, red, green, blue);
 }
 
@@ -249,14 +249,14 @@ static void armada_drm_crtc_set_cursor_position(xf86CrtcPtr crtc, int x, int y)
 {
 	struct armada_crtc_info *drmc = armada_crtc(crtc);
 
-	drmModeMoveCursor(drmc->drm->fd, drmc->mode_crtc->crtc_id, x, y);
+	drmModeMoveCursor(drmc->drm_fd, drmc->mode_crtc->crtc_id, x, y);
 }
 
 static void armada_drm_crtc_show_cursor(xf86CrtcPtr crtc)
 {
 	struct armada_crtc_info *drmc = armada_crtc(crtc);
 
-	drmModeSetCursor(drmc->drm->fd, drmc->mode_crtc->crtc_id,
+	drmModeSetCursor(drmc->drm_fd, drmc->mode_crtc->crtc_id,
 			 drmc->cursor_bo->handle,
 			 drmc->cursor_max_width, drmc->cursor_max_height);
 }
@@ -265,7 +265,7 @@ static void armada_drm_crtc_hide_cursor(xf86CrtcPtr crtc)
 {
 	struct armada_crtc_info *drmc = armada_crtc(crtc);
 
-	drmModeSetCursor(drmc->drm->fd, drmc->mode_crtc->crtc_id, 0, 0, 0);
+	drmModeSetCursor(drmc->drm_fd, drmc->mode_crtc->crtc_id, 0, 0, 0);
 }
 
 static void armada_drm_crtc_load_cursor_argb(xf86CrtcPtr crtc, CARD32 *image)
@@ -293,7 +293,7 @@ armada_drm_crtc_shadow_allocate(xf86CrtcPtr crtc, int width, int height)
 		return NULL;
 	}
 
-	ret = drmModeAddFB(drmc->drm->fd, width, height, pScrn->depth,
+	ret = drmModeAddFB(drmc->drm_fd, width, height, pScrn->depth,
 			   pScrn->bitsPerPixel, bo->pitch, bo->handle,
 			   &drmc->rotate_fb_id);
 	if (ret) {
@@ -352,7 +352,7 @@ armada_drm_crtc_shadow_destroy(xf86CrtcPtr crtc, PixmapPtr rot_pixmap,
 	if (data) {
 		struct armada_crtc_info *drmc = armada_crtc(crtc);
 
-		drmModeRmFB(drmc->drm->fd, drmc->rotate_fb_id);
+		drmModeRmFB(drmc->drm_fd, drmc->rotate_fb_id);
 		drmc->rotate_fb_id = 0;
 
 		drm_armada_bo_put(data);
@@ -364,7 +364,7 @@ static void armada_drm_crtc_destroy(xf86CrtcPtr crtc)
 	struct armada_crtc_info *drmc = armada_crtc(crtc);
 
 	if (drmc->cursor_bo) {
-		drmModeSetCursor(drmc->drm->fd, drmc->mode_crtc->crtc_id,
+		drmModeSetCursor(drmc->drm_fd, drmc->mode_crtc->crtc_id,
 				 0, 0, 0);
 		drm_armada_bo_put(drmc->cursor_bo);
 	}
@@ -405,15 +405,16 @@ armada_drm_crtc_init(ScrnInfoPtr pScrn, struct armada_drm_info *drm,
 	if (!drmc)
 		return FALSE;
 
+	drmc->drm_fd = drm->fd;
 	drmc->drm = drm;
 	drmc->num = num;
 	drmc->cursor_max_width = CURSOR_MAX_WIDTH;
 	drmc->cursor_max_height = CURSOR_MAX_HEIGHT;
-	drmc->mode_crtc = drmModeGetCrtc(drm->fd, id);
+	drmc->mode_crtc = drmModeGetCrtc(drmc->drm_fd, id);
 	crtc->driver_private = drmc;
 
 	/* Test whether hardware cursor is supported */
-	if (drmModeSetCursor(drm->fd, id, 0, 0, 0))
+	if (drmModeSetCursor(drmc->drm_fd, id, 0, 0, 0))
 		drm->has_hw_cursor = FALSE;
 
 	drmc->cursor_bo = drm_armada_bo_dumb_create(drm->bufmgr,
