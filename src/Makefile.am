@@ -23,6 +23,7 @@ armada_drv_ladir = @moduledir@/drivers
 armada_drv_la_SOURCES = armada_module.c \
 			armada_drm.c \
 			armada_drm_xv.c \
+			common_drm.c \
 			vivante.c \
 			vivante_accel.c \
 			vivante_unaccel.c \

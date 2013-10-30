@@ -15,6 +15,7 @@
 #include <armada_bufmgr.h>
 
 #include "armada_drm.h"
+#include "common_drm.h"
 #include "xf86_OSproc.h"
 #include "xf86Crtc.h"
 #include "xf86cmap.h"
@@ -44,24 +45,6 @@ const OptionInfoRec armada_drm_options[] = {
 	{ OPTION_USE_GPU,	"UseGPU",	OPTV_BOOLEAN, {0}, FALSE },
 	{ OPTION_HOTPLUG,	"HotPlug",	OPTV_BOOLEAN, {0}, TRUE  },
 	{ -1,			NULL,		OPTV_NONE,    {0}, FALSE }
-};
-
-
-struct armada_property {
-	drmModePropertyPtr mode_prop;
-	uint64_t value;
-	int natoms;
-	Atom *atoms;
-};
-
-struct armada_conn_info {
-	struct armada_drm_info *drm;
-	drmModeConnectorPtr mode_output;
-	drmModeEncoderPtr mode_encoder;
-	int id;
-	int dpms_mode;
-	int nprops;
-	struct armada_property *props;
 };
 
 static void armada_drm_ModifyScreenPixmap(ScreenPtr pScreen,
@@ -97,32 +80,6 @@ static void drmmode_ConvertToKMode(drmModeModeInfoPtr kmode, DisplayModePtr mode
 	kmode->name[DRM_DISPLAY_MODE_LEN-1] = 0;
 }
 
-static void drmmode_ConvertFromKMode(ScrnInfoPtr pScrn,
-	drmModeModeInfoPtr kmode, DisplayModePtr mode)
-{
-	memset(mode, 0, sizeof(*mode));
-
-	mode->status = MODE_OK;
-	mode->Clock = kmode->clock;
-	mode->HDisplay = kmode->hdisplay;
-	mode->HSyncStart = kmode->hsync_start;
-	mode->HSyncEnd = kmode->hsync_end;
-	mode->HTotal = kmode->htotal;
-	mode->HSkew = kmode->hskew;
-	mode->VDisplay = kmode->vdisplay;
-	mode->VSyncStart = kmode->vsync_start;
-	mode->VSyncEnd = kmode->vsync_end;
-	mode->VTotal = kmode->vtotal;
-	mode->VScan = kmode->vscan;
-	mode->Flags = kmode->flags;
-	mode->name = strdup(kmode->name);
-	if (kmode->type & DRM_MODE_TYPE_DRIVER)
-		mode->type = M_T_DRIVER;
-	if (kmode->type & DRM_MODE_TYPE_PREFERRED)
-		mode->type |= M_T_PREFERRED;
-	xf86SetModeCrtc (mode, pScrn->adjustFlags);
-}
-
 static struct drm_armada_bo *armada_bo_alloc_framebuffer(ScrnInfoPtr pScrn,
 	struct armada_drm_info *drm, int width, int height, int bpp)
 {
@@ -150,367 +107,6 @@ static struct drm_armada_bo *armada_bo_alloc_framebuffer(ScrnInfoPtr pScrn,
 //		   width, height, bo->pitch);
 
 	return bo;
-}
-
-static drmModePropertyPtr armada_drm_conn_find_property(
-	struct armada_conn_info *conn, const char *name, uint32_t *blob)
-{
-	drmModeConnectorPtr koutput = conn->mode_output;
-	struct armada_drm_info *drm = conn->drm;
-	int i;
-
-	for (i = 0; i < koutput->count_props; i++) {
-		drmModePropertyPtr p;
-
-		p = drmModeGetProperty(drm->fd, koutput->props[i]);
-		if (!p || (blob && !(p->flags & DRM_MODE_PROP_BLOB)))
-			continue;
-
-		if (!strcmp(p->name, name)) {
-			if (blob)
-				*blob = koutput->prop_values[i];
-			return p;
-		}
-
-		drmModeFreeProperty(p);
-	}
-	return NULL;
-}
-
-static void armada_drm_conn_create_resources(xf86OutputPtr output)
-{
-	struct armada_conn_info *conn = output->driver_private;
-	struct armada_drm_info *drm = conn->drm;
-	drmModeConnectorPtr mop = conn->mode_output;
-	int i, j, n, err;
-
-	conn->props = calloc(mop->count_props, sizeof *conn->props);
-	if (!conn->props)
-		return;
-
-	for (i = n = 0; i < mop->count_props; i++) {
-		struct armada_property *prop = &conn->props[n];
-		drmModePropertyPtr dprop;
-		Bool immutable;
-
-		dprop = drmModeGetProperty(drm->fd, mop->props[i]);
-		if (!dprop || dprop->flags & DRM_MODE_PROP_BLOB ||
-		    !strcmp(dprop->name, "DPMS") ||
-		    !strcmp(dprop->name, "EDID")) {
-			drmModeFreeProperty(dprop);
-			continue;
-		}
-
-		n++;
-		prop->mode_prop = dprop;
-		prop->value = mop->prop_values[i];
-
-		immutable = dprop->flags & DRM_MODE_PROP_IMMUTABLE ?
-				TRUE : FALSE;
-
-		if (dprop->flags & DRM_MODE_PROP_RANGE) {
-			INT32 range[2];
-			uint32_t value = prop->value;
-
-			prop->natoms = 1;
-			prop->atoms = calloc(prop->natoms, sizeof *prop->atoms);
-			if (!prop->atoms)
-				continue;
-
-			range[0] = dprop->values[0];
-			range[1] = dprop->values[1];
-
-			prop->atoms[0] = MakeAtom(dprop->name,
-						  strlen(dprop->name), TRUE);
-			err = RRConfigureOutputProperty(output->randr_output,
-							prop->atoms[0], FALSE,
-							TRUE, immutable, 2,
-							range);
-			if (err)
-				xf86DrvMsg(output->scrn->scrnIndex, X_ERROR,
-					   "RRConfigureOutputProperty error %d\n",
-					   err);
-
-			err = RRChangeOutputProperty(output->randr_output,
-						     prop->atoms[0],
-						     XA_INTEGER, 32,
-					             PropModeReplace, 1,
-						     &value, FALSE, TRUE);
-			if (err)
-				xf86DrvMsg(output->scrn->scrnIndex, X_ERROR,
-					   "RRChangeOutputProperty error %d\n",
-					   err);
-		} else if (dprop->flags & DRM_MODE_PROP_ENUM) {
-			int current;
-
-			prop->natoms = dprop->count_enums + 1;
-			prop->atoms = calloc(prop->natoms, sizeof *prop->atoms);
-			if (!prop->atoms)
-				continue;
-
-			current = prop->natoms;
-			prop->atoms[0] = MakeAtom(dprop->name,
-						  strlen(dprop->name), TRUE);
-			for (j = 1; j < prop->natoms; j++) {
-				struct drm_mode_property_enum *e;
-
-				e = &dprop->enums[j - 1];
-				prop->atoms[j] = MakeAtom(e->name,
-							  strlen(e->name),
-							  TRUE);
-				if (prop->value == e->value)
-					current = j;
-			}
-
-			err = RRConfigureOutputProperty(output->randr_output,
-						 prop->atoms[0], FALSE, FALSE,
-						 immutable, prop->natoms - 1,
-						 (INT32 *)&prop->atoms[1]);
-			if (err)
-				xf86DrvMsg(output->scrn->scrnIndex, X_ERROR,
-					   "RRConfigureOutputProperty error, %d\n",
-					   err);
-
-			err = RRChangeOutputProperty(output->randr_output,
-						     prop->atoms[0], XA_ATOM,
-						     32, PropModeReplace, 1,
-						     &prop->atoms[current],
-						     FALSE, TRUE);
-			if (err)
-				xf86DrvMsg(output->scrn->scrnIndex, X_ERROR,
-					   "RRChangeOutputProperty error, %d\n",
-					   err);
-		}
-	}
-	conn->nprops = n;
-}
-
-static void armada_drm_conn_dpms(xf86OutputPtr output, int mode)
-{
-	struct armada_conn_info *conn = output->driver_private;
-	struct armada_drm_info *drm = conn->drm;
-	drmModePropertyPtr p = armada_drm_conn_find_property(conn, "DPMS", NULL);
-
-	if (p) {
-		drmModeConnectorSetProperty(drm->fd, conn->id, p->prop_id,
-					    mode);
-		conn->dpms_mode = mode;
-		drmModeFreeProperty(p);
-	}
-}
-
-static xf86OutputStatus armada_drm_conn_detect(xf86OutputPtr output)
-{
-	struct armada_conn_info *conn = output->driver_private;
-	struct armada_drm_info *drm = conn->drm;
-	xf86OutputStatus status = XF86OutputStatusUnknown;
-	drmModeConnectorPtr koutput;
-
-	koutput = drmModeGetConnector(drm->fd, conn->id);
-	if (!koutput)
-		return XF86OutputStatusUnknown;
-
-	drmModeFreeConnector(conn->mode_output);
-	conn->mode_output = koutput;
-
-	switch (koutput->connection) {
-	case DRM_MODE_CONNECTED:
-		status = XF86OutputStatusConnected;
-		break;
-	case DRM_MODE_DISCONNECTED:
-		status = XF86OutputStatusDisconnected;
-		break;
-	case DRM_MODE_UNKNOWNCONNECTION:
-		break;
-	}
-	return status;
-}
-
-static Bool
-armada_drm_conn_mode_valid(xf86OutputPtr output, DisplayModePtr pModes)
-{
-	return MODE_OK;
-}
-
-static DisplayModePtr armada_drm_conn_get_modes(xf86OutputPtr output)
-{
-	ScrnInfoPtr pScrn = output->scrn;
-	DisplayModePtr modes = NULL;
-	struct armada_conn_info *conn = output->driver_private;
-	struct armada_drm_info *drm = conn->drm;
-	uint32_t blob;
-	drmModePropertyPtr p;
-	drmModePropertyBlobPtr edid = NULL;
-	xf86MonPtr mon;
-	int i;
-
-	p = armada_drm_conn_find_property(conn, "EDID", &blob);
-	if (p) {
-		edid = drmModeGetPropertyBlob(drm->fd, blob);
-		drmModeFreeProperty(p);
-	}
-
-	mon = xf86InterpretEDID(pScrn->scrnIndex, edid ? edid->data : NULL);
-	if (mon && edid->length > 128)
-		mon->flags |= MONITOR_EDID_COMPLETE_RAWDATA;
-	xf86OutputSetEDID(output, mon);
-
-	/* modes should already be available */
-	for (i = 0; i < conn->mode_output->count_modes; i++) {
-		DisplayModePtr mode = xnfalloc(sizeof *mode);
-
-		drmmode_ConvertFromKMode(pScrn, &conn->mode_output->modes[i], mode);
-		modes = xf86ModesAdd(modes, mode);
-	}
-
-	return modes;
-}
-
-#ifdef RANDR_12_INTERFACE
-static Bool armada_drm_conn_set_property(xf86OutputPtr output, Atom property,
-	RRPropertyValuePtr value)
-{
-	struct armada_conn_info *conn = output->driver_private;
-	struct armada_drm_info *drm = conn->drm;
-	int i;
-
-	for (i = 0; i < conn->nprops; i++) {
-		struct armada_property *prop = &conn->props[i];
-		drmModePropertyPtr dprop;
-
-		if (prop->atoms[0] != property)
-			continue;
-
-		dprop = prop->mode_prop;
-		if (dprop->flags & DRM_MODE_PROP_RANGE) {
-			if (value->type != XA_INTEGER || value->format != 32 || value->size != 1)
-				return FALSE;
-
-			drmModeConnectorSetProperty(drm->fd, conn->id,
-					dprop->prop_id, (uint64_t)*(uint32_t *)value->data);
-
-			return TRUE;
-		} else if (dprop->flags & DRM_MODE_PROP_ENUM) {
-			Atom atom;
-			const char *name;
-			int j;
-
-			if (value->type != XA_ATOM || value->format != 32 || value->size != 1)
-				return FALSE;
-
-			memcpy(&atom, value->data, sizeof(atom));
-			name = NameForAtom(atom);
-			if (name == NULL)
-				return FALSE;
-
-			for (j = 0; j < dprop->count_enums; j++) {
-				if (!strcmp(dprop->enums[j].name, name)) {
-					drmModeConnectorSetProperty(drm->fd, conn->id,
-						  dprop->prop_id, dprop->enums[j].value);
-					return TRUE;
-				}
-			}
-			return FALSE;
-		}
-	}
-	return TRUE;
-}
-#endif
-#ifdef RANDR_13_INTERFACE
-static Bool armada_drm_conn_get_property(xf86OutputPtr output, Atom property)
-{
-	return FALSE;
-}
-#endif
-
-static void armada_drm_conn_destroy(xf86OutputPtr output)
-{
-	struct armada_conn_info *conn = output->driver_private;
-
-	drmModeFreeConnector(conn->mode_output);
-	drmModeFreeEncoder(conn->mode_encoder);
-	free(conn);
-
-	output->driver_private = NULL;
-}
-
-static const xf86OutputFuncsRec drm_output_funcs = {
-	.create_resources = armada_drm_conn_create_resources,
-	.dpms = armada_drm_conn_dpms,
-	.detect = armada_drm_conn_detect,
-	.mode_valid = armada_drm_conn_mode_valid,
-	.get_modes = armada_drm_conn_get_modes,
-#ifdef RANDR_12_INTERFACE
-	.set_property = armada_drm_conn_set_property,
-#endif
-#ifdef RANDR_13_INTERFACE
-	.get_property = armada_drm_conn_get_property,
-#endif
-	.destroy = armada_drm_conn_destroy,
-};
-
-static const char *const output_names[] = {
-	"None", "VGA", "DVI", "DVI", "DVI", "Composite", "TV",
-	"LVDS", "CTV", "DIN", "DP", "HDMI", "HDMI",
-};
-
-static const int subpixel_conv_table[] = {
-	0, SubPixelUnknown, SubPixelHorizontalRGB, SubPixelHorizontalBGR,
-	SubPixelVerticalRGB, SubPixelVerticalBGR, SubPixelNone
-};
-
-static void
-armada_drm_conn_init(ScrnInfoPtr pScrn, struct armada_drm_info *drm,
-		     uint32_t id)
-{
-	drmModeConnectorPtr koutput;
-	drmModeEncoderPtr kencoder;
-	xf86OutputPtr output;
-	struct armada_conn_info *conn;
-	char name[32];
-
-	koutput = drmModeGetConnector(drm->fd, id);
-	if (!koutput)
-		return;
-
-	kencoder = drmModeGetEncoder(drm->fd, koutput->encoders[0]);
-	if (!kencoder) {
-		drmModeFreeConnector(koutput);
-		return;
-	}
-
-	snprintf(name, sizeof(name), "%s%d",
-		 output_names[koutput->connector_type],
-		 koutput->connector_type_id);
-
-	output = xf86OutputCreate(pScrn, &drm_output_funcs, name);
-	if (!output) {
-		drmModeFreeEncoder(kencoder);
-		drmModeFreeConnector(koutput);
-		return;
-	}
-
-	conn = calloc(1, sizeof *conn);
-	if (!conn) {
-		xf86OutputDestroy(output);
-		drmModeFreeEncoder(kencoder);
-		drmModeFreeConnector(koutput);
-		return;
-	}
-
-	conn->drm = drm;
-	conn->id = id;
-	conn->mode_output = koutput;
-	conn->mode_encoder = kencoder;
-
-	output->driver_private = conn;
-	output->mm_width = koutput->mmWidth;
-	output->mm_height = koutput->mmHeight;
-	output->subpixel_order = subpixel_conv_table[koutput->subpixel];
-	output->possible_crtcs = kencoder->possible_crtcs;
-	output->possible_clones = kencoder->possible_clones;
-	output->interlaceAllowed = 1; /* wish there was a way to read that */
-	output->doubleScanAllowed = 0;
 }
 
 /*
@@ -572,11 +168,10 @@ static Bool armada_drm_crtc_apply(xf86CrtcPtr crtc, drmModeModeInfoPtr kmode)
 		for (i = 0; i < xf86_config->num_output; i++) {
 			xf86OutputPtr output = xf86_config->output[i];
 
-			if (output->funcs != &drm_output_funcs ||
-			    output->crtc != crtc)
+			if (output->crtc != crtc)
 				continue;
 
-			armada_drm_conn_dpms(output, DPMSModeOn);
+			output->funcs->dpms(output, DPMSModeOn);
 		}
 	}
 
@@ -1347,7 +942,8 @@ static Bool armada_drm_pre_init(ScrnInfoPtr pScrn)
 			return FALSE;
 
 	for (i = 0; i < drm->mode_res->count_connectors; i++)
-		armada_drm_conn_init(pScrn, drm, drm->mode_res->connectors[i]);
+		common_drm_conn_init(pScrn, drm->fd,
+				     drm->mode_res->connectors[i]);
 
 	xf86InitialConfiguration(pScrn, TRUE);
 
