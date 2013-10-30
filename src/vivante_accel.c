@@ -56,8 +56,13 @@ static void vivante_disable_alpha_blend(struct vivante *vivante)
 #ifdef RENDER
 	/* If alpha blending was enabled, disable it now */
 	if (vivante->alpha_blend_enabled) {
+		gceSTATUS err;
+
 		vivante->alpha_blend_enabled = FALSE;
-		gco2D_DisableAlphaBlend(vivante->e2d);
+
+		err = gco2D_DisableAlphaBlend(vivante->e2d);
+		if (err)
+			vivante_error(vivante, "DisableAlphaBlend", err);
 	}
 #endif
 }
