@@ -8,7 +8,7 @@
 #define VIVANTE_DRI2_H
 
 Bool vivante_dri2_ScreenInit(ScreenPtr pScreen);
-void vivante_dri2_CloseScreen(int scrnIndex, ScreenPtr pScreen);
+void vivante_dri2_CloseScreen(CLOSE_SCREEN_ARGS_DECL);
 void vivante_dri2_vblank(int fd, unsigned frame, unsigned tv_sec,
 	unsigned tv_usec, void *event);
 

@@ -70,8 +70,8 @@ static void vivante_disable_alpha_blend(struct vivante *vivante)
 
 
 struct vivante_batch {
-	struct list node;
-	struct list head;
+	struct xorg_list node;
+	struct xorg_list head;
 	uint32_t index;
 	int32_t serial;
 	int32_t *current;
@@ -82,12 +82,12 @@ static void vivante_batch_destroy(struct vivante_batch *batch)
 	struct vivante_pixmap *vp, *vn;
 
 	/* Unlink all pixmaps that this batch is connected to */
-	list_for_each_entry_safe(vp, vn, &batch->head, batch_node) {
+	xorg_list_for_each_entry_safe(vp, vn, &batch->head, batch_node) {
 		vp->batch = NULL;
-		list_del(&vp->batch_node);
+		xorg_list_del(&vp->batch_node);
 	}
 
-	list_del(&batch->node);
+	xorg_list_del(&batch->node);
 	free(batch);
 }
 
@@ -95,7 +95,7 @@ static void vivante_batch_reap(struct vivante *vivante)
 {
 	struct vivante_batch *batch, *n;
 
-	list_for_each_entry_safe(batch, n, &vivante->batch_list, node) {
+	xorg_list_for_each_entry_safe(batch, n, &vivante->batch_list, node) {
 		if (*batch->current == batch->serial) {
 #ifdef DEBUG_BATCH
 			dbg("batch %p: reaping at %08x\n",
@@ -168,7 +168,7 @@ static Bool vivante_batch_new(struct vivante *vivante)
 		batch->serial = serial;
 		batch->current = vivante->batch_ptr + i;
 		*batch->current = -1;
-		list_init(&batch->head);
+		xorg_list_init(&batch->head);
 
 		i += 1;
 		if (i >= vivante->batch_idx_max)
@@ -190,7 +190,7 @@ vivante_batch_add(struct vivante *vivante, struct vivante_pixmap *vPix)
 
 	if (!batch) {
 		vPix->batch = batch = vivante->batch;
-		list_add(&vPix->batch_node, &batch->head);
+		xorg_list_add(&vPix->batch_node, &batch->head);
 #ifdef DEBUG_BATCH
 		dbg("Allocated batch %p for vPix %p\n", batch, vPix);
 #endif
@@ -241,7 +241,7 @@ static void vivante_batch_commit(struct vivante *vivante)
 	if (err != gcvSTATUS_OK)
 		goto error;
 
-	list_append(&batch->node, &vivante->batch_list);
+	xorg_list_append(&batch->node, &vivante->batch_list);
 	vivante->batch = NULL;
 	return;
 

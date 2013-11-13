@@ -20,7 +20,6 @@
 #include "xf86Crtc.h"
 #include "xf86cmap.h"
 #include "fb.h"
-#include "mibstore.h"
 #include "micmap.h"
 #include <xf86DDC.h>
 #include <X11/extensions/dpmsconst.h>
@@ -30,6 +29,7 @@
 #include <libudev.h>
 #endif
 
+#include "compat-api.h"
 #include "vivante.h"
 #include "vivante_dri2.h"
 
@@ -588,9 +588,9 @@ static void armada_drm_LoadPalette(ScrnInfoPtr pScrn, int num, int *indices,
 	}
 }
 
-static void armada_drm_AdjustFrame(int scrnIndex, int x, int y, int flags)
+static void armada_drm_AdjustFrame(ADJUST_FRAME_ARGS_DECL)
 {
-	ScrnInfoPtr pScrn = xf86Screens[scrnIndex];
+	SCRN_INFO_PTR(arg);
 	xf86CrtcConfigPtr config = XF86_CRTC_CONFIG_PTR(pScrn);
 	xf86OutputPtr output = config->output[config->compat_output];
 	xf86CrtcPtr crtc = output->crtc;
@@ -612,9 +612,9 @@ static void armada_drm_AdjustFrame(int scrnIndex, int x, int y, int flags)
 	}
 }
 
-static Bool armada_drm_EnterVT(int scrnIndex, int flags)
+static Bool armada_drm_EnterVT(VT_FUNC_ARGS_DECL)
 {
-	ScrnInfoPtr pScrn = xf86Screens[scrnIndex];
+	SCRN_INFO_PTR(arg);
 	xf86CrtcConfigPtr config = XF86_CRTC_CONFIG_PTR(pScrn);
 	struct armada_drm_info *drm = GET_DRM_INFO(pScrn);
 	int i;
@@ -638,9 +638,9 @@ static Bool armada_drm_EnterVT(int scrnIndex, int flags)
 	return TRUE;
 }
 
-static void armada_drm_LeaveVT(int scrnIndex, int flags)
+static void armada_drm_LeaveVT(VT_FUNC_ARGS_DECL)
 {
-	ScrnInfoPtr pScrn = xf86Screens[scrnIndex];
+	SCRN_INFO_PTR(arg);
 	struct armada_drm_info *drm = GET_DRM_INFO(pScrn);
 
 	xf86RotateFreeShadow(pScrn);
@@ -651,10 +651,10 @@ static void armada_drm_LeaveVT(int scrnIndex, int flags)
 }
 
 static ModeStatus
-armada_drm_ValidMode(int scrnIndex, DisplayModePtr mode, Bool verbose,
+armada_drm_ValidMode(SCRN_ARG_TYPE arg1, DisplayModePtr mode, Bool verbose,
 		     int flags)
 {
-	ScrnInfoPtr pScrn = xf86Screens[scrnIndex];
+	SCRN_INFO_PTR(arg1);
 
 	if (mode->Flags & V_DBLSCAN) {
 		if (verbose)
@@ -667,16 +667,16 @@ armada_drm_ValidMode(int scrnIndex, DisplayModePtr mode, Bool verbose,
 	return MODE_OK;
 }
 
-static Bool armada_drm_SwitchMode(int scrnIndex, DisplayModePtr mode, int flags)
+static Bool armada_drm_SwitchMode(SWITCH_MODE_ARGS_DECL)
 {
-	ScrnInfoPtr pScrn = xf86Screens[scrnIndex];
+	SCRN_INFO_PTR(arg);
 
 	return xf86SetSingleMode(pScrn, mode, RR_Rotate_0);
 }
 
-static Bool armada_drm_CloseScreen(int scrnIndex, ScreenPtr pScreen)
+static Bool armada_drm_CloseScreen(CLOSE_SCREEN_ARGS_DECL)
 {
-	ScrnInfoPtr pScrn = xf86Screens[scrnIndex];
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	struct armada_drm_info *drm = GET_DRM_INFO(pScrn);
 	PixmapPtr pixmap = pScreen->GetScreenPixmap(pScreen);
 	Bool ret;
@@ -700,10 +700,10 @@ static Bool armada_drm_CloseScreen(int scrnIndex, ScreenPtr pScreen)
 		xf86_cursors_fini(pScreen);
 
 	pScreen->CloseScreen = drm->CloseScreen;
-	ret = (*pScreen->CloseScreen)(scrnIndex, pScreen);
+	ret = (*pScreen->CloseScreen)(CLOSE_SCREEN_ARGS);
 
 	if (pScrn->vtSema)
-		armada_drm_LeaveVT(pScreen->myNum, 0);
+		armada_drm_LeaveVT(VT_FUNC_ARGS(0));
 
 	pScrn->vtSema = FALSE;
 
@@ -739,9 +739,9 @@ static void armada_drm_wakeup_handler(pointer data, int err, pointer p)
 }
 
 static Bool
-armada_drm_ScreenInit(int scrnIndex, ScreenPtr pScreen, int argc, char **argv)
+armada_drm_ScreenInit(SCREEN_INIT_ARGS_DECL)
 {
-	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	struct armada_drm_info *drm = GET_DRM_INFO(pScrn);
 	struct drm_armada_bo *bo;
 	int visuals, preferredCVC;
@@ -821,7 +821,6 @@ armada_drm_ScreenInit(int scrnIndex, ScreenPtr pScreen, int argc, char **argv)
 		drm->accel = FALSE;
 	}
 
-	miInitializeBackingStore(pScreen);
 	xf86SetBackingStore(pScreen);
 	xf86SetSilkenMouse(pScreen);
 
@@ -899,7 +898,7 @@ armada_drm_ScreenInit(int scrnIndex, ScreenPtr pScreen, int argc, char **argv)
 
 	pScrn->vtSema = TRUE;
 
-	return armada_drm_EnterVT(pScreen->myNum, 0);
+	return armada_drm_EnterVT(VT_FUNC_ARGS(0));
 }
 
 static Bool armada_drm_pre_init(ScrnInfoPtr pScrn)
@@ -1090,9 +1089,9 @@ static void armada_drm_close_master(ScrnInfoPtr pScrn)
 	}
 }
 
-static void armada_drm_FreeScreen(int scrnIndex, int flags)
+static void armada_drm_FreeScreen(FREE_SCREEN_ARGS_DECL)
 {
-	ScrnInfoPtr pScrn = xf86Screens[scrnIndex];
+	SCRN_INFO_PTR(arg);
 
 	armada_drm_close_master(pScrn);
 }
@@ -1158,7 +1157,7 @@ static Bool armada_drm_PreInit(ScrnInfoPtr pScrn, int flags)
 	return TRUE;
 
  fail:
-	armada_drm_FreeScreen(pScrn->scrnIndex, 0);
+	armada_drm_FreeScreen(FREE_SCREEN_ARGS(pScrn));
 	return FALSE;
 }
 

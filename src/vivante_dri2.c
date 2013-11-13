@@ -21,6 +21,7 @@
 #include <xf86drm.h>
 #include <armada_bufmgr.h>
 
+#include "compat-api.h"
 #include "vivante_accel.h"
 #include "vivante_dri2.h"
 #include "vivante_utils.h"
@@ -48,8 +49,8 @@ enum event_type {
 
 struct vivante_dri_wait {
 	struct vivante_dri_wait *next;
-	struct list drawable_list;
-	struct list client_list;
+	struct xorg_list drawable_list;
+	struct xorg_list client_list;
 	XID drawable_id;
 	ClientPtr client;
 	enum event_type type;
@@ -129,13 +130,13 @@ vivante_dri2_get_pixmap(DRI2BufferPtr buffer)
 
 static int vivante_dri2_client_gone(void *data, XID id)
 {
-	struct list *list = data;
+	struct xorg_list *list = data;
 
-	while (!list_is_empty(list)) {
+	while (!xorg_list_is_empty(list)) {
 		struct vivante_dri_wait *wait;
 
-		wait = list_first_entry(list, struct vivante_dri_wait, client_list);
-		list_del(&wait->client_list);
+		wait = xorg_list_first_entry(list, struct vivante_dri_wait, client_list);
+		xorg_list_del(&wait->client_list);
 		wait->client = NULL;
 	}
 	free(list);
@@ -145,13 +146,13 @@ static int vivante_dri2_client_gone(void *data, XID id)
 
 static int vivante_dri2_drawable_gone(void *data, XID id)
 {
-	struct list *list = data;
+	struct xorg_list *list = data;
 
-	while (!list_is_empty(list)) {
+	while (!xorg_list_is_empty(list)) {
 		struct vivante_dri_wait *wait;
 
-		wait = list_first_entry(list, struct vivante_dri_wait, drawable_list);
-		list_del(&wait->drawable_list);
+		wait = xorg_list_first_entry(list, struct vivante_dri_wait, drawable_list);
+		xorg_list_del(&wait->drawable_list);
 		wait->drawable_id = None;
 	}
 	free(list);
@@ -169,9 +170,9 @@ static XID client_id(ClientPtr client)
 	return *ptr;
 }
 
-static Bool add_reslist(RESTYPE type, XID id, struct list *node)
+static Bool add_reslist(RESTYPE type, XID id, struct xorg_list *node)
 {
-	struct list *list;
+	struct xorg_list *list;
 	void *ptr = NULL;
 
 	dixLookupResourceByType(&ptr, id, type, NULL, DixWriteAccess);
@@ -186,10 +187,10 @@ static Bool add_reslist(RESTYPE type, XID id, struct list *node)
 			return FALSE;
 		}
 
-		list_init(list);
+		xorg_list_init(list);
 	}
 
-	list_add(node, list);
+	xorg_list_add(node, list);
 
 	return TRUE;
 }
@@ -334,15 +335,15 @@ new_wait_info(ClientPtr client, DrawablePtr draw, enum event_type type)
 		wait->client = client;
 		wait->type = type;
 
-		list_init(&wait->client_list);
-		list_init(&wait->drawable_list);
+		xorg_list_init(&wait->client_list);
+		xorg_list_init(&wait->drawable_list);
 
 		if (!add_reslist(wait_drawable_restype, draw->id,
 				 &wait->drawable_list) ||
 		    !add_reslist(wait_client_restype, client_id(client),
 				 &wait->client_list)) {
-			list_del(&wait->client_list);
-			list_del(&wait->drawable_list);
+			xorg_list_del(&wait->client_list);
+			xorg_list_del(&wait->drawable_list);
 			free(wait);
 			wait = NULL;
 		}
@@ -352,8 +353,8 @@ new_wait_info(ClientPtr client, DrawablePtr draw, enum event_type type)
 
 static void del_wait_info(struct vivante_dri_wait *wait)
 {
-	list_del(&wait->client_list);
-	list_del(&wait->drawable_list);
+	xorg_list_del(&wait->client_list);
+	xorg_list_del(&wait->drawable_list);
 
 	vivante_dri2_DestroyBuffer(NULL, wait->front);
 	vivante_dri2_DestroyBuffer(NULL, wait->back);
@@ -735,7 +736,7 @@ Bool vivante_dri2_ScreenInit(ScreenPtr pScreen)
 	return DRI2ScreenInit(pScreen, &info);
 }
 
-void vivante_dri2_CloseScreen(int scrnIndex, ScreenPtr pScreen)
+void vivante_dri2_CloseScreen(CLOSE_SCREEN_ARGS_DECL)
 {
 	struct vivante *vivante = vivante_get_screen_priv(pScreen);
 	struct vivante_dri2_info *dri = vivante->dri2;

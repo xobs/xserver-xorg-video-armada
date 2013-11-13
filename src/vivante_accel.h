@@ -54,7 +54,7 @@ struct vivante {
 	uint16_t batch_idx_max;
 	uint16_t batch_idx;
 	int32_t batch_serial;
-	struct list batch_list;
+	struct xorg_list batch_list;
 	struct vivante_batch *batch;
 
 	Bool need_commit;
@@ -96,7 +96,7 @@ struct vivante_pixmap {
 	gceSURF_FORMAT format;
 	gctPOINTER info;
 
-	struct list batch_node;
+	struct xorg_list batch_node;
 	struct vivante_batch *batch;
 
 	enum {

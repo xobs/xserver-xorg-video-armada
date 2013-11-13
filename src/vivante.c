@@ -24,6 +24,7 @@
 #include "fb.h"
 #include "gcstruct.h"
 #include "xf86.h"
+#include "compat-api.h"
 
 #include <gc_hal.h>
 
@@ -371,7 +372,7 @@ static GCFuncs vivante_GCFuncs = {
 };
 
 
-static Bool vivante_CloseScreen(int scrnIndex, ScreenPtr pScreen)
+static Bool vivante_CloseScreen(CLOSE_SCREEN_ARGS_DECL)
 {
 	struct vivante *vivante = vivante_get_screen_priv(pScreen);
 #ifdef RENDER
@@ -379,7 +380,7 @@ static Bool vivante_CloseScreen(int scrnIndex, ScreenPtr pScreen)
 #endif
 
 #ifdef HAVE_DRI2
-	vivante_dri2_CloseScreen(scrnIndex, pScreen);
+	vivante_dri2_CloseScreen(CLOSE_SCREEN_ARGS);
 #endif
 
 #ifdef RENDER
@@ -413,7 +414,7 @@ static Bool vivante_CloseScreen(int scrnIndex, ScreenPtr pScreen)
 
 	free(vivante);
 
-	return pScreen->CloseScreen(scrnIndex, pScreen);
+	return pScreen->CloseScreen(CLOSE_SCREEN_ARGS);
 }
 
 static void
@@ -527,16 +528,16 @@ static Bool vivante_CreateGC(GCPtr pGC)
 
 /* Commit any pending GPU operations */
 static void
-vivante_BlockHandler(int scrn, pointer data, pointer timeout, pointer readmask)
+vivante_BlockHandler(BLOCKHANDLER_ARGS_DECL)
 {
-	ScreenPtr pScreen = screenInfo.screens[scrn];
+	SCREEN_PTR(arg);
 	struct vivante *vivante = vivante_get_screen_priv(pScreen);
 
 	if (vivante->need_commit)
 		vivante_commit(vivante, FALSE);
 
 	pScreen->BlockHandler = vivante->BlockHandler;
-	pScreen->BlockHandler(scrn, data, timeout, readmask);
+	pScreen->BlockHandler(BLOCKHANDLER_ARGS);
 	vivante->BlockHandler = pScreen->BlockHandler;
 	pScreen->BlockHandler = vivante_BlockHandler;
 }
@@ -575,7 +576,7 @@ Bool vivante_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 
 	vivante->drm_fd = GET_DRM_INFO(pScrn)->fd;
 	vivante->scrnIndex = pScrn->scrnIndex;
-	list_init(&vivante->batch_list);
+	xorg_list_init(&vivante->batch_list);
 	vivante->bufmgr = mgr;
 	vivante->batch_bo = drm_armada_bo_dumb_create(mgr, 64, 64, 32);
 	if (!vivante->batch_bo) {

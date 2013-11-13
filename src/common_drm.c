@@ -20,7 +20,6 @@
 #include "xf86Crtc.h"
 #include "xf86cmap.h"
 #include "fb.h"
-#include "mibstore.h"
 #include "micmap.h"
 #include <xf86DDC.h>
 #include <X11/extensions/dpmsconst.h>
