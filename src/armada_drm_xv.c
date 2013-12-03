@@ -15,6 +15,7 @@
 #include <armada_bufmgr.h>
 
 #include "armada_drm.h"
+#include "common_drm.h"
 #include "drm_fourcc.h"
 #include "xf86Crtc.h"
 #include "xf86xv.h"
@@ -55,7 +56,8 @@ struct armada_format {
 };
 
 struct drm_xv {
-	struct armada_drm_info *drm;
+	int fd;
+	struct drm_armada_bufmgr *bufmgr;
 
 	/* Common information */
 	xf86CrtcPtr desired_crtc;
@@ -123,7 +125,7 @@ static int armada_drm_prop_set(ScrnInfoPtr pScrn, struct drm_xv *drmxv,
 		if (!drmxv->planes[i])
 			continue;
 
-		drmModeObjectSetProperty(drmxv->drm->fd,
+		drmModeObjectSetProperty(drmxv->fd,
 					 drmxv->planes[i]->plane_id,
 					 DRM_MODE_OBJECT_PLANE, prop_id,
 					 value);
@@ -144,7 +146,7 @@ static int armada_drm_old_update_attr(struct drm_xv *drmxv)
 
 	arg = drmxv->attrs;
 	arg.flags = ARMADA_OVERLAY_UPDATE_ATTRS;
-	drmIoctl(drmxv->drm->fd, DRM_IOCTL_ARMADA_OVERLAY_ATTRS, &arg);
+	drmIoctl(drmxv->fd, DRM_IOCTL_ARMADA_OVERLAY_ATTRS, &arg);
 	return Success;
 }
 
@@ -384,7 +386,7 @@ static void armada_drm_bufs_free(struct drm_xv *drmxv)
 		if (drmxv->bufs[i].fb_id) {
 			if (drmxv->bufs[i].fb_id == drmxv->plane_fb_id)
 				drmxv->plane_fb_id = 0;
-			drmModeRmFB(drmxv->drm->fd, drmxv->bufs[i].fb_id);
+			drmModeRmFB(drmxv->fd, drmxv->bufs[i].fb_id);
 			drmxv->bufs[i].fb_id = 0;
 		}
 		if (drmxv->bufs[i].bo) {
@@ -394,7 +396,7 @@ static void armada_drm_bufs_free(struct drm_xv *drmxv)
 	}
 
 	if (drmxv->plane_fb_id) {
-		drmModeRmFB(drmxv->drm->fd, drmxv->plane_fb_id);
+		drmModeRmFB(drmxv->fd, drmxv->plane_fb_id);
 		drmxv->plane_fb_id = 0;
 	}
 
@@ -416,7 +418,7 @@ armada_drm_create_fbid(struct drm_xv *drmxv, struct drm_armada_bo *bo,
 	handles[2] = bo->handle;
 
 	/* Create the framebuffer object for this buffer */
-	if (drmModeAddFB2(drmxv->drm->fd, drmxv->width, drmxv->height,
+	if (drmModeAddFB2(drmxv->fd, drmxv->width, drmxv->height,
 			  drmxv->plane_format->drm_format, handles,
 			  drmxv->pitches, drmxv->offsets, id, 0))
 		return FALSE;
@@ -426,7 +428,7 @@ armada_drm_create_fbid(struct drm_xv *drmxv, struct drm_armada_bo *bo,
 
 static int armada_drm_bufs_alloc(struct drm_xv *drmxv)
 {
-	struct drm_armada_bufmgr *bufmgr = drmxv->drm->bufmgr;
+	struct drm_armada_bufmgr *bufmgr = drmxv->bufmgr;
 	uint32_t width = drmxv->width;
 	uint32_t height = drmxv->image_size / width / 4;
 	unsigned i;
@@ -505,7 +507,7 @@ armada_drm_get_xvbo(ScrnInfoPtr pScrn, struct drm_xv *drmxv, unsigned char *buf,
 	uint32_t name = ((uint32_t *)buf)[1];
 
 	/* Lookup the bo for the global name */
-	bo = drm_armada_bo_create_from_name(drmxv->drm->bufmgr, name);
+	bo = drm_armada_bo_create_from_name(drmxv->bufmgr, name);
 	if (!bo)
 		return BadAlloc;
 
@@ -733,7 +735,7 @@ armada_drm_plane_StopVideo(ScrnInfoPtr pScrn, pointer data, Bool cleanup)
 
 		RegionEmpty(&drmxv->clipBoxes);
 
-		ret = drmModeSetPlane(drmxv->drm->fd, drmxv->plane->plane_id,
+		ret = drmModeSetPlane(drmxv->fd, drmxv->plane->plane_id,
 				      0, 0, 0,  0, 0, 0, 0,  0, 0, 0, 0);
 		if (ret)
 			xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
@@ -759,7 +761,7 @@ static Bool armada_drm_check_plane(ScrnInfoPtr pScrn, struct drm_xv *drmxv,
 		return FALSE;
 	}
 
-	crtc_mask = 1 << armada_crtc(crtc)->num;
+	crtc_mask = 1 << common_crtc(crtc)->num;
 
 	plane = drmxv->plane;
 	if (plane && !(plane->possible_crtcs & crtc_mask)) {
@@ -814,8 +816,8 @@ armada_drm_plane_Put(ScrnInfoPtr pScrn, struct drm_xv *drmxv, uint32_t fb_id,
 	crtc_y = dst->y1 - crtc->y;
 
 	plane = drmxv->plane;
-	drmModeSetPlane(drmxv->drm->fd, plane->plane_id,
-			armada_crtc(crtc)->mode_crtc->crtc_id, fb_id, 0,
+	drmModeSetPlane(drmxv->fd, plane->plane_id,
+			common_crtc(crtc)->mode_crtc->crtc_id, fb_id, 0,
 			crtc_x, crtc_y, dst->x2 - dst->x1, dst->y2 - dst->y1,
 			x1, y1, x2 - x1, y2 - y1);
 
@@ -859,7 +861,7 @@ static int armada_drm_plane_PutImage(ScrnInfoPtr pScrn,
 	/* If there was a previous fb, release it. */
 	if (drmxv->is_bmm &&
 	    drmxv->plane_fb_id && drmxv->plane_fb_id != fb_id) {
-		drmModeRmFB(drmxv->drm->fd, drmxv->plane_fb_id);
+		drmModeRmFB(drmxv->fd, drmxv->plane_fb_id);
 		drmxv->plane_fb_id = 0;
 	}
 
@@ -984,7 +986,8 @@ static Bool armada_drm_init_atoms(ScrnInfoPtr pScrn)
 Bool armada_drm_XvInit(ScrnInfoPtr pScrn)
 {
 	ScreenPtr scrn = screenInfo.screens[pScrn->scrnIndex];
-	struct armada_drm_info *drm = GET_DRM_INFO(pScrn);
+	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
+	struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(pScrn);
 	XF86VideoAdaptorPtr xv[2], plane;
 	drmModePlaneResPtr res;
 	struct drm_xv *drmxv;
@@ -1000,11 +1003,12 @@ Bool armada_drm_XvInit(ScrnInfoPtr pScrn)
 	if (!drmxv)
 		return FALSE;
 
-	drmxv->drm = drm;
+	drmxv->fd = drm->fd;
+	drmxv->bufmgr = arm->bufmgr;
 	drmxv->autopaint_colorkey = TRUE;
 
 	/* Get the plane resources and the overlay planes */
-	res = drmModeGetPlaneResources(drm->fd);
+	res = drmModeGetPlaneResources(drmxv->fd);
 	if (!res)
 		goto err_free;
 
@@ -1014,8 +1018,8 @@ Bool armada_drm_XvInit(ScrnInfoPtr pScrn)
 		uint32_t plane_id = res->planes[i];
 		unsigned j;
 
-		drmxv->planes[i] = drmModeGetPlane(drm->fd, plane_id);
-		props = drmModeObjectGetProperties(drm->fd, plane_id,
+		drmxv->planes[i] = drmModeGetPlane(drmxv->fd, plane_id);
+		props = drmModeObjectGetProperties(drmxv->fd, plane_id,
 						   DRM_MODE_OBJECT_PLANE);
 		if (!drmxv->planes[i] || !props) {
 			drmModeFreePlaneResources(res);
@@ -1026,7 +1030,7 @@ Bool armada_drm_XvInit(ScrnInfoPtr pScrn)
 			drmModePropertyPtr prop;
 			unsigned k;
 
-			prop = drmModeGetProperty(drm->fd, props->props[j]);
+			prop = drmModeGetProperty(drmxv->fd, props->props[j]);
 			if (!prop)
 				continue;
 
@@ -1052,7 +1056,7 @@ Bool armada_drm_XvInit(ScrnInfoPtr pScrn)
 	/* Done with the plane resources */
 	drmModeFreePlaneResources(res);
 
-	drmIoctl(drm->fd, DRM_IOCTL_ARMADA_OVERLAY_ATTRS, &drmxv->attrs);
+	drmIoctl(drmxv->fd, DRM_IOCTL_ARMADA_OVERLAY_ATTRS, &drmxv->attrs);
 	if (drmxv->prop_values[PROP_DRM_COLORKEY]) {
 		drmxv->attrs.color_key = drmxv->prop_values[PROP_DRM_COLORKEY];
 		armada_drm_old_update_attr(drmxv);

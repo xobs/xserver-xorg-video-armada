@@ -10,6 +10,7 @@
 /* Needed for gcsRECT */
 #include <gc_hal_base.h>
 
+struct drm_armada_bo;
 struct vivante;
 struct vivante_pixmap;
 

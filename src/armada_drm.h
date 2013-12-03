@@ -11,63 +11,25 @@
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
-struct drm_armada_bo;
-
-struct armada_crtc_info {
-	int drm_fd;
-	struct armada_drm_info *drm;
-	unsigned num;
-	unsigned short cursor_max_width;
-	unsigned short cursor_max_height;
-	drmModeModeInfo kmode;
-	drmModeCrtcPtr mode_crtc;
-
-	struct drm_armada_bo *cursor_bo;
-
-	uint32_t rotate_fb_id;
-};
-#define armada_crtc(crtc) \
-	((struct armada_crtc_info *)(crtc)->driver_private)
-
-struct drm_udev_info {
-	struct udev_monitor *monitor;
-	pointer *handler;
-	dev_t drm_dev;
-};
+#include "common_drm.h"
 
 struct armada_drm_info {
-	int fd;
-	struct drm_armada_bufmgr *bufmgr;
-	drmEventContext event_context;
-
-	unsigned cpp;
-
-	struct drm_armada_bo *front_bo;
-	uint32_t fb_id;
-	drmModeResPtr mode_res;
-
-	Bool has_hw_cursor;
-	Bool hw_cursor;
-	Bool accel;
-
-#ifdef HAVE_UDEV
-	struct drm_udev_info udev;
-#endif
-
+	OptionInfoPtr Options;
 	CloseScreenProcPtr CloseScreen;
 	CreateScreenResourcesProcPtr CreateScreenResources;
-	OptionInfoPtr Options;
+	struct drm_armada_bufmgr *bufmgr;
+	struct drm_armada_bo *front_bo;
+	Bool accel;
+	unsigned cpp;
 };
 
-enum {
-	OPTION_HW_CURSOR,
-	OPTION_XV_ACCEL,
-	OPTION_USE_GPU,
-	OPTION_HOTPLUG,
+struct all_drm_info {
+	struct common_drm_info common;
+	struct armada_drm_info armada;
 };
 
-#define GET_DRM_INFO(pScrn)		((struct armada_drm_info *)(pScrn)->driverPrivate)
-#define SET_DRM_INFO(pScrn, ptr)	((pScrn)->driverPrivate = (ptr))
+#define GET_ARMADA_DRM_INFO(pScrn) \
+	((struct armada_drm_info *)GET_DRM_INFO(pScrn)->private)
 
 /* DRM core support */
 Bool armada_drm_init_screen(ScrnInfoPtr pScrn);
