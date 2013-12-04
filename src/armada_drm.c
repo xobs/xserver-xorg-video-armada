@@ -346,7 +346,9 @@ armada_drm_crtc_shadow_destroy(xf86CrtcPtr crtc, PixmapPtr rot_pixmap,
 	void *data)
 {
 	if (rot_pixmap) {
-		vivante_free_pixmap(rot_pixmap);
+		struct armada_drm_info *drm = GET_DRM_INFO(crtc->scrn);
+		if (drm->accel)
+			vivante_free_pixmap(rot_pixmap);
 		FreeScratchPixmapHeader(rot_pixmap);
 	}
 	if (data) {
