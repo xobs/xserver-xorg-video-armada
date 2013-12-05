@@ -91,8 +91,6 @@ struct drm_xv {
 	drmModePlanePtr planes[2];
 	drmModePropertyPtr props[NR_DRM_PROPS];
 	uint64_t prop_values[NR_DRM_PROPS];
-
-	struct drm_armada_overlay_attrs attrs;
 };
 
 struct armada_attribute_data {
@@ -140,23 +138,10 @@ static int armada_drm_prop_get(ScrnInfoPtr pScrn, struct drm_xv *drmxv,
 	return Success;
 }
 
-static int armada_drm_old_update_attr(struct drm_xv *drmxv)
-{
-	struct drm_armada_overlay_attrs arg;
-
-	arg = drmxv->attrs;
-	arg.flags = ARMADA_OVERLAY_UPDATE_ATTRS;
-	drmIoctl(drmxv->fd, DRM_IOCTL_ARMADA_OVERLAY_ATTRS, &arg);
-	return Success;
-}
-
 static int armada_drm_set_colorkey(ScrnInfoPtr pScrn, struct drm_xv *drmxv,
 	unsigned id, INT32 value)
 {
-	drmxv->attrs.color_key = value;
-
 	RegionEmpty(&drmxv->clipBoxes);
-	armada_drm_old_update_attr(drmxv);
 
 	return armada_drm_prop_set(pScrn, drmxv, id, value);
 }
@@ -1055,14 +1040,6 @@ Bool armada_drm_XvInit(ScrnInfoPtr pScrn)
 
 	/* Done with the plane resources */
 	drmModeFreePlaneResources(res);
-
-	drmIoctl(drmxv->fd, DRM_IOCTL_ARMADA_OVERLAY_ATTRS, &drmxv->attrs);
-	if (drmxv->prop_values[PROP_DRM_COLORKEY]) {
-		drmxv->attrs.color_key = drmxv->prop_values[PROP_DRM_COLORKEY];
-		armada_drm_old_update_attr(drmxv);
-	} else {
-		drmxv->prop_values[PROP_DRM_COLORKEY] = drmxv->attrs.color_key;
-	}
 
 	priv[0].ptr = drmxv;
 
