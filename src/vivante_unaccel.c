@@ -33,22 +33,6 @@ static void vivante_finish_gc(GCPtr pGC)
 		vivante_finish_drawable(&pGC->stipple->drawable, ACCESS_RO);
 }
 
-static void vivante_prepare_window(WindowPtr pWin)
-{
-	if (pWin->backgroundState == BackgroundPixmap)
-		vivante_prepare_drawable(&pWin->background.pixmap->drawable, ACCESS_RO);
-	if (!pWin->borderIsPixel)
-		vivante_prepare_drawable(&pWin->border.pixmap->drawable, ACCESS_RO);
-}
-
-static void vivante_finish_window(WindowPtr pWin)
-{
-	if (!pWin->borderIsPixel)
-		vivante_finish_drawable(&pWin->border.pixmap->drawable, ACCESS_RO);
-	if (pWin->backgroundState == BackgroundPixmap)
-		vivante_finish_drawable(&pWin->background.pixmap->drawable, ACCESS_RO);
-}
-
 void vivante_unaccel_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int nspans,
 	DDXPointPtr ppt, int *pwidth, int fSorted)
 {
@@ -204,13 +188,37 @@ void vivante_unaccel_GetImage(DrawablePtr pDrawable, int x, int y,
 	vivante_finish_drawable(pDrawable, ACCESS_RO);
 }
 
+static void vivante_unaccel_fixup_tile(DrawablePtr pDraw, PixmapPtr *ppPix)
+{
+	PixmapPtr pNew, pPixmap = *ppPix;
+
+	if (pPixmap->drawable.bitsPerPixel != pDraw->bitsPerPixel) {
+		vivante_prepare_drawable(&pPixmap->drawable, ACCESS_RO);
+		pNew = fb24_32ReformatTile(pPixmap, pDraw->bitsPerPixel);
+		vivante_finish_drawable(&pPixmap->drawable, ACCESS_RO);
+
+		pDraw->pScreen->DestroyPixmap(pPixmap);
+		*ppPix = pPixmap = pNew;
+	}
+
+	if (FbEvenTile(pPixmap->drawable.width * pPixmap->drawable.bitsPerPixel)) {
+		vivante_prepare_drawable(&pPixmap->drawable, ACCESS_RW);
+		fbPadPixmap(pPixmap);
+		vivante_finish_drawable(&pPixmap->drawable, ACCESS_RW);
+	}
+}
+
 Bool vivante_unaccel_ChangeWindowAttributes(WindowPtr pWin, unsigned long mask)
 {
-	Bool ret;
-	vivante_prepare_window(pWin);
-	ret = fbChangeWindowAttributes(pWin, mask);
-	vivante_finish_window(pWin);
-	return ret;
+	if (mask & CWBackPixmap && pWin->backgroundState == BackgroundPixmap)
+		vivante_unaccel_fixup_tile(&pWin->drawable,
+					   &pWin->background.pixmap);
+
+	if (mask & CWBorderPixmap && !pWin->borderIsPixel)
+		vivante_unaccel_fixup_tile(&pWin->drawable,
+					   &pWin->border.pixmap);
+
+	return TRUE;
 }
 
 RegionPtr vivante_unaccel_BitmapToRegion(PixmapPtr pixmap)
