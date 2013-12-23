@@ -385,8 +385,6 @@ static Bool armada_drm_ScreenInit(SCREEN_INIT_ARGS_DECL)
 	if (!common_drm_PreScreenInit(pScreen))
 		return FALSE;
 
-	arm->CloseScreen = pScreen->CloseScreen;
-	pScreen->CloseScreen = armada_drm_CloseScreen;
 	arm->CreateScreenResources = pScreen->CreateScreenResources;
 	pScreen->CreateScreenResources = armada_drm_CreateScreenResources;
 
@@ -395,6 +393,9 @@ static Bool armada_drm_ScreenInit(SCREEN_INIT_ARGS_DECL)
 			   "[drm] Vivante initialization failed, running unaccelerated\n");
 		arm->accel = FALSE;
 	}
+
+	arm->CloseScreen = pScreen->CloseScreen;
+	pScreen->CloseScreen = armada_drm_CloseScreen;
 
 	if (!common_drm_PostScreenInit(pScreen))
 		return FALSE;
