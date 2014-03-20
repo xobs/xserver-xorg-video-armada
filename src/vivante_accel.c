@@ -1076,8 +1076,7 @@ static const struct vivante_blend_op vivante_mask_op = {
 };
 
 static Bool vivante_fill_single(struct vivante *vivante,
-	struct vivante_pixmap *vPix, gcsRECT_PTR rect, gceSURF_FORMAT format,
-	uint32_t colour)
+	struct vivante_pixmap *vPix, gcsRECT_PTR rect, uint32_t colour)
 {
 	gceSTATUS err;
 
@@ -1086,7 +1085,7 @@ static Bool vivante_fill_single(struct vivante *vivante,
 
 	vivante_disable_alpha_blend(vivante);
 
-	err = gco2D_LoadSolidBrush(vivante->e2d, format, 0, colour, ~0ULL);
+	err = gco2D_LoadSolidBrush(vivante->e2d, vPix->pict_format, 0, colour, ~0ULL);
 	if (err != gcvSTATUS_OK) {
 		vivante_error(vivante, "gco2D_LoadSolidBrush", err);
 		return FALSE;
@@ -1098,7 +1097,7 @@ static Bool vivante_fill_single(struct vivante *vivante,
 		return FALSE;
 	}
 
-	err = gco2D_Blit(vivante->e2d, 1, rect, 0xf0, 0xf0, format);
+	err = gco2D_Blit(vivante->e2d, 1, rect, 0xf0, 0xf0, vPix->pict_format);
 	if (err != gcvSTATUS_OK) {
 		vivante_error(vivante, "gco2D_Blit", err);
 		return FALSE;
@@ -1127,8 +1126,8 @@ static void BoxCopy(gcsRECT_PTR src, gcsRECT_PTR dst, int xSrc, int ySrc,
 
 static Bool vivante_blend(struct vivante *vivante, gcsRECT_PTR clip,
 	const struct vivante_blend_op *blend,
-	struct vivante_pixmap *vDst, gceSURF_FORMAT fDst, gcsRECT_PTR rDst,
-	struct vivante_pixmap *vSrc, gceSURF_FORMAT fSrc, gcsRECT_PTR rSrc,
+	struct vivante_pixmap *vDst, gcsRECT_PTR rDst,
+	struct vivante_pixmap *vSrc, gcsRECT_PTR rSrc,
 	unsigned nRect)
 {
 	gceSTATUS err;
@@ -1152,7 +1151,7 @@ static Bool vivante_blend(struct vivante *vivante, gcsRECT_PTR clip,
 	}
 
 	err = gco2D_SetColorSourceAdvanced(vivante->e2d, vSrc->handle,
-			  vSrc->pitch, fSrc, gcvSURF_0_DEGREE,
+			  vSrc->pitch, vSrc->pict_format, gcvSURF_0_DEGREE,
 			  vSrc->width, vSrc->height, gcvFALSE);
 	if (err != gcvSTATUS_OK) {
 		vivante_error(vivante, "gco2D_SetColorSourceAdvanced", err);
@@ -1165,7 +1164,8 @@ static Bool vivante_blend(struct vivante *vivante, gcsRECT_PTR clip,
 		return FALSE;
 	}
 
-	err = gco2D_BatchBlit(vivante->e2d, nRect, rSrc, rDst, 0xcc, 0xcc, fDst);
+	err = gco2D_BatchBlit(vivante->e2d, nRect, rSrc, rDst, 0xcc, 0xcc,
+			vDst->pict_format);
 	if (err != gcvSTATUS_OK) {
 		vivante_error(vivante, "gco2D_BatchBlit", err);
 		return FALSE;
@@ -1186,7 +1186,7 @@ static Bool vivante_blend(struct vivante *vivante, gcsRECT_PTR clip,
 static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 	PicturePtr pict, int x, int y, int w, int h, gcsRECT_PTR clip,
 	PixmapPtr pix, struct vivante_pixmap *vTemp,
-	gceSURF_FORMAT *fout, INT16 *xout, INT16 *yout)
+	INT16 *xout, INT16 *yout)
 {
 	PixmapPtr pPixmap;
 	struct vivante_pixmap *vSrc;
@@ -1212,10 +1212,10 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 	if (fill) {
 		*xout = 0;
 		*yout = 0;
-		*fout = vivante_pict_format(PICT_a8r8g8b8, FALSE);
+		vTemp->pict_format = vivante_pict_format(PICT_a8r8g8b8, FALSE);
 		if (PICT_FORMAT_A(pict->format) == 0)
 			colour |= 0xff000000;
-		if (!vivante_fill_single(vivante, vTemp, clip, *fout, colour))
+		if (!vivante_fill_single(vivante, vTemp, clip, colour))
 			return NULL;
 
 		return vTemp;
@@ -1230,7 +1230,7 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 		transform_is_integer_translation(pict->transform, &tx, &ty)) {
 		*xout = ox + x + tx + drawable->x;
 		*yout = ox + y + ty + drawable->y;
-		*fout = vivante_pict_format(pict->format, FALSE);
+		vSrc->pict_format = vivante_pict_format(pict->format, FALSE);
 	} else {
 		PictFormatPtr f;
 		PicturePtr dest;
@@ -1250,7 +1250,7 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 		FreePicture(dest, 0);
 		*xout = 0;
 		*yout = 0;
-		*fout = vivante_pict_format(PICT_a8r8g8b8, FALSE);
+		vTemp->pict_format = vivante_pict_format(PICT_a8r8g8b8, FALSE);
 		vSrc = vTemp;
 	}
 
@@ -1266,7 +1266,6 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	ScreenPtr pScreen = pDst->pDrawable->pScreen;
 	PixmapPtr pPixmap, pPixTemp = NULL;
 	RegionRec region;
-	gceSURF_FORMAT fDst, fSrc;
 	gcsRECT clipTemp;
 	gcsRECT clip;
 	int oDst_x, oDst_y;
@@ -1289,6 +1288,8 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	vDst = vivante_get_pixmap_priv(pPixmap);
 	if (!vDst)
 		return FALSE;
+
+	vDst->pict_format = vivante_pict_format(pDst->format, FALSE);
 
 #if 0
 fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\n",
@@ -1366,12 +1367,12 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	/*
 	 * Get the source.  The source image will be described by vSrc with
 	 * offset xSrc/ySrc.  This may or may not be the temporary image, and
-	 * fSrc describes its format, including whether the alpha channel is
-	 * valid.
+	 * vSrc->pict_format describes its format, including whether the
+	 * alpha channel is valid.
 	 */
 	if (op == PictOpClear) {
-		fSrc = vivante_pict_format(pSrc->format, TRUE);
-		if (!vivante_fill_single(vivante, vTemp, &clipTemp, fSrc, 0))
+		vTemp->pict_format = vivante_pict_format(pSrc->format, TRUE);
+		if (!vivante_fill_single(vivante, vTemp, &clipTemp, 0))
 			goto failed;
 		vSrc = vTemp;
 		xSrc = 0;
@@ -1380,7 +1381,7 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 		vSrc = vivante_acquire_src(vivante, pSrc, xSrc, ySrc,
 					   width, height,
 					   &clipTemp, pPixTemp, vTemp,
-					   &fSrc, &xSrc, &ySrc);
+					   &xSrc, &ySrc);
 		if (!vSrc)
 			goto failed;
 	}
@@ -1415,12 +1416,13 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 		PixmapPtr pPixMask;
 		gcsRECT rsrc, rdst;
 		int oMask_x, oMask_y;
-		gceSURF_FORMAT fMask;
 
 		pPixMask = vivante_drawable_pixmap_deltas(pMask->pDrawable, &oMask_x, &oMask_y);
 		vMask = vivante_get_pixmap_priv(pPixMask);
 		if (!vMask)
 			goto failed;
+
+		vMask->pict_format = vivante_pict_format(pMask->format, FALSE);
 
 		oMask_x += xMask;
 		oMask_y += yMask;
@@ -1446,14 +1448,14 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 			 * in the brush with maximum alpha value.)
 			 */
 			fTemp = vivante_pict_format(pSrc->format, TRUE);
+			vTemp->pict_format = fTemp;
 
 			if (!vivante_blend(vivante, &clipTemp, NULL,
-					   vTemp, fTemp, &rdst,
-					   vSrc, fSrc, &rsrc, 1))
+					   vTemp, &rdst,
+					   vSrc, &rsrc, 1))
 				goto failed;
 //vivante_batch_wait_commit(vivante, vTemp);
 //dump_vPix(buf, vivante, vTemp, 1, "A-TMSK%02.2x-%p", op, pMask);
-			fSrc = fTemp;
 		}
 
 		rsrc.left = oMask_x;
@@ -1461,19 +1463,17 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 		rsrc.right = oMask_x + width;
 		rsrc.bottom = oMask_y + height;
 
-		fMask = vivante_pict_format(pMask->format, FALSE);
-
 #if 0
 if (pMask && pMask->pDrawable)
  fprintf(stderr, "%s: src %d,%d,%d,%d %d,%d %u (%x)\n",
   __FUNCTION__, pMask->pDrawable->x, pMask->pDrawable->y,
   pMask->pDrawable->x + pMask->pDrawable->width, pMask->pDrawable->y + pMask->pDrawable->height,
-  xMask, yMask, fMask, pMask->format);
+  xMask, yMask, vMask->pict_format, pMask->format);
 #endif
 
 		if (!vivante_blend(vivante, &clipTemp, &vivante_mask_op,
-				   vTemp, fSrc, &rdst,
-				   vMask, fMask, &rsrc,
+				   vTemp, &rdst,
+				   vMask, &rsrc,
 				   1))
 			goto failed;
 
@@ -1481,9 +1481,6 @@ if (pMask && pMask->pDrawable)
 		xSrc = 0;
 		ySrc = 0;
 	}
-
-	/* Get the Vivante destination format early */
-	fDst = vivante_pict_format(pDst->format, FALSE);
 
 //vivante_batch_wait_commit(vivante, vSrc);
 //dump_vPix(buf, vivante, vSrc, 1, "A-TSRC%02.2x-%p", op, pSrc);
@@ -1499,7 +1496,7 @@ if (pMask && pMask->pDrawable)
 fprintf(stderr, "%s: dst %d,%d,%d,%d %d,%d %u (%x) bo %p\n",
   __FUNCTION__, pDst->pDrawable->x, pDst->pDrawable->y,
   pDst->pDrawable->x + pDst->pDrawable->width, pDst->pDrawable->y + pDst->pDrawable->height,
-  xDst, yDst, fDst, pDst->format, vDst->bo);
+  xDst, yDst, vDst->pict_format, pDst->format, vDst->bo);
 #endif
 
 		nrects = REGION_NUM_RECTS(&region);
@@ -1530,8 +1527,8 @@ fprintf(stderr, "%s: malloc fail\n", __FUNCTION__);
 //dump_vPix(buf, vivante, vSrc, 1, "A-FSRC%02.2x-%p", op, pSrc);
 //dump_vPix(buf, vivante, vDst, 1, "A-FDST%02.2x-%p", op, pDst);
 		if (!vivante_blend(vivante, &clip, &vivante_composite_op[op],
-				   vDst, fDst, rdst,
-				   vSrc, fSrc, rsrc, nrects)) {
+				   vDst, rdst,
+				   vSrc, rsrc, nrects)) {
 			free(rects);
 			goto failed;
 		}

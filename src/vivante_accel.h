@@ -94,6 +94,7 @@ struct vivante_pixmap {
 	uint32_t handle;
 	unsigned pitch;
 	gceSURF_FORMAT format;
+	gceSURF_FORMAT pict_format;
 	gctPOINTER info;
 
 	struct xorg_list batch_node;
