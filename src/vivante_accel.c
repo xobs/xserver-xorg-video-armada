@@ -304,7 +304,7 @@ gal_prepare_gpu(struct vivante *vivante, struct vivante_pixmap *vPix,
 	vivante_batch_wait(vivante, vPix);
 #endif
 
-	if (vPix->owner != GPU && !vivante_map_gpu(vivante, vPix))
+	if (!vivante_map_gpu(vivante, vPix))
 		return FALSE;
 
 	/*

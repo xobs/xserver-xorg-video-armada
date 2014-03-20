@@ -165,6 +165,9 @@ Bool vivante_map_gpu(struct vivante *vivante, struct vivante_pixmap *vPix)
 	assert(vPix->in_use == 0);
 #endif
 
+	if (vPix->owner == GPU)
+		return TRUE;
+
 	if (bo->type == DRM_ARMADA_BO_SHMEM) {
 		gceSTATUS err;
 		gctUINT32 addr;
