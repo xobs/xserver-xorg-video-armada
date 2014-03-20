@@ -8,13 +8,13 @@
 #include <gc_hal.h>
 
 /* Map a DMABUF fd into galcore */
-struct map_dma_buf {
+struct dmabuf_map {
 	unsigned zero;
 	unsigned status;
 	int fd;
 	gctPOINTER Info;
 	gctUINT32 Address;
 };
-#define IOC_GDMABUF_MAP	_IOWR('_', 0, struct map_dma_buf)
+#define IOC_GDMABUF_MAP	_IOWR('_', 0, struct dmabuf_map)
 
 #endif

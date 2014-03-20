@@ -115,7 +115,7 @@ void vivante_unmap_gpu(struct vivante *vivante, struct vivante_pixmap *vPix)
 Bool vivante_map_bo_to_gpu(struct vivante *vivante, struct drm_armada_bo *bo,
 	void **info, uint32_t *handle)
 {
-	struct map_dma_buf map;
+	struct dmabuf_map map;
 	gceSTATUS status;
 	int fd;
 
