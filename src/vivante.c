@@ -379,10 +379,6 @@ static Bool vivante_CloseScreen(CLOSE_SCREEN_ARGS_DECL)
 	PictureScreenPtr ps = GetPictureScreenIfSet(pScreen);
 #endif
 
-#ifdef HAVE_DRI2
-	vivante_dri2_CloseScreen(CLOSE_SCREEN_ARGS);
-#endif
-
 #ifdef RENDER
 	/* Restore the Pointers */
 	ps->Composite = vivante->Composite;
@@ -404,6 +400,10 @@ static Bool vivante_CloseScreen(CLOSE_SCREEN_ARGS_DECL)
 	pScreen->CreateGC = vivante->CreateGC;
 	pScreen->BitmapToRegion = vivante->BitmapToRegion;
 	pScreen->BlockHandler = vivante->BlockHandler;
+
+#ifdef HAVE_DRI2
+	vivante_dri2_CloseScreen(CLOSE_SCREEN_ARGS);
+#endif
 
 	vivante_unmap_from_gpu(vivante, vivante->batch_info,
 			       vivante->batch_handle);
