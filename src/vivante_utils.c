@@ -70,6 +70,13 @@ void __vivante_error(struct vivante *vivante, const char *fn, const char *w, int
 }
 
 
+static gceSTATUS vivante_ioctl(struct vivante *vivante, unsigned cmd,
+	void *buf, size_t size)
+{
+	return gcoOS_DeviceControl(vivante->os, cmd, buf, size, buf, size);
+}
+
+
 PixmapPtr vivante_drawable_pixmap_deltas(DrawablePtr pDrawable, int *x, int *y)
 {
 	PixmapPtr pPixmap;
@@ -129,8 +136,7 @@ Bool vivante_map_bo_to_gpu(struct vivante *vivante, struct drm_armada_bo *bo,
 	map.zero = 0;
 	map.fd = fd;
 
-	status = gcoOS_DeviceControl(vivante->os, IOC_GDMABUF_MAP,
-				     &map, sizeof(map), &map, sizeof(map));
+	status = vivante_ioctl(vivante, IOC_GDMABUF_MAP, &map, sizeof(map));
 
 	/* we don't need to keep the fd around anymore */
 	close(fd);
