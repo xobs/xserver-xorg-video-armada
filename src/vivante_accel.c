@@ -69,6 +69,7 @@ static void vivante_disable_alpha_blend(struct vivante *vivante)
 
 
 
+#ifdef VIVANTE_BATCH
 struct vivante_batch {
 	struct xorg_list node;
 	struct xorg_list head;
@@ -248,6 +249,24 @@ static void vivante_batch_commit(struct vivante *vivante)
  error:
 	vivante_error(vivante, "batch blit", err);
 }
+#else
+void
+vivante_batch_wait_commit(struct vivante *vivante, struct vivante_pixmap *vPix)
+{
+	if (vPix->need_stall && vivante->need_stall) {
+		vivante_commit(vivante, TRUE);
+		vivante->need_stall = FALSE;
+	}
+}
+
+static void
+vivante_batch_add(struct vivante *vivante, struct vivante_pixmap *vPix)
+{
+	vivante->need_stall = TRUE;
+	vivante->need_commit = TRUE;
+	vPix->need_stall = TRUE;
+}
+#endif
 
 
 enum gpuid {
@@ -270,6 +289,7 @@ gal_prepare_gpu(struct vivante *vivante, struct vivante_pixmap *vPix,
 	}
 #endif
 
+#ifdef VIVANTE_BATCH
 	/*
 	 * If we don't have a batch already in place, then add one now.
 	 * This gives us a chance to error out and fallback to CPU based
@@ -282,6 +302,7 @@ gal_prepare_gpu(struct vivante *vivante, struct vivante_pixmap *vPix,
 	}
 
 	vivante_batch_wait(vivante, vPix);
+#endif
 
 	if (vPix->owner != GPU && !vivante_map_gpu(vivante, vPix))
 		return FALSE;
@@ -322,8 +343,10 @@ void vivante_commit(struct vivante *vivante, Bool stall)
 {
 	gceSTATUS err;
 
+#ifdef VIVANTE_BATCH
 	if (vivante->batch)
 		vivante_batch_commit(vivante);
+#endif
 
 	err = gco2D_Flush(vivante->e2d);
 	if (err != gcvSTATUS_OK)

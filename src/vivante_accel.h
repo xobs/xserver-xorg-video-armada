@@ -47,6 +47,7 @@ struct vivante {
 	gcoHAL hal;
 	gco2D e2d;
 	unsigned max_rect_count;
+#ifdef VIVANTE_BATCH
 	struct drm_armada_bo *batch_bo;
 	int32_t *batch_ptr;
 	void *batch_info;
@@ -56,6 +57,9 @@ struct vivante {
 	int32_t batch_serial;
 	struct xorg_list batch_list;
 	struct vivante_batch *batch;
+#else
+	Bool need_stall;
+#endif
 
 	Bool need_commit;
 	Bool force_fallback;
@@ -97,8 +101,12 @@ struct vivante_pixmap {
 	gceSURF_FORMAT pict_format;
 	gctPOINTER info;
 
+#ifdef VIVANTE_BATCH
 	struct xorg_list batch_node;
 	struct vivante_batch *batch;
+#else
+	Bool need_stall;
+#endif
 
 	enum {
 		NONE,

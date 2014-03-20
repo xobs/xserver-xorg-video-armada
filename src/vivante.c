@@ -405,12 +405,16 @@ static Bool vivante_CloseScreen(CLOSE_SCREEN_ARGS_DECL)
 	vivante_dri2_CloseScreen(CLOSE_SCREEN_ARGS);
 #endif
 
+#ifdef VIVANTE_BATCH
 	vivante_unmap_from_gpu(vivante, vivante->batch_info,
 			       vivante->batch_handle);
+#endif
 
 	vivante_accel_shutdown(vivante);
 
+#ifdef VIVANTE_BATCH
 	drm_armada_bo_put(vivante->batch_bo);
+#endif
 
 	free(vivante);
 
@@ -576,8 +580,10 @@ Bool vivante_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 
 	vivante->drm_fd = GET_DRM_INFO(pScrn)->fd;
 	vivante->scrnIndex = pScrn->scrnIndex;
-	xorg_list_init(&vivante->batch_list);
 	vivante->bufmgr = mgr;
+
+#ifdef VIVANTE_BATCH
+	xorg_list_init(&vivante->batch_list);
 	vivante->batch_bo = drm_armada_bo_dumb_create(mgr, 64, 64, 32);
 	if (!vivante->batch_bo) {
 		xf86DrvMsg(vivante->scrnIndex, X_ERROR,
@@ -592,10 +598,12 @@ Bool vivante_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 			   strerror(errno));
 		goto fail;
 	}
+#endif
 
 	if (!vivante_accel_init(vivante))
 		goto fail;
 
+#ifdef VIVANTE_BATCH
 	if (!vivante_map_bo_to_gpu(vivante, vivante->batch_bo,
 				   &vivante->batch_info,
 				   &vivante->batch_handle))
@@ -608,6 +616,7 @@ Bool vivante_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 //		   "vivante: created batch at v%p p0x%08x max idx %u\n",
 //		   vivante->batch_ptr, vivante->batch_handle,
 //		   vivante->batch_idx_max);
+#endif
 
 	vivante_set_screen_priv(pScreen, vivante);
 
@@ -656,12 +665,16 @@ Bool vivante_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 	return TRUE;
 
 fail:
+#ifdef VIVANTE_BATCH
 	if (vivante->batch_info)
 		vivante_unmap_from_gpu(vivante, vivante->batch_info,
 				       vivante->batch_handle);
+#endif
 	vivante_accel_shutdown(vivante);
+#ifdef VIVANTE_BATCH
 	if (vivante->batch_bo)
 		drm_armada_bo_put(vivante->batch_bo);
+#endif
 	free(vivante);
 	return FALSE;
 }
