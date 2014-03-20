@@ -11,6 +11,7 @@
 #include "config.h"
 #endif
 
+#include "compat-api.h"
 #include "fb.h"
 #include "fbpict.h"
 #include "mipict.h"
@@ -79,10 +80,6 @@ static void GlyphExtents(int nlist, GlyphListPtr list, GlyphPtr *glyphs,
 }
 
 #define NeedsComponent(f) (PICT_FORMAT_A(f) != 0 && PICT_FORMAT_RGB(f) != 0)
-#ifndef GLYPH_HAS_GLYPH_PICTURE_ACCESSOR
-#define GetGlyphPicture(g, s) GlyphPicture((g))[(s)->myNum]
-#define SetGlyphPicture(g, s, p) GlyphPicture((g))[(s)->myNum] = p
-#endif
 
 void vivante_unaccel_Glyphs(CARD8 op, PicturePtr pSrc, PicturePtr pDst,
     PictFormatPtr maskFormat, INT16 xSrc, INT16 ySrc, int nlist,
