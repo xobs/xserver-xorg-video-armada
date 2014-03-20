@@ -466,7 +466,7 @@ static Bool vivante_fill(struct vivante *vivante, struct vivante_pixmap *vPix,
 			chunk = nBox;
 
 		for (i = 0, r = rects; i < chunk; i++, r++, b++)
-		RectBox(r, b, 0, 0);
+			RectBox(r, b, 0, 0);
 
 		err = gco2D_Blit(vivante->e2d, chunk, rects, rop, rop, vPix->format);
 		if (err)
@@ -478,7 +478,6 @@ static Bool vivante_fill(struct vivante *vivante, struct vivante_pixmap *vPix,
 
 	if (err != gcvSTATUS_OK)
 		vivante_error(vivante, "Blit", err);
-//	gcoHAL_Commit(vivante->hal, FALSE);
 
 	vivante_batch_add(vivante, vPix);
 
@@ -737,8 +736,6 @@ void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 				dst_off_x, dst_off_y, vDst->format);
 	if (err != gcvSTATUS_OK)
 		vivante_error(vivante, "Blit", err);
-
-//	gcoHAL_Commit(vivante->hal, FALSE); 
 
 	vivante_batch_add(vivante, vSrc);
 	vivante_batch_add(vivante, vDst);
