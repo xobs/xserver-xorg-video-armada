@@ -1260,6 +1260,67 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 	return vSrc;
 }
 
+static int vivante_accel_final_blend(struct vivante *vivante,
+	const struct vivante_blend_op *blend,
+	int oDst_x, int oDst_y, RegionPtr region,
+	PicturePtr pDst, struct vivante_pixmap *vDst, int xDst, int yDst,
+	PicturePtr pSrc, struct vivante_pixmap *vSrc, int xSrc, int ySrc)
+{
+	gcsRECT *rects, *rsrc, *rdst;
+	gcsRECT clip;
+	int i, nrects, rc;
+
+	RectBox(&clip, RegionExtents(region), oDst_x, oDst_y);
+
+#if 0
+	fprintf(stderr, "%s: dst %d,%d,%d,%d %d,%d %u (%x) bo %p\n",
+		__FUNCTION__, pDst->pDrawable->x, pDst->pDrawable->y,
+		pDst->pDrawable->x + pDst->pDrawable->width,
+		pDst->pDrawable->y + pDst->pDrawable->height,
+		xDst, yDst, vDst->pict_format, pDst->format, vDst->bo);
+#endif
+
+	nrects = REGION_NUM_RECTS(region);
+	rects = malloc(sizeof(*rects) * nrects * 2);
+	if (!rects) {
+		xf86DrvMsg(vivante->scrnIndex, X_ERROR,
+			   "%s: malloc failed\n", __FUNCTION__);
+		return FALSE;
+	}
+
+	xSrc -= xDst;
+	ySrc -= yDst;
+
+	for (i = 0, rsrc = rects, rdst = rsrc + nrects;
+	     i < nrects;
+	     i++, rsrc++, rdst++) {
+		RectBox(rsrc, REGION_RECTS(region) + i, xSrc, ySrc);
+		RectBox(rdst, REGION_RECTS(region) + i, oDst_x, oDst_y);
+	}
+
+	rsrc = rects;
+	rdst = rects + nrects;
+
+#if 0
+	vivante_batch_wait_commit(vivante, vSrc);
+	dump_vPix(buf, vivante, vSrc, 1, "A-FSRC%02.2x-%p", op, pSrc);
+	dump_vPix(buf, vivante, vDst, 1, "A-FDST%02.2x-%p", op, pDst);
+#endif
+
+	rc = vivante_blend(vivante, &clip, blend,
+			   vDst, rdst, vSrc, rsrc, nrects);
+
+	free(rects);
+
+#if 0
+	vivante_batch_wait_commit(vivante, vDst);
+	dump_vPix(buf, vivante, vDst, PICT_FORMAT_A(pDst->format) != 0,
+		  "A-DEST%02.2x-%p", op, pDst);
+#endif
+
+	return rc;
+}
+
 int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	PicturePtr pDst, INT16 xSrc, INT16 ySrc, INT16 xMask, INT16 yMask,
 	INT16 xDst, INT16 yDst, CARD16 width, CARD16 height)
@@ -1270,8 +1331,7 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	PixmapPtr pPixmap, pPixTemp = NULL;
 	RegionRec region;
 	gcsRECT clipTemp;
-	gcsRECT clip;
-	int oDst_x, oDst_y;
+	int oDst_x, oDst_y, rc;
 
 	if (pDst->alphaMap || pSrc->alphaMap ||
 	    (pMask && (pMask->alphaMap || pMask->componentAlpha))) {
@@ -1485,64 +1545,15 @@ if (pMask && pMask->pDrawable)
 		ySrc = 0;
 	}
 
-//vivante_batch_wait_commit(vivante, vSrc);
-//dump_vPix(buf, vivante, vSrc, 1, "A-TSRC%02.2x-%p", op, pSrc);
+	rc = vivante_accel_final_blend(vivante, &vivante_composite_op[op],
+				       oDst_x, oDst_y, &region,
+				       pDst, vDst, xDst, yDst,
+				       pSrc, vSrc, xSrc, ySrc);
+	RegionUninit(&region);
+	if (!rc)
+		goto failed;
 
-	if (1) {
-		gcsRECT *rects, *rsrc, *rdst;
-		int i, nrects;
-
-		xSrc -= xDst;
-		ySrc -= yDst;
-
-#if 0
-fprintf(stderr, "%s: dst %d,%d,%d,%d %d,%d %u (%x) bo %p\n",
-  __FUNCTION__, pDst->pDrawable->x, pDst->pDrawable->y,
-  pDst->pDrawable->x + pDst->pDrawable->width, pDst->pDrawable->y + pDst->pDrawable->height,
-  xDst, yDst, vDst->pict_format, pDst->format, vDst->bo);
-#endif
-
-		nrects = REGION_NUM_RECTS(&region);
-		rects = malloc(sizeof(*rects) * nrects * 2);
-		if (!rects) {
-fprintf(stderr, "%s: malloc fail\n", __FUNCTION__);
-			RegionUninit(&region);
-			goto failed;
-		}
-
-		for (i = 0, rsrc = rects, rdst = rsrc + nrects;
-		     i < nrects;
-		     i++, rsrc++, rdst++) {
-			RectBox(rsrc, REGION_RECTS(&region) + i, xSrc, ySrc);
-			RectBox(rdst, REGION_RECTS(&region) + i, oDst_x, oDst_y);
-//fprintf(stderr, "%s: rect %d,%d,%d,%d -> %d,%d,%d,%d\n", __FUNCTION__,
-//		rsrc->left, rsrc->top, rsrc->right, rsrc->bottom,
-//		rdst->left, rdst->top, rdst->right, rdst->bottom);
-		}
-
-		RectBox(&clip, RegionExtents(&region), oDst_x, oDst_y);
-		RegionUninit(&region);
-//fprintf(stderr, "%s: clip: %d,%d,%d,%d\n", __FUNCTION__, clip.left, clip.top, clip.right, clip.bottom);
-
-	rsrc = rects;
-	rdst = rsrc + nrects;
-//vivante_batch_wait_commit(vivante, vSrc);
-//dump_vPix(buf, vivante, vSrc, 1, "A-FSRC%02.2x-%p", op, pSrc);
-//dump_vPix(buf, vivante, vDst, 1, "A-FDST%02.2x-%p", op, pDst);
-		if (!vivante_blend(vivante, &clip, &vivante_composite_op[op],
-				   vDst, rdst,
-				   vSrc, rsrc, nrects)) {
-			free(rects);
-			goto failed;
-		}
-
-		free(rects);
-
-//vivante_batch_wait_commit(vivante, vDst);
-//fprintf(stderr, "%s: success\n", __FUNCTION__);
-//dump_vPix(buf, vivante, vDst,  PICT_FORMAT_A(pDst->format) != 0, "A-DEST%02.2x-%p", op, pDst); }
-		goto done;
-	}
+	goto done;
 
  fallback:
 #if 0
