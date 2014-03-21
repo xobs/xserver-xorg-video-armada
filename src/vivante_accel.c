@@ -1181,6 +1181,34 @@ static Bool vivante_blend(struct vivante *vivante, gcsRECT_PTR clip,
 }
 
 /*
+ * Returns TRUE and the pixel value in COLOUR if the picture
+ * represents a solid surface of constant colour.
+ */
+static Bool vivante_picture_is_solid(PicturePtr pict, CARD32 *colour)
+{
+	if (pict->pDrawable) {
+		DrawablePtr pDraw = pict->pDrawable;
+
+		if (pDraw->width == 1 && pDraw->height == 1 &&
+		    pict->repeat != RepeatNone) {
+			if (colour)
+				*colour = get_first_pixel(pDraw);
+			return TRUE;
+		}
+	} else {
+		SourcePict *sp = pict->pSourcePict;
+
+		if (sp->type == SourcePictTypeSolidFill) {
+			if (colour)
+				*colour = sp->solidFill.color;
+			return TRUE;
+		}
+	}
+
+	return FALSE;
+}
+
+/*
  *  If we're filling a solid
  * surface, force it to have alpha; it may be used in combination
  * with a mask.  Otherwise, we ask for the plain source format,
@@ -1194,25 +1222,10 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 	PixmapPtr pPixmap;
 	struct vivante_pixmap *vSrc;
 	DrawablePtr drawable = pict->pDrawable;
-	uint32_t colour;
+	CARD32 colour;
 	int tx, ty, ox, oy;
-	Bool fill = FALSE;
 
-	if (drawable == NULL) {
-		SourcePict *src = pict->pSourcePict;
-		if (src && src->type == SourcePictTypeSolidFill) {
-			colour = src->solidFill.color;
-			fill = TRUE;
-		} else {
-			return NULL;
-		}
-	} else if (drawable->width == 1 && drawable->height == 1 &&
-		   pict->repeat != RepeatNone) {
-		colour = get_first_pixel(pict->pDrawable);
-		fill = TRUE;
-	}
-
-	if (fill) {
+	if (vivante_picture_is_solid(pict, &colour)) {
 		*xout = 0;
 		*yout = 0;
 		vTemp->pict_format = vivante_pict_format(PICT_a8r8g8b8, FALSE);
@@ -1333,18 +1346,25 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	gcsRECT clipTemp;
 	int oDst_x, oDst_y, rc;
 
-	if (pDst->alphaMap || pSrc->alphaMap ||
-	    (pMask && (pMask->alphaMap || pMask->componentAlpha))) {
-//		fprintf(stderr, "%s: D:%s S:%s M:%s%s\n", __FUNCTION__,
-//			pDst->alphaMap ? "AM" : "", pSrc->alphaMap ? "AM" : "",
-//			pMask && pMask->alphaMap ? "AM" : "",
-//			pMask && pMask->componentAlpha ? "CA" : "");
-		return FALSE;
-	}
-
 	/* If we can't do the op, there's no point going any further */
 	if (op >= ARRAY_SIZE(vivante_composite_op))
 		return FALSE;
+
+	/* If there are alpha maps, fallback for now */
+	if (pDst->alphaMap || pSrc->alphaMap)
+		return FALSE;
+
+	/* If the source has no drawable, and is not solid, fallback */
+	if (!pSrc->pDrawable && !vivante_picture_is_solid(pSrc, NULL))
+		return FALSE;
+
+	if (pMask) {
+		if (pMask->alphaMap || pMask->componentAlpha)
+			return FALSE;
+
+		if (!pMask->pDrawable)
+			return FALSE;
+	}
 
 	/* The destination pixmap must have a bo */
 	pPixmap = vivante_drawable_pixmap_deltas(pDst->pDrawable, &oDst_x, &oDst_y);
