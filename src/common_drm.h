@@ -1,8 +1,8 @@
 #ifndef COMMON_DRM_H
 #define COMMON_DRM_H
 
-#include "compat-api.h"
 #include "xf86Crtc.h"
+#include "compat-api.h"
 
 struct common_crtc_info {
 	int drm_fd;

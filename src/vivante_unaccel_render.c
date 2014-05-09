@@ -11,11 +11,11 @@
 #include "config.h"
 #endif
 
-#include "compat-api.h"
 #include "fb.h"
 #include "fbpict.h"
 #include "mipict.h"
 
+#include "compat-api.h"
 #include "vivante_unaccel.h"
 #include "vivante_utils.h"
 
