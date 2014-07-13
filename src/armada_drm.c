@@ -26,13 +26,14 @@
 #include <X11/Xatom.h>
 
 #include "compat-api.h"
+#include "utils.h"
 #include "vivante.h"
 #include "vivante_dri2.h"
 
 #define CURSOR_MAX_WIDTH	64
 #define CURSOR_MAX_HEIGHT	32
 
-#define DRM_MODULE_NAME		"armada-drm"
+#define DRM_MODULE_NAMES	"armada-drm", "imx-drm"
 #define DRM_DEFAULT_BUS_ID	NULL
 
 enum {
@@ -445,6 +446,8 @@ static int armada_get_cap(int fd, uint64_t cap, uint64_t *val, int scrnIndex,
 	return err;
 }
 
+static const char *drm_module_names[] = { DRM_MODULE_NAMES };
+
 static Bool armada_drm_open_master(ScrnInfoPtr pScrn)
 {
 	struct all_drm_info *drm;
@@ -453,6 +456,7 @@ static Bool armada_drm_open_master(ScrnInfoPtr pScrn)
 	drmVersionPtr version;
 	const char *busid = DRM_DEFAULT_BUS_ID;
 	uint64_t val;
+	unsigned i;
 	int err;
 
 	pEnt = xf86GetEntityInfo(pScrn->entityList[0]);
@@ -478,7 +482,12 @@ static Bool armada_drm_open_master(ScrnInfoPtr pScrn)
 	drm->common.event_context.vblank_handler = vivante_dri2_vblank;
 #endif
 
-	drm->common.fd = drmOpen(DRM_MODULE_NAME, busid);
+	for (i = 0; i < ARRAY_SIZE(drm_module_names); i++) {
+		drm->common.fd = drmOpen(drm_module_names[i], busid);
+		if (drm->common.fd >= 0)
+			break;
+	}
+
 	if (drm->common.fd < 0) {
 		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
 			   "[drm] Failed to open DRM device for %s: %s\n",

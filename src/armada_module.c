@@ -21,10 +21,17 @@ static SymTabRec armada_chipsets[] = {
 	{ -1, NULL }
 };
 
+static SymTabRec ipu_chipsets[] = {
+	{  0, "i.MX6" },
+	{ -1, NULL }
+};
+
 static void armada_identify(int flags)
 {
 	xf86PrintChipsets(ARMADA_NAME, "Support for Marvell LCD Controller",
 			  armada_chipsets);
+	xf86PrintChipsets(ARMADA_NAME, "Support for Freescale IPU",
+			  ipu_chipsets);
 }
 
 static Bool armada_probe(DriverPtr drv, int flags)
