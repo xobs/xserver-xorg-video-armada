@@ -15,17 +15,19 @@
 # which can conflict - index, range, etc.
 AM_CFLAGS = $(filter-out -Wnested-externs -Wcast-qual -Wredundant-decls \
 	-Werror=write-strings -Wshadow,$(CWARNFLAGS)) \
-	$(XORG_CFLAGS) $(DRMARMADA_CFLAGS) $(UDEV_CFLAGS) \
-	-I$(top_srcdir)/common
+	$(XORG_CFLAGS) $(LIBGAL_CFLAGS) $(DRMARMADA_CFLAGS) $(UDEV_CFLAGS) \
+	-I$(top_srcdir)/src -I$(top_srcdir)/common
 
-armada_drv_la_LTLIBRARIES = armada_drv.la
-armada_drv_la_LDFLAGS = -module -avoid-version
-armada_drv_la_LIBADD = $(DRMARMADA_LIBS) $(UDEV_LIBS)
-armada_drv_ladir = @moduledir@/drivers
-armada_drv_la_SOURCES = armada_module.c \
-			armada_drm.c \
-			armada_drm_xv.c \
-			common_drm.c
+vivante_gpu_la_LTLIBRARIES = vivante_gpu.la
+vivante_gpu_la_LDFLAGS = -module -avoid-version
+vivante_gpu_la_LIBADD = $(DRMARMADA_LIBS) $(LIBGAL_LIBS) \
+			$(top_builddir)/common/libcommon.la
+vivante_gpu_ladir = @moduledir@/drivers
+vivante_gpu_la_SOURCES = \
+			vivante.c \
+			vivante_accel.c \
+			vivante_utils.c
 if HAVE_DRI2
-armada_drv_la_SOURCES += common_drm_dri2.c
+vivante_gpu_la_SOURCES += vivante_dri2.c
+vivante_gpu_la_LIBADD += $(DRI_LIBS)
 endif

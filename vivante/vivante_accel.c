@@ -1021,7 +1021,7 @@ static void adjust_repeat(PicturePtr pPict, int x, int y, unsigned w, unsigned h
 {
 	int tx, ty;
 
-	if (pPict->pDrawable && 
+	if (pPict->pDrawable &&
 	    pPict->repeat != RepeatNone &&
 	    pPict->filter != PictFilterConvolution &&
 	    transform_is_integer_translation(pPict->transform, &tx, &ty) &&

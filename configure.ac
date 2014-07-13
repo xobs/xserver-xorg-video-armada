@@ -71,8 +71,15 @@ AC_ARG_WITH(xorg-module-dir,
             [moduledir="$withval"],
             [moduledir="$libdir/xorg/modules"])
 
+# Vivante GPU acceleration using libGAL
+AC_ARG_ENABLE(vivante,
+	      AC_HELP_STRING([--disable-vivante],
+			     [Disable Vivante libGAL acceleration support [[default=enable]]]),
+	      [ACCEL_GALCORE="$enableval"],
+	      [ACCEL_GALCORE=auto])
+
 AC_ARG_WITH(libgal-include,
-	    AC_HELP_STRING([--with-libgal-include=PATH],
+            AC_HELP_STRING([--with-libgal-include=PATH],
                            [specify directory for installed libGAL include files [[default=/usr/local/include/HAL]]]),
             [libgal_include="$withval"],
             [libgal_include="/usr/local/include/HAL"])
@@ -83,19 +90,33 @@ AC_ARG_WITH(libgal-lib,
             [libgal_lib="$withval"],
             [libgal_lib="/usr/local/lib"])
 
-LIBGAL_CFLAGS="-I$libgal_include"
-LIBGAL_LIBS="-L$libgal_lib -lGAL"
+AS_IF([test x$ACCEL_GALCORE != xno],
+      [
+   LIBGAL_CFLAGS="-I$libgal_include"
+   LIBGAL_LIBS="-L$libgal_lib -lGAL"
 
-saved_CPPFLAGS="$CPPFLAGS"
-CPPFLAGS="$CPPFLAGS $LIBGAL_CFLAGS"
-AC_CHECK_HEADERS([gc_hal.h gc_hal_base.h gc_hal_enum.h],
-                 [],
-                 [AC_MSG_ERROR([required libGAL header file missing])])
-AC_CHECK_HEADERS([gc_hal_raster.h],
-                 [],
-                 [AC_MSG_ERROR([required libGAL header file missing])],
-                 [#include <gc_hal.h>])
-CPPFLAGS="$saved_CPPFLAGS"
+   saved_CPPFLAGS="$CPPFLAGS"
+   CPPFLAGS="$CPPFLAGS $LIBGAL_CFLAGS"
+   AC_CHECK_HEADERS([gc_hal.h gc_hal_base.h gc_hal_enum.h],
+                    [],
+                    AS_IF([test x$ACCEL_GALCORE != xyes],
+                          [AC_MSG_ERROR([required libGAL header file missing])],
+			  [ACCEL_GALCORE=no]))
+   AC_CHECK_HEADERS([gc_hal_raster.h],
+                    [],
+                    AS_IF([test x$ACCEL_GALCORE != xyes],
+                          [AC_MSG_ERROR([required libGAL header file missing])],
+			  [ACCEL_GALCORE=no]),
+                    [#include <gc_hal.h>])
+   CPPFLAGS="$saved_CPPFLAGS"
+   AS_IF([test x$ACCEL_GALCORE = xauto], [ACCEL_GALCORE=yes])
+])
+AC_MSG_CHECKING([whether to build Vivante libGAL acceleration support])
+AS_IF([test x$ACCEL_GALCORE = xyes],
+      [AC_DEFINE(HAVE_ACCEL_GALCORE,1,[Enable Vivante libGAL acceleration support])])
+AM_CONDITIONAL(HAVE_ACCEL_GALCORE, test x$ACCEL_GALCORE = xyes)
+AC_MSG_RESULT([$ACCEL_GALCORE])
+
 
 AC_ARG_ENABLE(dri2, AC_HELP_STRING([--disable-dri2],
 		[Disable DRI support [[default=auto]]]),
@@ -144,4 +165,5 @@ AC_OUTPUT([
 	common/Makefile
 	man/Makefile
 	src/Makefile
+	vivante/Makefile
 ])
