@@ -11,9 +11,11 @@
 #include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include <armada_bufmgr.h>
 
+#include "armada_accel.h"
 #include "armada_drm.h"
 #include "common_drm.h"
 #include "common_drm_dri2.h"
@@ -28,8 +30,6 @@
 
 #include "compat-api.h"
 #include "utils.h"
-#include "vivante.h"
-#include "vivante_dri2.h"
 
 #define CURSOR_MAX_WIDTH	64
 #define CURSOR_MAX_HEIGHT	32
@@ -40,15 +40,29 @@
 enum {
 	OPTION_XV_ACCEL,
 	OPTION_USE_GPU,
+	OPTION_ACCEL_MODULE,
 };
 
 const OptionInfoRec armada_drm_options[] = {
 	{ OPTION_XV_ACCEL,	"XvAccel",	OPTV_BOOLEAN, {0}, FALSE },
 	{ OPTION_USE_GPU,	"UseGPU",	OPTV_BOOLEAN, {0}, FALSE },
+	{ OPTION_ACCEL_MODULE,	"AccelModule",	OPTV_STRING,  {0}, FALSE },
 	{ -1,			NULL,		OPTV_NONE,    {0}, FALSE }
 };
 
-static void armada_drm_ModifyScreenPixmap(ScreenPtr pScreen,
+static Bool armada_drm_accel_import(ScreenPtr pScreen,
+	struct armada_drm_info *arm, PixmapPtr pixmap, struct drm_armada_bo *bo)
+{
+	const struct armada_accel_ops *ops = arm->accel_ops;
+
+	if (!ops)
+		return TRUE;
+
+	ops->set_pixmap_bo(pixmap, bo);
+	return TRUE;
+}
+
+static Bool armada_drm_ModifyScreenPixmap(ScreenPtr pScreen,
 	struct armada_drm_info *arm, int width, int height, int depth, int bpp,
 	struct drm_armada_bo *bo)
 {
@@ -56,8 +70,8 @@ static void armada_drm_ModifyScreenPixmap(ScreenPtr pScreen,
 
 	pScreen->ModifyPixmapHeader(pixmap, width, height, depth, bpp,
 				    bo->pitch, bo->ptr);
-	if (arm->accel)
-		vivante_set_pixmap_bo(pixmap, bo);
+
+	return armada_drm_accel_import(pScreen, arm, pixmap, bo);
 }
 
 static struct drm_armada_bo *armada_bo_alloc_framebuffer(ScrnInfoPtr pScrn,
@@ -185,8 +199,7 @@ armada_drm_crtc_shadow_create(xf86CrtcPtr crtc, void *data,
 		return NULL;
 	}
 
-	if (arm->accel)
-		vivante_set_pixmap_bo(rotate_pixmap, bo);
+	armada_drm_accel_import(pScrn->pScreen, arm, rotate_pixmap, bo);
 
 	return rotate_pixmap;
 }
@@ -197,8 +210,8 @@ armada_drm_crtc_shadow_destroy(xf86CrtcPtr crtc, PixmapPtr rot_pixmap,
 {
 	if (rot_pixmap) {
 		struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(crtc->scrn);
-		if (arm->accel)
-			vivante_free_pixmap(rot_pixmap);
+		if (arm->accel_ops)
+			arm->accel_ops->free_pixmap(rot_pixmap);
 		FreeScratchPixmapHeader(rot_pixmap);
 	}
 	if (data) {
@@ -268,7 +281,7 @@ static void armada_drm_crtc_alloc_cursors(ScrnInfoPtr pScrn)
 
 static Bool armada_drm_xf86crtc_resize(ScrnInfoPtr pScrn, int width, int height)
 {
-	ScreenPtr screen = screenInfo.screens[pScrn->scrnIndex];
+	ScreenPtr screen = xf86ScrnToScreen(pScrn);
 	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
 	struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(pScrn);
 	struct drm_armada_bo *bo, *old_bo;
@@ -281,28 +294,37 @@ static Bool armada_drm_xf86crtc_resize(ScrnInfoPtr pScrn, int width, int height)
 	bo = armada_bo_alloc_framebuffer(pScrn, width, height,
 					 pScrn->bitsPerPixel);
 	if (!bo)
-		return FALSE;
+		goto err_alloc;
 
 	ret = drmModeAddFB(drm->fd, width, height,
 			   pScrn->depth, pScrn->bitsPerPixel,
 			   bo->pitch, bo->handle, &fb_id);
 	if (ret) {
 		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
-			   "[drm] failed to add fb: %s\n", strerror(errno)); 
-		drm_armada_bo_put(bo);
-		return FALSE;
+			   "[drm] failed to add fb: %s\n", strerror(errno));
+		goto err_addfb;
+	}
+
+	if (!armada_drm_ModifyScreenPixmap(screen, arm, width, height, -1, -1, bo)) {
+		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+			   "[drm] failed to modify screen pixmap: %s\n", strerror(errno));
+		goto err_modpix;
 	}
 
 	old_bo = arm->front_bo;
 	arm->front_bo = bo;
-
-	armada_drm_ModifyScreenPixmap(screen, arm, width, height, -1, -1, bo);
-
 	displayWidth = bo->pitch / arm->cpp;
 	common_drm_crtc_resize(pScrn, width, height, displayWidth, fb_id);
 
 	drm_armada_bo_put(old_bo);
 	return TRUE;
+
+ err_modpix:
+	drmModeRmFB(drm->fd, fb_id);
+ err_addfb:
+	drm_armada_bo_put(bo);
+ err_alloc:
+	return FALSE;
 }
 
 static const xf86CrtcConfigFuncsRec armada_drm_config_funcs = {
@@ -353,7 +375,8 @@ static Bool armada_drm_CreateScreenResources(ScreenPtr pScreen)
 	if (ret) {
 		struct drm_armada_bo *bo = arm->front_bo;
 
-		armada_drm_ModifyScreenPixmap(pScreen, arm, -1, -1, -1, -1, bo);
+		ret = armada_drm_ModifyScreenPixmap(pScreen, arm, -1, -1,
+						    -1, -1, bo);
 	}
 	return ret;
 }
@@ -371,8 +394,6 @@ static Bool armada_drm_ScreenInit(SCREEN_INIT_ARGS_DECL)
 			   "[drm] set master failed: %s\n", strerror(errno));
 		return FALSE;
 	}
-
-	arm->accel = xf86ReturnOptValBool(arm->Options, OPTION_USE_GPU, TRUE);
 
 	bo = armada_bo_alloc_framebuffer(pScrn, pScrn->virtualX,
 					 pScrn->virtualY, pScrn->bitsPerPixel);
@@ -398,10 +419,11 @@ static Bool armada_drm_ScreenInit(SCREEN_INIT_ARGS_DECL)
 		if (!arm->version || !strstr(arm->version->name, "armada"))
 			mgr = NULL;
 
-		if (!vivante_ScreenInit(pScreen, mgr)) {
+		if (!arm->accel_ops->screen_init(pScreen, mgr)) {
 			xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
 				   "[drm] Vivante initialization failed, running unaccelerated\n");
 			arm->accel = FALSE;
+			arm->accel_ops = NULL;
 		}
 	}
 
@@ -423,9 +445,48 @@ static Bool armada_drm_ScreenInit(SCREEN_INIT_ARGS_DECL)
 	return ret;
 }
 
+static Bool armada_drm_load_accel(ScrnInfoPtr pScrn,
+	struct armada_drm_info *arm, const char *s)
+{
+	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
+
+	if (!s)
+		return FALSE;
+
+	arm->accel_module = xf86LoadSubModule(pScrn, s);
+	if (!arm->accel_module)
+		return FALSE;
+
+	if (!accel_module_init(&arm->accel_ops)) {
+		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+			   "[drm] accel module %s missing accel_ops\n", s);
+		xf86UnloadSubModule(arm->accel_module);
+		return FALSE;
+	}
+
+	if (arm->accel_ops->pre_init &&
+	    !arm->accel_ops->pre_init(pScrn, drm->fd)) {
+		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+			   "[drm] accel module %s failed to initialise\n", s);
+		xf86UnloadSubModule(arm->accel_module);
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+static const char *armada_drm_accelerators[] = {
+#ifdef HAVE_ACCEL_GALCORE
+	"vivante_gpu",
+#endif
+	NULL,
+};
+
 static Bool armada_drm_pre_init(ScrnInfoPtr pScrn)
 {
 	struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(pScrn);
+	const char *s;
+	unsigned i;
 
 	xf86CollectOptions(pScrn, NULL);
 	arm->Options = malloc(sizeof(armada_drm_options));
@@ -435,6 +496,23 @@ static Bool armada_drm_pre_init(ScrnInfoPtr pScrn)
 	xf86ProcessOptions(pScrn->scrnIndex, pScrn->options, arm->Options);
 
 	arm->cpp = (pScrn->bitsPerPixel + 7) / 8;
+
+	arm->accel_ops = NULL;
+	arm->accel = xf86ReturnOptValBool(arm->Options, OPTION_USE_GPU, TRUE);
+	s = xf86GetOptValString(arm->Options, OPTION_ACCEL_MODULE);
+
+	if (arm->accel) {
+		if (!s) {
+			for (i = 0; armada_drm_accelerators[i]; i++) {
+				if (armada_drm_load_accel(pScrn, arm,
+						armada_drm_accelerators[i]))
+					break;
+			}
+			if (!arm->accel_ops)
+				arm->accel = FALSE;
+		} else if (!armada_drm_load_accel(pScrn, arm, s))
+				return FALSE;
+	}
 
 	xf86CrtcConfigInit(pScrn, &armada_drm_config_funcs);
 

@@ -19,7 +19,7 @@
 
 #include <armada_bufmgr.h>
 
-#include "armada_drm.h"
+#include "armada_accel.h"
 
 #include "fb.h"
 #include "gcstruct.h"
@@ -712,3 +712,35 @@ fail:
 	free(vivante);
 	return FALSE;
 }
+
+static const struct armada_accel_ops accel_ops = {
+	.screen_init	= vivante_ScreenInit,
+	.set_pixmap_bo	= vivante_set_pixmap_bo,
+	.free_pixmap	= vivante_free_pixmap,
+};
+
+_X_EXPORT Bool accel_module_init(const struct armada_accel_ops **ops)
+{
+	*ops = &accel_ops;
+
+	return TRUE;
+}
+
+static XF86ModuleVersionInfo vivante_version = {
+	.modname = "Vivante GPU driver",
+	.vendor = MODULEVENDORSTRING,
+	._modinfo1_ = MODINFOSTRING1,
+	._modinfo2_ = MODINFOSTRING2,
+	.xf86version = XORG_VERSION_CURRENT,
+	.majorversion = PACKAGE_VERSION_MAJOR,
+	.minorversion = PACKAGE_VERSION_MINOR,
+	.patchlevel = PACKAGE_VERSION_PATCHLEVEL,
+	.abiclass = ABI_CLASS_ANSIC,
+	.abiversion = ABI_ANSIC_VERSION,
+	.moduleclass = MOD_CLASS_NONE,
+	.checksum = { 0, 0, 0, 0 },
+};
+
+_X_EXPORT XF86ModuleData vivante_gpuModuleData = {
+	.vers = &vivante_version,
+};

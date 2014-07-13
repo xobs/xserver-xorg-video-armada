@@ -13,6 +13,9 @@
 
 #include "common_drm.h"
 
+struct drm_armada_bo;
+struct drm_armada_bufmgr;
+
 struct armada_drm_info {
 	OptionInfoPtr Options;
 	CloseScreenProcPtr CloseScreen;
@@ -20,6 +23,8 @@ struct armada_drm_info {
 	drmVersionPtr version;
 	struct drm_armada_bufmgr *bufmgr;
 	struct drm_armada_bo *front_bo;
+	const struct armada_accel_ops *accel_ops;
+	void *accel_module;
 	Bool accel;
 	unsigned cpp;
 };

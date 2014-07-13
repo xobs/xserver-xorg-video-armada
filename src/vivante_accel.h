@@ -14,7 +14,6 @@
 struct drm_armada_bo;
 struct drm_armada_bufmgr;
 struct vivante_dri2_info;
-struct armada_drm_info;
 
 #undef DEBUG
 
