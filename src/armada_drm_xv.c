@@ -415,15 +415,20 @@ static int armada_drm_bufs_alloc(struct drm_xv *drmxv)
 {
 	struct drm_armada_bufmgr *bufmgr = drmxv->bufmgr;
 	uint32_t width = drmxv->width;
-	uint32_t height = drmxv->image_size / width / 4;
+	uint32_t height = drmxv->image_size / width / 2;
 	unsigned i;
 
 	for (i = 0; i < ARRAY_SIZE(drmxv->bufs); i++) {
 		struct drm_armada_bo *bo;
 
-		bo = drm_armada_bo_dumb_create(bufmgr, width, height, 32);
+		bo = drm_armada_bo_dumb_create(bufmgr, width, height, 16);
+		if (!bo) {
+			armada_drm_bufs_free(drmxv);
+			return BadAlloc;
+		}
+
 		drmxv->bufs[i].bo = bo;
-		if (!bo || drm_armada_bo_map(bo) ||
+		if (drm_armada_bo_map(bo) ||
 		    !armada_drm_create_fbid(drmxv, bo, &drmxv->bufs[i].fb_id)) {
 			armada_drm_bufs_free(drmxv);
 			return BadAlloc;
