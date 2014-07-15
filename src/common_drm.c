@@ -918,9 +918,6 @@ Bool common_drm_PreScreenInit(ScreenPtr pScreen)
 	xf86SetBackingStore(pScreen);
 	xf86SetSilkenMouse(pScreen);
 
-	drm->CloseScreen = pScreen->CloseScreen;
-	pScreen->CloseScreen = common_drm_CloseScreen;
-
 	return TRUE;
 }
 
@@ -970,6 +967,9 @@ Bool common_drm_PostScreenInit(ScreenPtr pScreen)
 	} else {
 		drm->hw_cursor = FALSE;
 	}
+
+	drm->CloseScreen = pScreen->CloseScreen;
+	pScreen->CloseScreen = common_drm_CloseScreen;
 
 	if (!xf86CrtcScreenInit(pScreen)) {
 		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
