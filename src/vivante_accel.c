@@ -581,10 +581,10 @@ Bool vivante_accel_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int n,
 		return FALSE;
 
 	for (i = n, p = pBox; i; i--, p++, ppt++, pwidth++) {
-		p->x1 = ppt->x + pDrawable->x;
-		p->x2 = ppt->x + *pwidth;
-		p->y1 = ppt->y + pDrawable->y;
-		p->y2 = ppt->y + 1;
+		p->x1 = ppt->x;
+		p->x2 = p->x2 + *pwidth;
+		p->y1 = ppt->y;
+		p->y2 = p->y1 + 1;
 	}
 
 	/* Convert the boxes to a region */
