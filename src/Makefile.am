@@ -20,7 +20,8 @@ AM_CFLAGS = $(filter-out -Wnested-externs -Wcast-qual -Wredundant-decls \
 
 armada_drv_la_LTLIBRARIES = armada_drv.la
 armada_drv_la_LDFLAGS = -module -avoid-version
-armada_drv_la_LIBADD = $(LIBGAL_LIBS) $(DRMARMADA_LIBS) $(UDEV_LIBS)
+armada_drv_la_LIBADD = $(LIBGAL_LIBS) $(DRMARMADA_LIBS) $(UDEV_LIBS) \
+			$(top_builddir)/common/libcommon.la
 armada_drv_ladir = @moduledir@/drivers
 armada_drv_la_SOURCES = armada_module.c \
 			armada_drm.c \

@@ -18,4 +18,5 @@ AM_CFLAGS = $(filter-out -Wnested-externs -Wcast-qual -Wredundant-decls \
 	$(XORG_CFLAGS)
 
 noinst_LTLIBRARIES = libcommon.la
-libcommon_la_SOURCES =
+libcommon_la_SOURCES = \
+		glyph_extents.c
