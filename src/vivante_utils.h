@@ -18,19 +18,6 @@ const char *vivante_strerror(int err);
 #define vivante_error(v,w,e) __vivante_error(v,__func__,w,e)
 void __vivante_error(struct vivante *, const char *, const char *, int);
 
-static inline PixmapPtr vivante_drawable_pixmap(DrawablePtr pDrawable)
-{
-	if (OnScreenDrawable(pDrawable->type)) {
-		WindowPtr pWin = container_of(pDrawable, struct _Window, drawable);
-
-		return pDrawable->pScreen->GetWindowPixmap(pWin);
-	} else {
-		return container_of(pDrawable, struct _Pixmap, drawable);
-	}
-}
-
-PixmapPtr vivante_drawable_pixmap_deltas(DrawablePtr pDrawable, int *x, int *y);
-
 Bool vivante_map_bo_to_gpu(struct vivante *vivante, struct drm_armada_bo *bo,
 	void **info, uint32_t *handle);
 void vivante_unmap_from_gpu(struct vivante *vivante, void *info,

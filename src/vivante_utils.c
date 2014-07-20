@@ -23,6 +23,7 @@
 
 #include <armada_bufmgr.h>
 #include "gal_extension.h"
+#include "pixmaputil.h"
 
 #include "vivante_accel.h"
 #include "vivante_utils.h"
@@ -77,25 +78,6 @@ static gceSTATUS vivante_ioctl(struct vivante *vivante, unsigned cmd,
 	return gcoOS_DeviceControl(vivante->os, cmd, buf, size, buf, size);
 }
 
-
-PixmapPtr vivante_drawable_pixmap_deltas(DrawablePtr pDrawable, int *x, int *y)
-{
-	PixmapPtr pPixmap;
-
-	*x = *y = 0;
-	if (OnScreenDrawable(pDrawable->type)) {
-		WindowPtr pWin = container_of(pDrawable, struct _Window, drawable);
-
-		pPixmap = pDrawable->pScreen->GetWindowPixmap(pWin);
-#ifdef COMPOSITE
-		*x = -pPixmap->screen_x;
-		*y = -pPixmap->screen_y;
-#endif
-	} else {
-		pPixmap = container_of(pDrawable, struct _Pixmap, drawable);
-	}
-	return pPixmap;
-}
 
 
 /*
@@ -205,7 +187,7 @@ Bool vivante_map_gpu(struct vivante *vivante, struct vivante_pixmap *vPix)
  */
 void vivante_finish_drawable(DrawablePtr pDrawable, int access)
 {
-	PixmapPtr pixmap = vivante_drawable_pixmap(pDrawable);
+	PixmapPtr pixmap = drawable_pixmap(pDrawable);
 	struct vivante_pixmap *vPix = vivante_get_pixmap_priv(pixmap);
 
 	if (vPix) {
@@ -224,7 +206,7 @@ void vivante_finish_drawable(DrawablePtr pDrawable, int access)
  */
 void vivante_prepare_drawable(DrawablePtr pDrawable, int access)
 {
-	PixmapPtr pixmap = vivante_drawable_pixmap(pDrawable);
+	PixmapPtr pixmap = drawable_pixmap(pDrawable);
 	struct vivante_pixmap *vPix = vivante_get_pixmap_priv(pixmap);
 
 	if (vPix) {
@@ -391,7 +373,7 @@ void dump_Drawable(DrawablePtr pDraw, const char *fmt, ...)
 	int off_x, off_y;
 	va_list ap;
 
-	pPix = vivante_drawable_pixmap_deltas(pDraw, &off_x, &off_y);
+	pPix = drawable_pixmap_deltas(pDraw, &off_x, &off_y);
 	vPix = vivante_get_pixmap_priv(pPix);
 
 	if (!vPix)
@@ -410,7 +392,7 @@ void dump_Picture(PicturePtr pDst, const char *fmt, ...)
 	int alpha, off_x, off_y;
 	va_list ap;
 
-	pPix = vivante_drawable_pixmap_deltas(pDst->pDrawable, &off_x, &off_y);
+	pPix = drawable_pixmap_deltas(pDst->pDrawable, &off_x, &off_y);
 	vPix = vivante_get_pixmap_priv(pPix);
 
 	if (!vPix)

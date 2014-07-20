@@ -22,6 +22,7 @@
 #include "gcstruct.h"
 #include "xf86.h"
 
+#include "pixmaputil.h"
 #include "vivante_accel.h"
 #include "vivante_unaccel.h"
 #include "vivante_utils.h"
@@ -39,26 +40,6 @@ static inline uint32_t scale16(uint32_t val, int bits)
 		bits <<= 1;
 	}
 	return val >> 8;
-}
-
-static CARD32 get_first_pixel(DrawablePtr pDraw)
-{
-	union { CARD32 c32; CARD16 c16; CARD8 c8; char c; } pixel;
-
-	pDraw->pScreen->GetImage(pDraw, 0, 0, 1, 1, ZPixmap, ~0, &pixel.c);
-
-	switch (pDraw->bitsPerPixel) {
-	case 32:
-		return pixel.c32;
-	case 16:
-		return pixel.c16;
-	case 8:
-	case 4:
-	case 1:
-		return pixel.c8;
-	default:
-		assert(0);
-	}
 }
 
 static void vivante_disable_alpha_blend(struct vivante *vivante)
@@ -581,7 +562,7 @@ Bool vivante_accel_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int n,
 	int i, off_x, off_y;
 	Bool ret, overlap;
 
-	pPix = vivante_drawable_pixmap_deltas(pDrawable, &off_x, &off_y);
+	pPix = drawable_pixmap_deltas(pDrawable, &off_x, &off_y);
 	vPix = vivante_get_pixmap_priv(pPix);
 	if (!vPix)
 		return FALSE;
@@ -634,7 +615,7 @@ Bool vivante_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 	if (format != ZPixmap)
 		return FALSE;
 
-	pPix = vivante_drawable_pixmap_deltas(pDrawable, &dst_off_x, &dst_off_y);
+	pPix = drawable_pixmap_deltas(pDrawable, &dst_off_x, &dst_off_y);
 	vPix = vivante_get_pixmap_priv(pPix);
 	if (!vPix)
 		return FALSE;
@@ -736,8 +717,8 @@ void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 		goto fallback;
 
 	/* Get the source and destination pixmaps and offsets */
-	pixSrc = vivante_drawable_pixmap_deltas(pSrc, &src_off_x, &src_off_y);
-	pixDst = vivante_drawable_pixmap_deltas(pDst, &dst_off_x, &dst_off_y);
+	pixSrc = drawable_pixmap_deltas(pSrc, &src_off_x, &src_off_y);
+	pixDst = drawable_pixmap_deltas(pDst, &dst_off_x, &dst_off_y);
 
 	vSrc = vivante_get_pixmap_priv(pixSrc);
 	vDst = vivante_get_pixmap_priv(pixDst);
@@ -792,7 +773,7 @@ Bool vivante_accel_PolyPoint(DrawablePtr pDrawable, GCPtr pGC, int mode,
 	int i, off_x, off_y;
 	Bool ret, overlap;
 
-	pPix = vivante_drawable_pixmap_deltas(pDrawable, &off_x, &off_y);
+	pPix = drawable_pixmap_deltas(pDrawable, &off_x, &off_y);
 	vPix = vivante_get_pixmap_priv(pPix);
 	if (!vPix)
 		return FALSE;
@@ -852,7 +833,7 @@ Bool vivante_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 	int off_x, off_y, nclip, nb;
 	Bool ret = TRUE;
 
-	pPix = vivante_drawable_pixmap_deltas(pDrawable, &off_x, &off_y);
+	pPix = drawable_pixmap_deltas(pDrawable, &off_x, &off_y);
 	vPix = vivante_get_pixmap_priv(pPix);
 	if (!vPix)
 		return FALSE;
@@ -904,7 +885,7 @@ Bool vivante_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 	int off_x, off_y, nbox;
 	Bool ret;
 
-	pPix = vivante_drawable_pixmap_deltas(pDrawable, &off_x, &off_y);
+	pPix = drawable_pixmap_deltas(pDrawable, &off_x, &off_y);
 	vPix = vivante_get_pixmap_priv(pPix);
 	vTile = vivante_get_pixmap_priv(pTile);
 	if (!vPix || !vTile)
@@ -1054,14 +1035,6 @@ static Bool transform_is_integer_translation(PictTransformPtr t, int *tx, int *t
 
 	*tx = xFixedToInt(t->matrix[0][2]);
 	*ty = xFixedToInt(t->matrix[1][2]);
-
-	return TRUE;
-}
-
-static Bool drawable_contains(DrawablePtr drawable, int x, int y, int w, int h)
-{
-	if (x < 0 || y < 0 || x + w > drawable->width || y + h > drawable->height)
-		return FALSE;
 
 	return TRUE;
 }
@@ -1321,7 +1294,7 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 		return vTemp;
 	}
 
-	pPixmap = vivante_drawable_pixmap_deltas(pict->pDrawable, &ox, &oy);
+	pPixmap = drawable_pixmap_deltas(pict->pDrawable, &ox, &oy);
 	vSrc = vivante_get_pixmap_priv(pPixmap);
 	if (!vSrc)
 		return NULL;
@@ -1501,7 +1474,7 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 		return FALSE;
 
 	/* The destination pixmap must have a bo */
-	pPixmap = vivante_drawable_pixmap_deltas(pDst->pDrawable, &oDst_x, &oDst_y);
+	pPixmap = drawable_pixmap_deltas(pDst->pDrawable, &oDst_x, &oDst_y);
 	vDst = vivante_get_pixmap_priv(pPixmap);
 	if (!vDst)
 		return FALSE;
@@ -1734,7 +1707,7 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 		gcsRECT rsrc, rdst;
 		int oMask_x, oMask_y;
 
-		pPixMask = vivante_drawable_pixmap_deltas(pMask->pDrawable, &oMask_x, &oMask_y);
+		pPixMask = drawable_pixmap_deltas(pMask->pDrawable, &oMask_x, &oMask_y);
 		vMask = vivante_get_pixmap_priv(pPixMask);
 		if (!vMask)
 			goto failed;

@@ -25,6 +25,7 @@
 #include "compat-api.h"
 #include "common_drm.h"
 #include "common_drm_helper.h"
+#include "pixmaputil.h"
 #include "vivante_accel.h"
 #include "vivante_dri2.h"
 #include "vivante_utils.h"
@@ -127,7 +128,7 @@ vivante_dri2_get_drawable(DRI2BufferPtr buffer, DrawablePtr drawable)
 
 static PixmapPtr vivante_dri2_get_front_pixmap(DrawablePtr drawable)
 {
-	PixmapPtr pixmap = vivante_drawable_pixmap(drawable);
+	PixmapPtr pixmap = drawable_pixmap(drawable);
 	struct vivante_pixmap *vpix = vivante_get_pixmap_priv(pixmap);
 
 	if (!vpix)

@@ -19,4 +19,6 @@ AM_CFLAGS = $(filter-out -Wnested-externs -Wcast-qual -Wredundant-decls \
 
 noinst_LTLIBRARIES = libcommon.la
 libcommon_la_SOURCES = \
-		glyph_extents.c
+		get_first_pixel.c \
+		glyph_extents.c \
+		pixmaputil.c
