@@ -30,6 +30,7 @@
 
 #include "fbutil.h"
 #include "gal_extension.h"
+#include "pixmaputil.h"
 
 #include "vivante.h"
 #include "vivante_accel.h"
@@ -243,8 +244,10 @@ vivante_PolyFillRect(DrawablePtr pDrawable, GCPtr pGC, int nrect,
 	xRectangle * prect)
 {
 	struct vivante *vivante = vivante_get_screen_priv(pDrawable->pScreen);
+	PixmapPtr pPix = drawable_pixmap(pDrawable);
 
-	if (vivante->force_fallback)
+	if (vivante->force_fallback ||
+	    (pPix->drawable.width == 1 && pPix->drawable.height == 1))
 		goto fallback;
 
 	assert(vivante_GC_can_accel(pGC, pDrawable));
