@@ -28,6 +28,7 @@
 
 #include <gc_hal.h>
 
+#include "fbutil.h"
 #include "gal_extension.h"
 
 #include "vivante.h"
@@ -144,10 +145,8 @@ void vivante_set_pixmap_bo(PixmapPtr pixmap, struct drm_armada_bo *bo)
 /* Determine whether this GC can be accelerated */
 static Bool vivante_GC_can_accel(GCPtr pGC, DrawablePtr pDrawable)
 {
-	unsigned long fullmask = FbFullMask(pDrawable->depth);
-
 	/* Must be full-planes */
-	return !pGC || (pGC->planemask & fullmask) == fullmask;
+	return !pGC || fb_full_planemask(pDrawable, pGC->planemask);
 }
 
 static Bool vivante_GCfill_can_accel(GCPtr pGC, DrawablePtr pDrawable)
