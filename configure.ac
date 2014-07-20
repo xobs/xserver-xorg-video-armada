@@ -141,6 +141,7 @@ AC_SUBST([moduledir])
 
 AC_OUTPUT([
 	Makefile
-	src/Makefile
+	common/Makefile
 	man/Makefile
+	src/Makefile
 ])

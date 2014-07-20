@@ -4,16 +4,16 @@
 #ifndef GAL_EXTENSION_H
 #define GAL_EXTENSION_H
 
+#include <stdint.h>
 #include <sys/ioctl.h>
-#include <gc_hal.h>
 
 /* Map a DMABUF fd into galcore */
 struct dmabuf_map_old {
-	unsigned zero;
-	unsigned status;
+	uint32_t zero;
+	uint32_t status;
 	int fd;
-	gctPOINTER Info;
-	gctUINT32 Address;
+	void *Info;
+	uint32_t Address;
 };
 #define IOC_GDMABUF_MAP_OLD	_IOWR('_', 0, struct dmabuf_map_old)
 
