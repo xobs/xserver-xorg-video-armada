@@ -8,6 +8,7 @@
 #include "windowstr.h"
 #include "utils.h"
 
+char *drawable_desc(DrawablePtr pDraw, char *str, size_t n);
 CARD32 get_first_pixel(DrawablePtr pDraw);
 
 static inline PixmapPtr drawable_pixmap(DrawablePtr pDrawable)
