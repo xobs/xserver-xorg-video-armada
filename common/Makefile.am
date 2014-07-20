@@ -21,6 +21,7 @@ noinst_LTLIBRARIES = libcommon.la
 libcommon_la_SOURCES = \
 		drawable_desc.c \
 		get_first_pixel.c \
+		glyph_cache.c \
 		glyph_extents.c \
 		mark.c \
 		pamdump.c \
