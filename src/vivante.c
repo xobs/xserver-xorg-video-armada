@@ -191,7 +191,7 @@ vivante_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int n, DDXPointPtr ppt,
 	if (vivante->force_fallback ||
 	    !vivante_GCfill_can_accel(pGC, pDrawable) ||
 	    !vivante_accel_FillSpans(pDrawable, pGC, n, ppt, pwidth, fSorted))
-		vivante_unaccel_FillSpans(pDrawable, pGC, n, ppt, pwidth, fSorted);
+		unaccel_FillSpans(pDrawable, pGC, n, ppt, pwidth, fSorted);
 }
 
 static void
@@ -205,7 +205,7 @@ vivante_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth, int x, int y,
 	if (vivante->force_fallback ||
 	    !vivante_accel_PutImage(pDrawable, pGC, depth, x, y, w, h, leftPad,
 				    format, bits))
-		vivante_unaccel_PutImage(pDrawable, pGC, depth, x, y, w, h, leftPad,
+		unaccel_PutImage(pDrawable, pGC, depth, x, y, w, h, leftPad,
 					 format, bits);
 }
 
@@ -218,7 +218,7 @@ vivante_CopyArea(DrawablePtr pSrc, DrawablePtr pDst, GCPtr pGC,
 	assert(vivante_GC_can_accel(pGC, pDst));
 
 	if (vivante->force_fallback)
-		return vivante_unaccel_CopyArea(pSrc, pDst, pGC, srcx, srcy, w, h,
+		return unaccel_CopyArea(pSrc, pDst, pGC, srcx, srcy, w, h,
 										dstx, dsty);
 
 	return miDoCopy(pSrc, pDst, pGC, srcx, srcy, w, h, dstx, dsty,
@@ -236,7 +236,7 @@ vivante_PolyPoint(DrawablePtr pDrawable, GCPtr pGC, int mode, int npt,
 	if (vivante->force_fallback ||
 	    !vivante_GCfill_can_accel(pGC, pDrawable) ||
 	    !vivante_accel_PolyPoint(pDrawable, pGC, mode, npt, ppt))
-		vivante_unaccel_PolyPoint(pDrawable, pGC, mode, npt, ppt);
+		unaccel_PolyPoint(pDrawable, pGC, mode, npt, ppt);
 }
 
 static void
@@ -261,18 +261,18 @@ vivante_PolyFillRect(DrawablePtr pDrawable, GCPtr pGC, int nrect,
 	}
 
  fallback:
-	vivante_unaccel_PolyFillRect(pDrawable, pGC, nrect, prect);
+	unaccel_PolyFillRect(pDrawable, pGC, nrect, prect);
 }
 
 static GCOps vivante_GCOps = {
 	vivante_FillSpans,
-	vivante_unaccel_SetSpans,
+	unaccel_SetSpans,
 	vivante_PutImage,
 	vivante_CopyArea,
-	vivante_unaccel_CopyPlane,
+	unaccel_CopyPlane,
 	vivante_PolyPoint,
-	vivante_unaccel_PolyLines,
-	vivante_unaccel_PolySegment,
+	unaccel_PolyLines,
+	unaccel_PolySegment,
 	miPolyRectangle,
 	miPolyArc,
 	miFillPolygon,
@@ -282,32 +282,32 @@ static GCOps vivante_GCOps = {
 	miPolyText16,
 	miImageText8,
 	miImageText16,
-	vivante_unaccel_ImageGlyphBlt,
-	vivante_unaccel_PolyGlyphBlt,
-	vivante_unaccel_PushPixels
+	unaccel_ImageGlyphBlt,
+	unaccel_PolyGlyphBlt,
+	unaccel_PushPixels
 };
 
 static GCOps vivante_unaccel_GCOps = {
-	vivante_unaccel_FillSpans,
-	vivante_unaccel_SetSpans,
-	vivante_unaccel_PutImage,
-	vivante_unaccel_CopyArea,
-	vivante_unaccel_CopyPlane,
-	vivante_unaccel_PolyPoint,
-	vivante_unaccel_PolyLines,
-	vivante_unaccel_PolySegment,
+	unaccel_FillSpans,
+	unaccel_SetSpans,
+	unaccel_PutImage,
+	unaccel_CopyArea,
+	unaccel_CopyPlane,
+	unaccel_PolyPoint,
+	unaccel_PolyLines,
+	unaccel_PolySegment,
 	miPolyRectangle,
 	miPolyArc,
 	miFillPolygon,
-	vivante_unaccel_PolyFillRect,
+	unaccel_PolyFillRect,
 	miPolyFillArc,
 	miPolyText8,
 	miPolyText16,
 	miImageText8,
 	miImageText16,
-	vivante_unaccel_ImageGlyphBlt,
-	vivante_unaccel_PolyGlyphBlt,
-	vivante_unaccel_PushPixels
+	unaccel_ImageGlyphBlt,
+	unaccel_PolyGlyphBlt,
+	unaccel_PushPixels
 };
 
 static void
@@ -327,9 +327,9 @@ vivante_ValidateGC(GCPtr pGC, unsigned long changes, DrawablePtr pDrawable)
 			if (!pNewTile || pNewTile->drawable.bitsPerPixel != pDrawable->bitsPerPixel) {
 				if (pNewTile)
 					pGC->pScreen->DestroyPixmap(pNewTile);
-				vivante_prepare_drawable(&pOldTile->drawable, ACCESS_RO);
+				prepare_cpu_drawable(&pOldTile->drawable, CPU_ACCESS_RO);
 				pNewTile = fb24_32ReformatTile(pOldTile, pDrawable->bitsPerPixel);
-				vivante_finish_drawable(&pOldTile->drawable, ACCESS_RO);
+				finish_cpu_drawable(&pOldTile->drawable, CPU_ACCESS_RO);
 			}
 			if (pNewTile) {
 				fbGetRotatedPixmap(pGC) = pOldTile;
@@ -343,17 +343,17 @@ vivante_ValidateGC(GCPtr pGC, unsigned long changes, DrawablePtr pDrawable)
 		if (!pGC->tileIsPixel &&
 		    FbEvenTile(pGC->tile.pixmap->drawable.width *
 			       pDrawable->bitsPerPixel)) {
-			vivante_prepare_drawable(&pGC->tile.pixmap->drawable, ACCESS_RW);
+			prepare_cpu_drawable(&pGC->tile.pixmap->drawable, CPU_ACCESS_RW);
 			fbPadPixmap(pGC->tile.pixmap);
-			vivante_finish_drawable(&pGC->tile.pixmap->drawable, ACCESS_RW);
+			finish_cpu_drawable(&pGC->tile.pixmap->drawable, CPU_ACCESS_RW);
 		}
 		/* mask out gctile changes now that we've done the work */
 		changes &= ~GCTile;
 	}
 	if (changes & GCStipple && pGC->stipple) {
-		vivante_prepare_drawable(&pGC->stipple->drawable, ACCESS_RW);
+		prepare_cpu_drawable(&pGC->stipple->drawable, CPU_ACCESS_RW);
 		fbValidateGC(pGC, changes, pDrawable);
-		vivante_finish_drawable(&pGC->stipple->drawable, ACCESS_RW);
+		finish_cpu_drawable(&pGC->stipple->drawable, CPU_ACCESS_RW);
 	} else {
 		fbValidateGC(pGC, changes, pDrawable);
 	}
@@ -490,7 +490,7 @@ vivante_CreatePixmap(ScreenPtr pScreen, int w, int h, int depth, unsigned usage)
 
 	/*
 	 * Do not store our data pointer in the pixmap - only do so (via
-	 * vivante_prepare_drawable()) when required to directly access the
+	 * prepare_cpu_drawable()) when required to directly access the
 	 * pixmap.  This provides us a way to validate that we do not have
 	 * any spurious unchecked accesses to the pixmap data while the GPU
 	 * has ownership of the pixmap.
@@ -587,8 +587,8 @@ vivante_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask, PicturePtr pDst,
 		if (ret)
 			return;
 	}
-	vivante_unaccel_Composite(op, pSrc, pMask, pDst, xSrc, ySrc,
-				  xMask, yMask, xDst, yDst, width, height);
+	unaccel_Composite(op, pSrc, pMask, pDst, xSrc, ySrc,
+			  xMask, yMask, xDst, yDst, width, height);
 }
 #endif
 
@@ -662,11 +662,11 @@ Bool vivante_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 	vivante->CloseScreen = pScreen->CloseScreen;
 	pScreen->CloseScreen = vivante_CloseScreen;
 	vivante->GetImage = pScreen->GetImage;
-	pScreen->GetImage = vivante_unaccel_GetImage;
+	pScreen->GetImage = unaccel_GetImage;
 	vivante->GetSpans = pScreen->GetSpans;
-	pScreen->GetSpans = vivante_unaccel_GetSpans;
+	pScreen->GetSpans = unaccel_GetSpans;
 	vivante->ChangeWindowAttributes = pScreen->ChangeWindowAttributes;
-	pScreen->ChangeWindowAttributes = vivante_unaccel_ChangeWindowAttributes;
+	pScreen->ChangeWindowAttributes = unaccel_ChangeWindowAttributes;
 	vivante->CopyWindow = pScreen->CopyWindow;
 	pScreen->CopyWindow = vivante_CopyWindow;
 	vivante->CreatePixmap = pScreen->CreatePixmap;
@@ -676,7 +676,7 @@ Bool vivante_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 	vivante->CreateGC = pScreen->CreateGC;
 	pScreen->CreateGC = vivante_CreateGC;
 	vivante->BitmapToRegion = pScreen->BitmapToRegion;
-	pScreen->BitmapToRegion = vivante_unaccel_BitmapToRegion;
+	pScreen->BitmapToRegion = unaccel_BitmapToRegion;
 	vivante->BlockHandler = pScreen->BlockHandler;
 	pScreen->BlockHandler = vivante_BlockHandler;
 
@@ -684,16 +684,16 @@ Bool vivante_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 	vivante->Composite = ps->Composite;
 	ps->Composite = vivante_Composite;
 	vivante->Glyphs = ps->Glyphs;
-	ps->Glyphs = vivante_unaccel_Glyphs;
+	ps->Glyphs = unaccel_Glyphs;
 	vivante->UnrealizeGlyph = ps->UnrealizeGlyph;
 	vivante->Triangles = ps->Triangles;
-	ps->Triangles = vivante_unaccel_Triangles;
+	ps->Triangles = unaccel_Triangles;
 	vivante->Trapezoids = ps->Trapezoids;
-	ps->Trapezoids = vivante_unaccel_Trapezoids;
+	ps->Trapezoids = unaccel_Trapezoids;
 	vivante->AddTriangles = ps->AddTriangles;
-	ps->AddTriangles = vivante_unaccel_AddTriangles;
+	ps->AddTriangles = unaccel_AddTriangles;
 	vivante->AddTraps = ps->AddTraps;
-	ps->AddTraps = vivante_unaccel_AddTraps;
+	ps->AddTraps = unaccel_AddTraps;
 #endif
 
 	return TRUE;

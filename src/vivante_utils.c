@@ -186,7 +186,7 @@ Bool vivante_map_gpu(struct vivante *vivante, struct vivante_pixmap *vPix)
  * Finish a bo for CPU access.  NULL out the fb layer's pixmap data
  * pointer to ensure any further unprotected accesses get caught.
  */
-void vivante_finish_drawable(DrawablePtr pDrawable, int access)
+void finish_cpu_drawable(DrawablePtr pDrawable, int access)
 {
 	PixmapPtr pixmap = drawable_pixmap(pDrawable);
 	struct vivante_pixmap *vPix = vivante_get_pixmap_priv(pixmap);
@@ -205,7 +205,7 @@ void vivante_finish_drawable(DrawablePtr pDrawable, int access)
  * pixmap data, we need to unmap the buffer from the GPU to ensure
  * that our view is up to date.
  */
-void vivante_prepare_drawable(DrawablePtr pDrawable, int access)
+void prepare_cpu_drawable(DrawablePtr pDrawable, int access)
 {
 	PixmapPtr pixmap = drawable_pixmap(pDrawable);
 	struct vivante_pixmap *vPix = vivante_get_pixmap_priv(pixmap);

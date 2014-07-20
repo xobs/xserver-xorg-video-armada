@@ -759,7 +759,7 @@ void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 	return;
 
  fallback:
-	vivante_unaccel_CopyNtoN(pSrc, pDst, pGC, pBox, nBox, dx, dy, reverse,
+	unaccel_CopyNtoN(pSrc, pDst, pGC, pBox, nBox, dx, dy, reverse,
 		upsidedown, bitPlane, closure);
 }
 
@@ -1268,7 +1268,7 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 			return NULL;
 		ValidatePicture(dest);
 
-		vivante_unaccel_Composite(PictOpSrc, pict, NULL, dest, x, y, 0, 0, 0, 0, w, h);
+		unaccel_Composite(PictOpSrc, pict, NULL, dest, x, y, 0, 0, 0, 0, w, h);
 		FreePicture(dest, 0);
 		*xout = 0;
 		*yout = 0;

@@ -17,229 +17,229 @@
 #include "vivante_unaccel.h"
 #include "vivante_utils.h"
 
-static void vivante_prepare_gc(GCPtr pGC)
+static void prepare_cpu_gc(GCPtr pGC)
 {
 	if (pGC->stipple)
-		vivante_prepare_drawable(&pGC->stipple->drawable, ACCESS_RO);
+		prepare_cpu_drawable(&pGC->stipple->drawable, CPU_ACCESS_RO);
 	if (pGC->fillStyle == FillTiled)
-		vivante_prepare_drawable(&pGC->tile.pixmap->drawable, ACCESS_RO);
+		prepare_cpu_drawable(&pGC->tile.pixmap->drawable, CPU_ACCESS_RO);
 }
 
-static void vivante_finish_gc(GCPtr pGC)
+static void finish_cpu_gc(GCPtr pGC)
 {
 	if (pGC->fillStyle == FillTiled)
-		vivante_finish_drawable(&pGC->tile.pixmap->drawable, ACCESS_RO);
+		finish_cpu_drawable(&pGC->tile.pixmap->drawable, CPU_ACCESS_RO);
 	if (pGC->stipple)
-		vivante_finish_drawable(&pGC->stipple->drawable, ACCESS_RO);
+		finish_cpu_drawable(&pGC->stipple->drawable, CPU_ACCESS_RO);
 }
 
-void vivante_unaccel_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int nspans,
+void unaccel_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int nspans,
 	DDXPointPtr ppt, int *pwidth, int fSorted)
 {
-	vivante_prepare_drawable(pDrawable, ACCESS_RW);
-	vivante_prepare_gc(pGC);
+	prepare_cpu_drawable(pDrawable, CPU_ACCESS_RW);
+	prepare_cpu_gc(pGC);
 	fbFillSpans(pDrawable, pGC, nspans, ppt, pwidth, fSorted);
-	vivante_finish_gc(pGC);
-	vivante_finish_drawable(pDrawable, ACCESS_RW);
+	finish_cpu_gc(pGC);
+	finish_cpu_drawable(pDrawable, CPU_ACCESS_RW);
 }
 
-void vivante_unaccel_SetSpans(DrawablePtr pDrawable, GCPtr pGC, char *psrc,
+void unaccel_SetSpans(DrawablePtr pDrawable, GCPtr pGC, char *psrc,
 	DDXPointPtr ppt, int *pwidth, int nspans, int fSorted)
 {
-	vivante_prepare_drawable(pDrawable, ACCESS_RW);
-	vivante_prepare_gc(pGC);
+	prepare_cpu_drawable(pDrawable, CPU_ACCESS_RW);
+	prepare_cpu_gc(pGC);
 	fbSetSpans(pDrawable, pGC, psrc, ppt, pwidth, nspans, fSorted);
-	vivante_finish_gc(pGC);
-	vivante_finish_drawable(pDrawable, ACCESS_RW);
+	finish_cpu_gc(pGC);
+	finish_cpu_drawable(pDrawable, CPU_ACCESS_RW);
 }
 
-void vivante_unaccel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
+void unaccel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 	int x, int y, int w, int h, int leftPad, int format, char *bits)
 {
-	vivante_prepare_drawable(pDrawable, ACCESS_RW);
-	vivante_prepare_gc(pGC);
+	prepare_cpu_drawable(pDrawable, CPU_ACCESS_RW);
+	prepare_cpu_gc(pGC);
 	fbPutImage(pDrawable, pGC, depth, x, y, w, h, leftPad, format, bits);
-	vivante_finish_gc(pGC);
-	vivante_finish_drawable(pDrawable, ACCESS_RW);
+	finish_cpu_gc(pGC);
+	finish_cpu_drawable(pDrawable, CPU_ACCESS_RW);
 }
 
-RegionPtr vivante_unaccel_CopyArea(DrawablePtr pSrc, DrawablePtr pDst,
+RegionPtr unaccel_CopyArea(DrawablePtr pSrc, DrawablePtr pDst,
 	GCPtr pGC, int srcx, int srcy, int w, int h, int dstx, int dsty)
 {
 	RegionPtr ret;
 
-	vivante_prepare_drawable(pDst, ACCESS_RW);
-	vivante_prepare_drawable(pSrc, ACCESS_RO);
+	prepare_cpu_drawable(pDst, CPU_ACCESS_RW);
+	prepare_cpu_drawable(pSrc, CPU_ACCESS_RO);
 	ret = fbCopyArea(pSrc, pDst, pGC, srcx, srcy, w, h, dstx, dsty);
-	vivante_finish_drawable(pSrc, ACCESS_RO);
-	vivante_finish_drawable(pDst, ACCESS_RW);
+	finish_cpu_drawable(pSrc, CPU_ACCESS_RO);
+	finish_cpu_drawable(pDst, CPU_ACCESS_RW);
 
 	return ret;
 }
 
-RegionPtr vivante_unaccel_CopyPlane(DrawablePtr pSrc, DrawablePtr pDst,
+RegionPtr unaccel_CopyPlane(DrawablePtr pSrc, DrawablePtr pDst,
 	GCPtr pGC, int srcx, int srcy, int w, int h, int dstx, int dsty,
 	unsigned long bitPlane)
 {
 	RegionPtr ret;
 
-	vivante_prepare_drawable(pDst, ACCESS_RW);
-	vivante_prepare_drawable(pSrc, ACCESS_RO);
+	prepare_cpu_drawable(pDst, CPU_ACCESS_RW);
+	prepare_cpu_drawable(pSrc, CPU_ACCESS_RO);
 	ret = fbCopyPlane(pSrc, pDst, pGC, srcx, srcy, w, h, dstx, dsty, bitPlane);
-	vivante_finish_drawable(pSrc, ACCESS_RO);
-	vivante_finish_drawable(pDst, ACCESS_RW);
+	finish_cpu_drawable(pSrc, CPU_ACCESS_RO);
+	finish_cpu_drawable(pDst, CPU_ACCESS_RW);
 
 	return ret;
 }
 
-void vivante_unaccel_PolyPoint(DrawablePtr pDrawable, GCPtr pGC, int mode,
+void unaccel_PolyPoint(DrawablePtr pDrawable, GCPtr pGC, int mode,
 	int npt, DDXPointPtr pptInit)
 {
-	vivante_prepare_drawable(pDrawable, ACCESS_RW);
+	prepare_cpu_drawable(pDrawable, CPU_ACCESS_RW);
 	fbPolyPoint(pDrawable, pGC, mode, npt, pptInit);
-	vivante_finish_drawable(pDrawable, ACCESS_RW);
+	finish_cpu_drawable(pDrawable, CPU_ACCESS_RW);
 }
 
-void vivante_unaccel_PolyLines(DrawablePtr pDrawable, GCPtr pGC, int mode,
+void unaccel_PolyLines(DrawablePtr pDrawable, GCPtr pGC, int mode,
 	int npt, DDXPointPtr ppt)
 {
 	if (pGC->lineWidth == 0) {
-		vivante_prepare_drawable(pDrawable, ACCESS_RW);
-		vivante_prepare_gc(pGC);
+		prepare_cpu_drawable(pDrawable, CPU_ACCESS_RW);
+		prepare_cpu_gc(pGC);
 		fbPolyLine(pDrawable, pGC, mode, npt, ppt);
-		vivante_finish_gc(pGC);
-		vivante_finish_drawable(pDrawable, ACCESS_RW);
+		finish_cpu_gc(pGC);
+		finish_cpu_drawable(pDrawable, CPU_ACCESS_RW);
 	} else {
 		fbPolyLine(pDrawable, pGC, mode, npt, ppt);
 	}
 }
 
-void vivante_unaccel_PolySegment(DrawablePtr pDrawable, GCPtr pGC,
+void unaccel_PolySegment(DrawablePtr pDrawable, GCPtr pGC,
 	int nsegInit, xSegment * pSegInit)
 {
 	if (pGC->lineWidth == 0) {
-		vivante_prepare_drawable(pDrawable, ACCESS_RW);
-		vivante_prepare_gc(pGC);
+		prepare_cpu_drawable(pDrawable, CPU_ACCESS_RW);
+		prepare_cpu_gc(pGC);
 		fbPolySegment(pDrawable, pGC, nsegInit, pSegInit);
-		vivante_finish_gc(pGC);
-		vivante_finish_drawable(pDrawable, ACCESS_RW);
+		finish_cpu_gc(pGC);
+		finish_cpu_drawable(pDrawable, CPU_ACCESS_RW);
 	} else {
 		fbPolySegment(pDrawable, pGC, nsegInit, pSegInit);
 	}
 }
 
-void vivante_unaccel_PolyFillRect(DrawablePtr pDrawable, GCPtr pGC, int nrect,
+void unaccel_PolyFillRect(DrawablePtr pDrawable, GCPtr pGC, int nrect,
 	xRectangle * prect)
 {
-	vivante_prepare_drawable(pDrawable, ACCESS_RW);
-	vivante_prepare_gc(pGC);
+	prepare_cpu_drawable(pDrawable, CPU_ACCESS_RW);
+	prepare_cpu_gc(pGC);
 	fbPolyFillRect(pDrawable, pGC, nrect, prect);
-	vivante_finish_gc(pGC);
-	vivante_finish_drawable(pDrawable, ACCESS_RW);
+	finish_cpu_gc(pGC);
+	finish_cpu_drawable(pDrawable, CPU_ACCESS_RW);
 }
 
-void vivante_unaccel_ImageGlyphBlt(DrawablePtr pDrawable, GCPtr pGC,
+void unaccel_ImageGlyphBlt(DrawablePtr pDrawable, GCPtr pGC,
 	int x, int y, unsigned int nglyph, CharInfoPtr * ppci, pointer pglyphBase)
 {
-	vivante_prepare_drawable(pDrawable, ACCESS_RW);
-	vivante_prepare_gc(pGC);
+	prepare_cpu_drawable(pDrawable, CPU_ACCESS_RW);
+	prepare_cpu_gc(pGC);
 	fbImageGlyphBlt(pDrawable, pGC, x, y, nglyph, ppci, pglyphBase);
-	vivante_finish_gc(pGC);
-	vivante_finish_drawable(pDrawable, ACCESS_RW);
+	finish_cpu_gc(pGC);
+	finish_cpu_drawable(pDrawable, CPU_ACCESS_RW);
 }
 
-void vivante_unaccel_PolyGlyphBlt(DrawablePtr pDrawable, GCPtr pGC,
+void unaccel_PolyGlyphBlt(DrawablePtr pDrawable, GCPtr pGC,
 	int x, int y, unsigned int nglyph, CharInfoPtr * ppci, pointer pglyphBase)
 {
-	vivante_prepare_drawable(pDrawable, ACCESS_RW);
-	vivante_prepare_gc(pGC);
+	prepare_cpu_drawable(pDrawable, CPU_ACCESS_RW);
+	prepare_cpu_gc(pGC);
 	fbPolyGlyphBlt(pDrawable, pGC, x, y, nglyph, ppci, pglyphBase);
-	vivante_finish_gc(pGC);
-	vivante_finish_drawable(pDrawable, ACCESS_RW);
+	finish_cpu_gc(pGC);
+	finish_cpu_drawable(pDrawable, CPU_ACCESS_RW);
 }
 
-void vivante_unaccel_PushPixels(GCPtr pGC, PixmapPtr pBitmap,
+void unaccel_PushPixels(GCPtr pGC, PixmapPtr pBitmap,
 	DrawablePtr pDrawable, int w, int h, int x, int y)
 {
-	vivante_prepare_drawable(pDrawable, ACCESS_RW);
-	vivante_prepare_drawable(&pBitmap->drawable, ACCESS_RO);
-	vivante_prepare_gc(pGC);
+	prepare_cpu_drawable(pDrawable, CPU_ACCESS_RW);
+	prepare_cpu_drawable(&pBitmap->drawable, CPU_ACCESS_RO);
+	prepare_cpu_gc(pGC);
 	fbPushPixels(pGC, pBitmap, pDrawable, w, h, x, y);
-	vivante_finish_gc(pGC);
-	vivante_finish_drawable(&pBitmap->drawable, ACCESS_RO);
-	vivante_finish_drawable(pDrawable, ACCESS_RW);
+	finish_cpu_gc(pGC);
+	finish_cpu_drawable(&pBitmap->drawable, CPU_ACCESS_RO);
+	finish_cpu_drawable(pDrawable, CPU_ACCESS_RW);
 }
 
 /* Non-GC ops */
 
-void vivante_unaccel_GetSpans(DrawablePtr pDrawable, int wMax, DDXPointPtr ppt,
+void unaccel_GetSpans(DrawablePtr pDrawable, int wMax, DDXPointPtr ppt,
 	int *pwidth, int nspans, char *pdstStart)
 {
-	vivante_prepare_drawable(pDrawable, ACCESS_RO);
+	prepare_cpu_drawable(pDrawable, CPU_ACCESS_RO);
 	fbGetSpans(pDrawable, wMax, ppt, pwidth, nspans, pdstStart);
-	vivante_finish_drawable(pDrawable, ACCESS_RO);
+	finish_cpu_drawable(pDrawable, CPU_ACCESS_RO);
 }
 
-void vivante_unaccel_GetImage(DrawablePtr pDrawable, int x, int y,
+void unaccel_GetImage(DrawablePtr pDrawable, int x, int y,
 	int w, int h, unsigned int format, unsigned long planeMask, char *d)
 {
-	vivante_prepare_drawable(pDrawable, ACCESS_RO);
+	prepare_cpu_drawable(pDrawable, CPU_ACCESS_RO);
 	fbGetImage(pDrawable, x, y, w, h, format, planeMask, d);
-	vivante_finish_drawable(pDrawable, ACCESS_RO);
+	finish_cpu_drawable(pDrawable, CPU_ACCESS_RO);
 }
 
-static void vivante_unaccel_fixup_tile(DrawablePtr pDraw, PixmapPtr *ppPix)
+static void unaccel_fixup_tile(DrawablePtr pDraw, PixmapPtr *ppPix)
 {
 	PixmapPtr pNew, pPixmap = *ppPix;
 
 	if (pPixmap->drawable.bitsPerPixel != pDraw->bitsPerPixel) {
-		vivante_prepare_drawable(&pPixmap->drawable, ACCESS_RO);
+		prepare_cpu_drawable(&pPixmap->drawable, CPU_ACCESS_RO);
 		pNew = fb24_32ReformatTile(pPixmap, pDraw->bitsPerPixel);
-		vivante_finish_drawable(&pPixmap->drawable, ACCESS_RO);
+		finish_cpu_drawable(&pPixmap->drawable, CPU_ACCESS_RO);
 
 		pDraw->pScreen->DestroyPixmap(pPixmap);
 		*ppPix = pPixmap = pNew;
 	}
 
 	if (FbEvenTile(pPixmap->drawable.width * pPixmap->drawable.bitsPerPixel)) {
-		vivante_prepare_drawable(&pPixmap->drawable, ACCESS_RW);
+		prepare_cpu_drawable(&pPixmap->drawable, CPU_ACCESS_RW);
 		fbPadPixmap(pPixmap);
-		vivante_finish_drawable(&pPixmap->drawable, ACCESS_RW);
+		finish_cpu_drawable(&pPixmap->drawable, CPU_ACCESS_RW);
 	}
 }
 
-Bool vivante_unaccel_ChangeWindowAttributes(WindowPtr pWin, unsigned long mask)
+Bool unaccel_ChangeWindowAttributes(WindowPtr pWin, unsigned long mask)
 {
 	if (mask & CWBackPixmap && pWin->backgroundState == BackgroundPixmap)
-		vivante_unaccel_fixup_tile(&pWin->drawable,
+		unaccel_fixup_tile(&pWin->drawable,
 					   &pWin->background.pixmap);
 
 	if (mask & CWBorderPixmap && !pWin->borderIsPixel)
-		vivante_unaccel_fixup_tile(&pWin->drawable,
+		unaccel_fixup_tile(&pWin->drawable,
 					   &pWin->border.pixmap);
 
 	return TRUE;
 }
 
-RegionPtr vivante_unaccel_BitmapToRegion(PixmapPtr pixmap)
+RegionPtr unaccel_BitmapToRegion(PixmapPtr pixmap)
 {
 	RegionPtr ret;
-	vivante_prepare_drawable(&pixmap->drawable, ACCESS_RO);
+	prepare_cpu_drawable(&pixmap->drawable, CPU_ACCESS_RO);
 	ret = fbPixmapToRegion(pixmap);
-	vivante_finish_drawable(&pixmap->drawable, ACCESS_RO);
+	finish_cpu_drawable(&pixmap->drawable, CPU_ACCESS_RO);
 	return ret;
 }
 
-void vivante_unaccel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst, GCPtr pGC,
+void unaccel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst, GCPtr pGC,
 	BoxPtr pBox, int nBox, int dx, int dy, Bool reverse, Bool upsidedown,
 	Pixel bitPlane, void *closure)
 {
-	vivante_prepare_drawable(pDst, ACCESS_RW);
+	prepare_cpu_drawable(pDst, CPU_ACCESS_RW);
 	if (pDst != pSrc)
-		vivante_prepare_drawable(pSrc, ACCESS_RO);
+		prepare_cpu_drawable(pSrc, CPU_ACCESS_RO);
 	fbCopyNtoN(pSrc, pDst, pGC, pBox, nBox, dx, dy, reverse, upsidedown,
 			   bitPlane, closure);
 	if (pDst != pSrc)
-		vivante_finish_drawable(pSrc, ACCESS_RO);
-	vivante_finish_drawable(pDst, ACCESS_RW);
+		finish_cpu_drawable(pSrc, CPU_ACCESS_RO);
+	finish_cpu_drawable(pDst, CPU_ACCESS_RW);
 }

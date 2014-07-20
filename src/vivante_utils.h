@@ -27,12 +27,12 @@ void vivante_unmap_gpu(struct vivante *vivante, struct vivante_pixmap *vPix);
 Bool vivante_map_gpu(struct vivante *vivante, struct vivante_pixmap *vPix);
 
 enum {
-	ACCESS_RO,
-	ACCESS_RW,
+	CPU_ACCESS_RO,
+	CPU_ACCESS_RW,
 };
 
-void vivante_finish_drawable(DrawablePtr pDrawable, int access);
-void vivante_prepare_drawable(DrawablePtr pDrawable, int access);
+void finish_cpu_drawable(DrawablePtr pDrawable, int access);
+void prepare_cpu_drawable(DrawablePtr pDrawable, int access);
 
 gceSURF_FORMAT vivante_pict_format(PictFormatShort format, Bool force);
 Bool vivante_format_valid(struct vivante *vivante, gceSURF_FORMAT fmt);

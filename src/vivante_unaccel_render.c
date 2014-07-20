@@ -20,27 +20,27 @@
 #include "vivante_unaccel.h"
 #include "vivante_utils.h"
 
-static void vivante_prepare_picture(PicturePtr pPicture, int access)
+static void prepare_cpu_picture(PicturePtr pPicture, int access)
 {
     if (pPicture->pDrawable) {
-        vivante_prepare_drawable(pPicture->pDrawable, access);
+        prepare_cpu_drawable(pPicture->pDrawable, access);
         if (pPicture->alphaMap)
-            vivante_prepare_drawable(pPicture->alphaMap->pDrawable, access);
+            prepare_cpu_drawable(pPicture->alphaMap->pDrawable, access);
     }
 }
 
-static void vivante_finish_picture(PicturePtr pPicture, int access)
+static void finish_cpu_picture(PicturePtr pPicture, int access)
 {
     if (pPicture->pDrawable) {
         if (pPicture->alphaMap)
-            vivante_finish_drawable(pPicture->alphaMap->pDrawable, access);
-        vivante_finish_drawable(pPicture->pDrawable, access);
+            finish_cpu_drawable(pPicture->alphaMap->pDrawable, access);
+        finish_cpu_drawable(pPicture->pDrawable, access);
     }
 }
 
 #define NeedsComponent(f) (PICT_FORMAT_A(f) != 0 && PICT_FORMAT_RGB(f) != 0)
 
-void vivante_unaccel_Glyphs(CARD8 op, PicturePtr pSrc, PicturePtr pDst,
+void unaccel_Glyphs(CARD8 op, PicturePtr pSrc, PicturePtr pDst,
     PictFormatPtr maskFormat, INT16 xSrc, INT16 ySrc, int nlist,
     GlyphListPtr list, GlyphPtr * glyphs)
 {
@@ -133,55 +133,55 @@ void vivante_unaccel_Glyphs(CARD8 op, PicturePtr pSrc, PicturePtr pDst,
     }
 }
 
-void vivante_unaccel_Triangles(CARD8 op, PicturePtr pSrc, PicturePtr pDst,
+void unaccel_Triangles(CARD8 op, PicturePtr pSrc, PicturePtr pDst,
     PictFormatPtr maskFormat, INT16 xSrc, INT16 ySrc, int ntri, xTriangle *tri)
 {
-    vivante_prepare_picture(pDst, ACCESS_RW);
-    vivante_prepare_picture(pSrc, ACCESS_RO);
+    prepare_cpu_picture(pDst, CPU_ACCESS_RW);
+    prepare_cpu_picture(pSrc, CPU_ACCESS_RO);
     fbTriangles(op, pSrc, pDst, maskFormat, xSrc, ySrc, ntri, tri);
-    vivante_finish_picture(pSrc, ACCESS_RO);
-    vivante_finish_picture(pDst, ACCESS_RW);
+    finish_cpu_picture(pSrc, CPU_ACCESS_RO);
+    finish_cpu_picture(pDst, CPU_ACCESS_RW);
 }
 
-void vivante_unaccel_Trapezoids(CARD8 op, PicturePtr pSrc, PicturePtr pDst,
+void unaccel_Trapezoids(CARD8 op, PicturePtr pSrc, PicturePtr pDst,
     PictFormatPtr maskFormat, INT16 xSrc, INT16 ySrc, int ntrap,
     xTrapezoid * traps)
 {
-    vivante_prepare_picture(pDst, ACCESS_RW);
-    vivante_prepare_picture(pSrc, ACCESS_RO);
+    prepare_cpu_picture(pDst, CPU_ACCESS_RW);
+    prepare_cpu_picture(pSrc, CPU_ACCESS_RO);
     fbTrapezoids(op, pSrc, pDst, maskFormat, xSrc, ySrc, ntrap, traps);
-    vivante_finish_picture(pSrc, ACCESS_RO);
-    vivante_finish_picture(pDst, ACCESS_RW);
+    finish_cpu_picture(pSrc, CPU_ACCESS_RO);
+    finish_cpu_picture(pDst, CPU_ACCESS_RW);
 }
 
-void vivante_unaccel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
+void unaccel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
     PicturePtr pDst, INT16 xSrc, INT16 ySrc, INT16 xMask, INT16 yMask,
     INT16 xDst, INT16 yDst, CARD16 w, CARD16 h)
 {
-    vivante_prepare_picture(pDst, ACCESS_RW);
-    vivante_prepare_picture(pSrc, ACCESS_RO);
+    prepare_cpu_picture(pDst, CPU_ACCESS_RW);
+    prepare_cpu_picture(pSrc, CPU_ACCESS_RO);
     if (pMask)
-        vivante_prepare_picture(pMask, ACCESS_RO);
+        prepare_cpu_picture(pMask, CPU_ACCESS_RO);
     fbComposite(op, pSrc, pMask, pDst, xSrc, ySrc, xMask, yMask,
           xDst, yDst, w, h);
     if (pMask)
-        vivante_finish_picture(pMask, ACCESS_RO);
-    vivante_finish_picture(pSrc, ACCESS_RO);
-    vivante_finish_picture(pDst, ACCESS_RW);
+        finish_cpu_picture(pMask, CPU_ACCESS_RO);
+    finish_cpu_picture(pSrc, CPU_ACCESS_RO);
+    finish_cpu_picture(pDst, CPU_ACCESS_RW);
 }
 
-void vivante_unaccel_AddTriangles(PicturePtr pPicture, INT16 x_off, INT16 y_off,
+void unaccel_AddTriangles(PicturePtr pPicture, INT16 x_off, INT16 y_off,
     int ntri, xTriangle *tris)
 {
-    vivante_prepare_picture(pPicture, ACCESS_RW);
+    prepare_cpu_picture(pPicture, CPU_ACCESS_RW);
     fbAddTriangles(pPicture, x_off, y_off, ntri, tris);
-    vivante_finish_picture(pPicture, ACCESS_RW);
+    finish_cpu_picture(pPicture, CPU_ACCESS_RW);
 }
 
-void vivante_unaccel_AddTraps(PicturePtr pPicture, INT16 x_off, INT16 y_off,
+void unaccel_AddTraps(PicturePtr pPicture, INT16 x_off, INT16 y_off,
     int ntrap, xTrap *traps)
 {
-    vivante_prepare_picture(pPicture, ACCESS_RW);
+    prepare_cpu_picture(pPicture, CPU_ACCESS_RW);
     fbAddTraps(pPicture, x_off, y_off, ntrap, traps);
-    vivante_finish_picture(pPicture, ACCESS_RW);
+    finish_cpu_picture(pPicture, CPU_ACCESS_RW);
 }
