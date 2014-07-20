@@ -16,9 +16,9 @@
 #include "mipict.h"
 
 #include "compat-api.h"
+#include "cpu_access.h"
 #include "glyph_extents.h"
-#include "vivante_unaccel.h"
-#include "vivante_utils.h"
+#include "unaccel.h"
 
 static void prepare_cpu_picture(PicturePtr pPicture, int access)
 {
@@ -88,9 +88,9 @@ void unaccel_Glyphs(CARD8 op, PicturePtr pSrc, PicturePtr pDst,
         x = -extents.x1;
         y = -extents.y1;
     } else {
-        pMask = pDst;
-    	x = 0;
-    	y = 0;
+	pMask = pDst;
+	x = 0;
+	y = 0;
     }
 
     while (nlist--) {
@@ -102,8 +102,8 @@ void unaccel_Glyphs(CARD8 op, PicturePtr pSrc, PicturePtr pDst,
             PicturePtr g = GetGlyphPicture(glyph, pScreen);
 
             if (g) {
-            	int dstx = x - glyph->info.x;
-            	int dsty = y - glyph->info.y;
+                int dstx = x - glyph->info.x;
+                int dsty = y - glyph->info.y;
                 if (maskFormat) {
                     CompositePicture(PictOpAdd, g, NULL, pMask,
                                      0, 0, 0, 0, dstx, dsty,

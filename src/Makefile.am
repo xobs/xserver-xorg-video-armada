@@ -38,8 +38,6 @@ vivante_gpu_ladir = @moduledir@/drivers
 vivante_gpu_la_SOURCES = \
 			vivante.c \
 			vivante_accel.c \
-			vivante_unaccel.c \
-			vivante_unaccel_render.c \
 			vivante_utils.c
 if HAVE_DRI2
 vivante_gpu_la_SOURCES += vivante_dri2.c

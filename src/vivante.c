@@ -28,14 +28,15 @@
 
 #include <gc_hal.h>
 
+#include "cpu_access.h"
 #include "fbutil.h"
 #include "gal_extension.h"
 #include "pixmaputil.h"
+#include "unaccel.h"
 
 #include "vivante.h"
 #include "vivante_accel.h"
 #include "vivante_dri2.h"
-#include "vivante_unaccel.h"
 #include "vivante_utils.h"
 
 vivante_Key vivante_pixmap_index;

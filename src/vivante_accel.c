@@ -24,8 +24,9 @@
 
 #include "boxutil.h"
 #include "pixmaputil.h"
+#include "unaccel.h"
+
 #include "vivante_accel.h"
-#include "vivante_unaccel.h"
 #include "vivante_utils.h"
 #include "utils.h"
 

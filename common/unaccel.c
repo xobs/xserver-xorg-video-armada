@@ -14,8 +14,8 @@
 #include "fb.h"
 #include "fbpict.h"
 
-#include "vivante_unaccel.h"
-#include "vivante_utils.h"
+#include "cpu_access.h"
+#include "unaccel.h"
 
 static void prepare_cpu_gc(GCPtr pGC)
 {

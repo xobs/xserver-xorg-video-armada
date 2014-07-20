@@ -24,4 +24,6 @@ libcommon_la_SOURCES = \
 		pamdump.c \
 		picture_solid.c \
 		pixmaputil.c \
-		transform.c
+		transform.c \
+		unaccel.c \
+		unaccel_render.c

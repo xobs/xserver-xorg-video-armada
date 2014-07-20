@@ -7,8 +7,8 @@
  * access to the drawable prior to passing on the call to the Xorg
  * Server's fb layer (or pixman layer.)
  */
-#ifndef VIVANTE_UNACCEL_H
-#define VIVANTE_UNACCEL_H
+#ifndef UNACCEL_H
+#define UNACCEL_H
 
 void unaccel_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int nspans,
 	DDXPointPtr ppt, int *pwidth, int fSorted);

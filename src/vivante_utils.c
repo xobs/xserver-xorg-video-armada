@@ -22,6 +22,7 @@
 #include "xf86.h"
 
 #include <armada_bufmgr.h>
+#include "cpu_access.h"
 #include "gal_extension.h"
 #include "pamdump.h"
 #include "pixmaputil.h"
