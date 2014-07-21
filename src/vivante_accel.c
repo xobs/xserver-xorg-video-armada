@@ -1013,31 +1013,7 @@ Bool vivante_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 #ifdef RENDER
 #include "mipict.h"
 #include "fbpict.h"
-static Bool transform_is_integer_translation(PictTransformPtr t, int *tx, int *ty)
-{
-	if (t == NULL) {
-		*tx = *ty = 0;
-		return TRUE;
-	}
-
-	if (t->matrix[0][0] != IntToxFixed(1) ||
-	    t->matrix[0][1] != 0 ||
-	    t->matrix[1][0] != 0 ||
-	    t->matrix[1][1] != IntToxFixed(1) ||
-	    t->matrix[2][0] != 0 ||
-	    t->matrix[2][1] != 0 ||
-	    t->matrix[2][2] != IntToxFixed(1))
-		return FALSE;
-
-	if (xFixedFrac(t->matrix[0][2]) != 0 ||
-	    xFixedFrac(t->matrix[1][2]) != 0)
-		return FALSE;
-
-	*tx = xFixedToInt(t->matrix[0][2]);
-	*ty = xFixedToInt(t->matrix[1][2]);
-
-	return TRUE;
-}
+#include "pictureutil.h"
 
 static void adjust_repeat(PicturePtr pPict, int x, int y, unsigned w, unsigned h)
 {
@@ -1182,34 +1158,6 @@ static Bool vivante_blend(struct vivante *vivante, gcsRECT_PTR clip,
 	return TRUE;
 }
 
-/*
- * Returns TRUE and the pixel value in COLOUR if the picture
- * represents a solid surface of constant colour.
- */
-static Bool vivante_picture_is_solid(PicturePtr pict, CARD32 *colour)
-{
-	if (pict->pDrawable) {
-		DrawablePtr pDraw = pict->pDrawable;
-
-		if (pDraw->width == 1 && pDraw->height == 1 &&
-		    pict->repeat != RepeatNone) {
-			if (colour)
-				*colour = get_first_pixel(pDraw);
-			return TRUE;
-		}
-	} else {
-		SourcePict *sp = pict->pSourcePict;
-
-		if (sp->type == SourcePictTypeSolidFill) {
-			if (colour)
-				*colour = sp->solidFill.color;
-			return TRUE;
-		}
-	}
-
-	return FALSE;
-}
-
 static Bool vivante_pict_solid_argb(PicturePtr pict, uint32_t *col)
 {
 	unsigned r, g, b, a, rbits, gbits, bbits, abits;
@@ -1218,7 +1166,7 @@ static Bool vivante_pict_solid_argb(PicturePtr pict, uint32_t *col)
 	CARD32 pixel;
 	uint32_t argb;
 
-	if (!vivante_picture_is_solid(pict, &pixel))
+	if (!picture_is_solid(pict, &pixel))
 		return FALSE;
 
 	pFormat = pict->pFormat;
@@ -1470,7 +1418,7 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 		return FALSE;
 
 	/* If the source has no drawable, and is not solid, fallback */
-	if (!pSrc->pDrawable && !vivante_picture_is_solid(pSrc, NULL))
+	if (!pSrc->pDrawable && !picture_is_solid(pSrc, NULL))
 		return FALSE;
 
 	/* The destination pixmap must have a bo */
