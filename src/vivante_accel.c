@@ -1048,6 +1048,10 @@ static void adjust_repeat(PicturePtr pPict, int x, int y, unsigned w, unsigned h
 struct vivante_blend_op {
 	gceSURF_BLEND_FACTOR_MODE src_blend;
 	gceSURF_BLEND_FACTOR_MODE dst_blend;
+	gceSURF_GLOBAL_ALPHA_MODE src_global_alpha;
+	gceSURF_GLOBAL_ALPHA_MODE dst_global_alpha;
+	uint8_t src_alpha;
+	uint8_t dst_alpha;
 };
 
 static const struct vivante_blend_op vivante_composite_op[] = {
@@ -1055,6 +1059,8 @@ static const struct vivante_blend_op vivante_composite_op[] = {
 	[PictOp##op] = { \
 		.src_blend = gcvSURF_BLEND_##s, \
 		.dst_blend = gcvSURF_BLEND_##d, \
+		.src_global_alpha = gcvSURF_GLOBAL_ALPHA_OFF, \
+		.dst_global_alpha = gcvSURF_GLOBAL_ALPHA_OFF, \
 	}
 	OP(Clear,       ZERO,     ZERO),
 	OP(Src,         ONE,      ZERO),
@@ -1071,11 +1077,6 @@ static const struct vivante_blend_op vivante_composite_op[] = {
 	OP(Add,         ONE,      ONE),
 //	OP(Saturate,    SRC_ALPHA_SATURATED, ZERO ),
 #undef OP
-};
-
-static const struct vivante_blend_op vivante_mask_op = {
-	.src_blend = gcvSURF_BLEND_ZERO,	// Mask
-	.dst_blend = gcvSURF_BLEND_STRAIGHT,	// Source
 };
 
 static Bool vivante_fill_single(struct vivante *vivante,
@@ -1142,12 +1143,19 @@ static Bool vivante_blend(struct vivante *vivante, gcsRECT_PTR clip,
 	if (!blend) {
 		vivante_disable_alpha_blend(vivante);
 	} else {
-		err = gco2D_EnableAlphaBlendAdvanced(vivante->e2d,
-			gcvSURF_PIXEL_ALPHA_STRAIGHT, gcvSURF_PIXEL_ALPHA_STRAIGHT,
-			gcvSURF_GLOBAL_ALPHA_OFF, gcvSURF_GLOBAL_ALPHA_OFF,
-			blend->src_blend, blend->dst_blend);
+		err = gco2D_EnableAlphaBlend(vivante->e2d,
+			blend->src_alpha,
+			blend->dst_alpha,
+			gcvSURF_PIXEL_ALPHA_STRAIGHT,
+			gcvSURF_PIXEL_ALPHA_STRAIGHT,
+			blend->src_global_alpha,
+			blend->dst_global_alpha,
+			blend->src_blend,
+			blend->dst_blend,
+			gcvSURF_COLOR_STRAIGHT,
+			gcvSURF_COLOR_STRAIGHT);
 		if (err != gcvSTATUS_OK) {
-			vivante_error(vivante, "gco2D_EnableAlphaBlendAdvanced", err);
+			vivante_error(vivante, "gco2D_EnableAlphaBlend", err);
 			return FALSE;
 		}
 		vivante->alpha_blend_enabled = TRUE;
@@ -1341,6 +1349,8 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	ScreenPtr pScreen = pDst->pDrawable->pScreen;
 	struct vivante *vivante = vivante_get_screen_priv(pScreen);
 	struct vivante_pixmap *vDst, *vSrc, *vMask, *vTemp = NULL;
+	const struct vivante_blend_op *final_op;
+	struct vivante_blend_op special;
 	PixmapPtr pPixmap, pPixTemp = NULL;
 	RegionRec region;
 	gcsRECT clipTemp;
@@ -1382,19 +1392,86 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 
 	memset(&region, 0, sizeof(region));
 
+	final_op = &vivante_composite_op[op];
+
 	/* Remove repeat on source or mask if useless */
 	adjust_repeat(pSrc, xSrc, ySrc, width, height);
 	if (pMask) {
-		adjust_repeat(pMask, xMask, yMask, width, height);
+		CARD32 colour;
 
-		/* We don't handle mask repeats (yet) */
-		if (pMask->repeat != RepeatNone)
-			goto fallback;
+		/*
+		 * A PictOpOver with a mask looks like this:
+		 *
+		 *  dst.A = src.A * mask.A + dst.A * (1 - src.A * mask.A)
+		 *  dst.C = src.C * mask.A + dst.C * (1 - src.A * mask.A)
+		 *
+		 * Or, in terms of the generic alpha blend equations:
+		 *
+		 *  dst.A = src.A * Fa + dst.A * Fb
+		 *  dst.C = src.C * Fa + dst.C * Fb
+		 *
+		 * with Fa = mask.A, Fb = (1 - src.A * mask.A).  With a
+		 * solid mask, mask.A is constant.
+		 *
+		 * Our GPU provides us with the ability to replace or scale
+		 * src.A and/or dst.A inputs in the generic alpha blend
+		 * equations, and using a PictOpAtop operation, the factors
+		 * are Fa = dst.A, Fb = 1 - src.A.
+		 *
+		 * If we subsitute src.A with src.A * mask.A, and dst.A with
+		 * mask.A, then we get pretty close for the colour channels.
+		 * However, the alpha channel becomes simply:
+		 *
+		 *  dst.A = mask.A
+		 *
+		 * and hence will be incorrect.  Therefore, the destination
+		 * format must not have an alpha channel.
+		 */
+		if (op == PictOpOver && !PICT_FORMAT_A(pDst->format) &&
+		    vivante_picture_is_solid(pMask, &colour)) {
+			switch (pMask->format) {
+			case PICT_a8:
+				break;
+			case PICT_a4:
+				colour *= 0x11;
+				break;
+			case PICT_a1:
+				colour *= 0xff;
+				break;
+			default:
+				goto fallback;
+			}
 
-		/* Include the mask drawable's position on the pixmap */
-		if (pMask->pDrawable) {
-			xMask += pMask->pDrawable->x;
-			yMask += pMask->pDrawable->y;
+			special = vivante_composite_op[PictOpAtop];
+
+			/*
+			 * This bit is theory: we should be able to use
+			 * scaled source alpha here, but when we're given
+			 * X8R8G8B8, this seems to fail.  Use global
+			 * source alpha instead for this case.
+			 */
+			if (PICT_FORMAT_A(pSrc->format))
+				special.src_global_alpha = gcvSURF_GLOBAL_ALPHA_SCALE;
+			else
+				special.src_global_alpha = gcvSURF_GLOBAL_ALPHA_ON;
+
+			special.dst_global_alpha = gcvSURF_GLOBAL_ALPHA_ON;
+			special.src_alpha =
+			special.dst_alpha = colour;
+			final_op = &special;
+			pMask = NULL;
+		} else {
+			adjust_repeat(pMask, xMask, yMask, width, height);
+
+			/* We don't handle mask repeats (yet) */
+			if (pMask->repeat != RepeatNone)
+				goto fallback;
+
+			/* Include the mask drawable's position on the pixmap */
+			if (pMask->pDrawable) {
+				xMask += pMask->pDrawable->x;
+				yMask += pMask->pDrawable->y;
+			}
 		}
 	}
 
@@ -1553,7 +1630,8 @@ if (pMask && pMask->pDrawable)
   xMask, yMask, vMask->pict_format, pMask->format);
 #endif
 
-		if (!vivante_blend(vivante, &clipTemp, &vivante_mask_op,
+		if (!vivante_blend(vivante, &clipTemp,
+				   &vivante_composite_op[PictOpInReverse],
 				   vTemp, &rdst,
 				   vMask, &rsrc,
 				   1))
@@ -1564,7 +1642,7 @@ if (pMask && pMask->pDrawable)
 		ySrc = 0;
 	}
 
-	rc = vivante_accel_final_blend(vivante, &vivante_composite_op[op],
+	rc = vivante_accel_final_blend(vivante, final_op,
 				       oDst_x, oDst_y, &region,
 				       pDst, vDst, xDst, yDst,
 				       pSrc, vSrc, xSrc, ySrc);
