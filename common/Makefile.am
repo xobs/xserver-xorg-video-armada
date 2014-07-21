@@ -22,6 +22,7 @@ libcommon_la_SOURCES = \
 		drawable_desc.c \
 		get_first_pixel.c \
 		glyph_extents.c \
+		mark.c \
 		pamdump.c \
 		picture_desc.c \
 		picture_solid.c \
