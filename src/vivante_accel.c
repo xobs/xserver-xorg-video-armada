@@ -1338,9 +1338,9 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	PicturePtr pDst, INT16 xSrc, INT16 ySrc, INT16 xMask, INT16 yMask,
 	INT16 xDst, INT16 yDst, CARD16 width, CARD16 height)
 {
-	struct vivante *vivante = vivante_get_screen_priv(pDst->pDrawable->pScreen);
-	struct vivante_pixmap *vDst, *vSrc, *vMask, *vTemp = NULL;
 	ScreenPtr pScreen = pDst->pDrawable->pScreen;
+	struct vivante *vivante = vivante_get_screen_priv(pScreen);
+	struct vivante_pixmap *vDst, *vSrc, *vMask, *vTemp = NULL;
 	PixmapPtr pPixmap, pPixTemp = NULL;
 	RegionRec region;
 	gcsRECT clipTemp;
@@ -1351,7 +1351,7 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 		return FALSE;
 
 	/* If there are alpha maps, fallback for now */
-	if (pDst->alphaMap || pSrc->alphaMap)
+	if (pDst->alphaMap || pSrc->alphaMap || (pMask && pMask->alphaMap))
 		return FALSE;
 
 	/* If the source has no drawable, and is not solid, fallback */
@@ -1359,7 +1359,7 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 		return FALSE;
 
 	if (pMask) {
-		if (pMask->alphaMap || pMask->componentAlpha)
+		if (pMask->componentAlpha)
 			return FALSE;
 
 		if (!pMask->pDrawable)
@@ -1390,16 +1390,15 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 		/* We don't handle mask repeats (yet) */
 		if (pMask->repeat != RepeatNone)
 			goto fallback;
+
+		/* Include the mask drawable's position on the pixmap */
+		if (pMask->pDrawable) {
+			xMask += pMask->pDrawable->x;
+			yMask += pMask->pDrawable->y;
+		}
 	}
 
-	/*
-	 * Convert the source/destination coordinates according to the
-	 * position of the drawables against the backing buffer.
-	 */
-	if (pMask && pMask->pDrawable) {
-		xMask += pMask->pDrawable->x;
-		yMask += pMask->pDrawable->y;
-	}
+	/* Include the destination drawable's position on the pixmap */
 	xDst += pDst->pDrawable->x;
 	yDst += pDst->pDrawable->y;
 
