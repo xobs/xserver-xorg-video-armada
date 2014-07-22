@@ -28,4 +28,6 @@
 #define maxt(x,y)	__max(typeof(x), typeof(y), x, y)
 #define max_t(t,x,y)	__max(t, t, x, y)
 
+#define ALIGN(v,a)	(((v) + ((a) - 1)) & ~((a) - 1))
+
 #endif
