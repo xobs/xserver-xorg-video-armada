@@ -12,19 +12,31 @@ System as implemented by X.org, supporting these DRM KMS drivers:
 and GPUs:
 
 	Vivnate libGAL (Armada only)
+	Etnaviv (Armada and i.MX) with galcore kernel driver
 
 Build requirements
 ------------------
 xf86-video-armada can be built as a stand-alone KMS driver, or with
-Vivante GPU support.
+Vivante and/or Etnaviv GPU support.
 
 When building with Vivante libGAL support, the configure options
 --with-libgal-include= and --with-libgal-lib= should indicate the
 location of the libGAL headers and library respectively.
 
+When building Etnaviv support, the configure options
+--with-etnaviv-include= and --with-etnaviv-lib= should indicate the
+location of the etnaviv headers and library respectively.
+Alternatively, --with-etnaviv-source= can be used to indicate the
+location of the built Etnaviv tree.
+
 The following packages are required by this driver:
 
 - libdrm-armada   git://ftp.arm.linux.org.uk/~rmk/libdrm-armada.git/
+
+The following packages are optional, but may be required for certain
+features:
+
+- etnaviv         https://github.com/laanwj/etna_viv.git
 
 What operations are accelerated?
 --------------------------------
@@ -34,3 +46,5 @@ What operations are accelerated?
 - Solid fills without stipples or partial plane mask.
 - FillSpans without stipples or partial plane mask.
 - Xrender compositing without component alpha or alpha maps.
+- Xrender glyph caching and assembling of glyphs (with or without
+  component alpha.) - etnaviv only.

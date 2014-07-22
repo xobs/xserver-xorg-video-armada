@@ -118,6 +118,58 @@ AM_CONDITIONAL(HAVE_ACCEL_GALCORE, test x$ACCEL_GALCORE = xyes)
 AC_MSG_RESULT([$ACCEL_GALCORE])
 
 
+# Etnaviv GPU acceleration
+AC_ARG_ENABLE(etnaviv,
+	      AC_HELP_STRING([--disable-etnaviv],
+			     [Disable Etnaviv acceleration support [[default=enable]]]),
+	      [ACCEL_ETNAVIV="$enableval"],
+	      [ACCEL_ETNAVIV=auto])
+
+AC_ARG_WITH(etnaviv-source,
+            AC_HELP_STRING([--with-etnaviv-source=PATH],
+                           [specify directory for etnaviv source tree [[default=unset]]]),
+            [etnaviv_source="$withval"])
+
+AC_ARG_WITH(etnaviv-include,
+            AC_HELP_STRING([--with-etnaviv-include=PATH],
+                           [specify directory for installed etnaviv include files [[default=/usr/include]]]),
+            [etnaviv_include="$withval"],
+            [etnaviv_include="/usr/include"])
+
+AC_ARG_WITH(etnaviv-lib,
+            AC_HELP_STRING([--with-etnaviv-lib=PATH],
+                           [specify directory for installed etnaviv library [[default=/usr/lib]]]),
+            [etnaviv_lib="$withval"],
+            [etnaviv_lib="/usr/lib"])
+
+AS_IF([test x$ACCEL_ETNAVIV != xno],
+      [
+   AS_IF([test x$etnaviv_source != x],
+         [
+           ETNAVIV_CFLAGS="-I$etnaviv_source/src"
+           ETNAVIV_LIBS="-L$etnaviv_source/src/etnaviv"
+         ],
+         [
+           ETNAVIV_CFLAGS="-I$etnaviv_include"
+           ETNAVIV_LIBS="-L$etnaviv_lib"
+         ])
+   saved_LDFLAGS="$LDFLAGS"
+   LDFLAGS="$LDFLAGS $ETNAVIV_LIBS"
+   AC_CHECK_LIB([etnaviv], [viv_open],
+                [ETNAVIV_LIBS+=" -letnaviv" ACCEL_ETNAVIV=yes],
+                [ACCEL_ETNAVIV=no])
+   AC_CHECK_LIB([etnaviv], [etna_bo_from_dmabuf],
+                [DUMMY=y],
+                [AC_MSG_ERROR([etnaviv support requires etna_bo_from_dmabuf()])])
+   LDFLAGS="$saved_LDFLAGS"
+])
+AC_MSG_CHECKING([whether to build Etnaviv acceleration support])
+AS_IF([test x$ACCEL_ETNAVIV = xyes],
+      [AC_DEFINE(HAVE_ACCEL_ETNAVIV,1,[Enable Etnaviv acceleration support])])
+AM_CONDITIONAL(HAVE_ACCEL_ETNAVIV, test x$ACCEL_ETNAVIV = xyes)
+AC_MSG_RESULT([$ACCEL_ETNAVIV])
+
+
 AC_ARG_ENABLE(dri2, AC_HELP_STRING([--disable-dri2],
 		[Disable DRI support [[default=auto]]]),
 		[DRI2="$enableval"],
@@ -158,11 +210,14 @@ AC_SUBST([XORG_CFLAGS])
 AC_SUBST([LIBGAL_CFLAGS])
 AC_SUBST([LIBGAL_LIBS])
 AC_SUBST([DRIVER_NAME])
+AC_SUBST([ETNAVIV_CFLAGS])
+AC_SUBST([ETNAVIV_LIBS])
 AC_SUBST([moduledir])
 
 AC_OUTPUT([
 	Makefile
 	common/Makefile
+	etnaviv/Makefile
 	man/Makefile
 	src/Makefile
 	vivante/Makefile

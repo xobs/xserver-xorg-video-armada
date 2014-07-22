@@ -509,6 +509,9 @@ static Bool armada_drm_load_accel(ScrnInfoPtr pScrn,
 }
 
 static const char *armada_drm_accelerators[] = {
+#ifdef HAVE_ACCEL_ETNAVIV
+	"etnaviv_gpu",
+#endif
 #ifdef HAVE_ACCEL_GALCORE
 	"vivante_gpu",
 #endif

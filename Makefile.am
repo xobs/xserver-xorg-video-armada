@@ -21,6 +21,9 @@
 ACLOCAL_AMFLAGS = -I m4
 SUBDIRS = common man src
 
+if HAVE_ACCEL_ETNAVIV
+SUBDIRS += etnaviv
+endif
 if HAVE_ACCEL_GALCORE
 SUBDIRS += vivante
 endif
