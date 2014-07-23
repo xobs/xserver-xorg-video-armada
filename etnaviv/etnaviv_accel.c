@@ -25,6 +25,9 @@
 #include "xf86.h"
 
 #include "boxutil.h"
+#include "glyph_assemble.h"
+#include "glyph_cache.h"
+#include "glyph_extents.h"
 #include "pixmaputil.h"
 #include "prefetch.h"
 #include "unaccel.h"
@@ -1727,6 +1730,187 @@ if (pMask && pMask->pDrawable)
 		pScreen->DestroyPixmap(pPixTemp);
 	}
 	return FALSE;
+}
+
+Bool etnaviv_accel_Glyphs(CARD8 final_op, PicturePtr pSrc, PicturePtr pDst,
+	PictFormatPtr maskFormat, INT16 xSrc, INT16 ySrc, int nlist,
+	GlyphListPtr list, GlyphPtr *glyphs)
+{
+	ScreenPtr pScreen = pDst->pDrawable->pScreen;
+	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
+	struct etnaviv_pixmap *vMask;
+	struct etnaviv_de_op op;
+	PixmapPtr pMaskPixmap;
+	PicturePtr pMask, pCurrent;
+	BoxRec extents, box;
+	CARD32 alpha;
+	int width, height, x, y, n, error;
+	struct glyph_render *gr, *grp;
+
+	if (!maskFormat)
+		return FALSE;
+
+	n = glyphs_assemble(pScreen, &gr, &extents, nlist, list, glyphs);
+	if (n == -1)
+		return FALSE;
+	if (n == 0)
+		return TRUE;
+
+	width = extents.x2 - extents.x1;
+	height = extents.y2 - extents.y1;
+
+	pMaskPixmap = pScreen->CreatePixmap(pScreen, width, height,
+					    maskFormat->depth,
+					    CREATE_PIXMAP_USAGE_GPU);
+	if (!pMaskPixmap) {
+		free(gr);
+		return FALSE;
+	}
+
+	alpha = NeedsComponent(maskFormat->format);
+	pMask = CreatePicture(0, &pMaskPixmap->drawable, maskFormat,
+			      CPComponentAlpha, &alpha, serverClient, &error);
+	if (!pMask)
+		goto destroy_pixmap;
+
+	/* Drop our reference to the mask pixmap */
+	pScreen->DestroyPixmap(pMaskPixmap);
+
+	vMask = etnaviv_get_pixmap_priv(pMaskPixmap);
+	/* Clear the mask to transparent */
+	etnaviv_set_format(vMask, pMask);
+	box.x1 = box.y1 = 0;
+	box.x2 = width;
+	box.y2 = height;
+	if (!etnaviv_fill_single(etnaviv, vMask, &box, 0))
+		goto destroy_picture;
+
+	op.dst = INIT_BLIT_PIX(vMask, vMask->pict_format, ZERO_OFFSET);
+	op.blend_op = &etnaviv_composite_op[PictOpAdd];
+	op.clip = &box;
+	op.rop = 0xcc;
+	op.cmd = VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT;
+	op.brush = FALSE;
+
+	pCurrent = NULL;
+	for (grp = gr; grp < gr + n; grp++) {
+		if (pCurrent != grp->picture) {
+			PixmapPtr pPix = drawable_pixmap(grp->picture->pDrawable);
+			struct etnaviv_pixmap *v = etnaviv_get_pixmap_priv(pPix);
+
+			if (!gal_prepare_gpu(etnaviv, v, GPU_ACCESS_RO))
+				goto destroy_picture;
+
+			prefetch(grp);
+
+			op.src = INIT_BLIT_PIX(v, v->pict_format, ZERO_OFFSET);
+
+			pCurrent = grp->picture;
+		}
+
+		prefetch(grp + 1);
+
+		etnaviv_blit_srcdst(etnaviv, &op,
+				    grp->glyph_pos.x, grp->glyph_pos.y,
+				    grp->dest_x, grp->dest_y,
+				    grp->width, grp->height);
+	}
+
+	x = extents.x1;
+	y = extents.y1;
+
+	/*
+	 * x,y correspond to the top/left corner of the glyphs.
+	 * list->xOff,list->yOff correspond to the baseline.  The passed
+	 * xSrc/ySrc also correspond to this point.  So, we need to adjust
+	 * the source for the top/left corner of the glyphs to be rendered.
+	 */
+	xSrc += x - list->xOff;
+	ySrc += y - list->yOff;
+
+	CompositePicture(final_op, pSrc, pMask, pDst, xSrc, ySrc, 0, 0, x, y,
+			 width, height);
+
+	FreePicture(pMask, 0);
+	return TRUE;
+
+destroy_picture:
+	FreePicture(pMask, 0);
+	return FALSE;
+
+destroy_pixmap:
+	pScreen->DestroyPixmap(pMaskPixmap);
+	free(gr);
+	return FALSE;
+}
+
+void etnaviv_accel_glyph_upload(ScreenPtr pScreen, PicturePtr pDst,
+	GlyphPtr pGlyph, PicturePtr pSrc, unsigned x, unsigned y)
+{
+	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
+	PixmapPtr src_pix = drawable_pixmap(pSrc->pDrawable);
+	PixmapPtr dst_pix = drawable_pixmap(pDst->pDrawable);
+	struct etnaviv_pixmap *vdst = etnaviv_get_pixmap_priv(dst_pix);
+	struct etnaviv_de_op op;
+	unsigned width = pGlyph->info.width;
+	unsigned height = pGlyph->info.height;
+	unsigned old_pitch = src_pix->devKind;
+	unsigned i, pitch = ALIGN(old_pitch, 16);
+	struct etna_bo *usr;
+	BoxRec box;
+	xPoint offset, dst_offset = { 0, };
+	char *buf, *src = src_pix->devPrivate.ptr;
+	size_t size, align = maxt(VIVANTE_ALIGN_MASK, getpagesize());
+	void *b;
+
+	size = pitch * height + align - 1;
+	size &= ~(align - 1);
+
+	if (posix_memalign(&b, align, size))
+		return;
+
+	buf = b;
+	for (i = 0; i < height; i++)
+		memcpy(buf + pitch * i, src + old_pitch * i, old_pitch);
+
+	usr = etna_bo_from_usermem_prot(etnaviv->conn, buf, size, PROT_READ);
+	if (!usr) {
+		xf86DrvMsg(etnaviv->scrnIndex, X_ERROR,
+			   "etnaviv: %s: etna_bo_from_usermem_prot(ptr=%p, size=%zu) failed: %s\n",
+			   __FUNCTION__, buf, size, strerror(errno));
+		return;
+	}
+
+	offset.x = -x;
+	offset.y = -y;
+	box.x1 = x;
+	box.y1 = y;
+	box.x2 = x + width;
+	box.y2 = y + height;
+
+	etnaviv_set_format(vdst, pDst);
+
+	if (!gal_prepare_gpu(etnaviv, vdst, GPU_ACCESS_RW))
+		goto unmap;
+
+	op.src = INIT_BLIT_BO(usr, pitch,
+			      etnaviv_pict_format(pSrc->format, FALSE),
+			      offset);
+	op.dst = INIT_BLIT_PIX(vdst, vdst->pict_format, dst_offset);
+	op.blend_op = NULL;
+	op.clip = &box;
+	op.rop = 0xcc;
+	op.cmd = VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT;
+	op.brush = FALSE;
+
+	etnaviv_blit_start(etnaviv, &op);
+	etnaviv_blit(etnaviv, &op, &box, 1);
+	etnaviv_blit_complete(etnaviv);
+	etnaviv_batch_wait_commit(etnaviv, vdst);
+
+ unmap:
+	etna_bo_del(etnaviv->conn, usr, NULL);
+	free(buf);
 }
 #endif
 
