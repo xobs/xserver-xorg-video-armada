@@ -307,11 +307,17 @@ static void dump_pix(struct vivante *vivante, struct vivante_pixmap *vPix,
 {
 	struct drm_armada_bo *bo = vPix->bo;
 	static int idx;
+	unsigned owner = vPix->owner;
 	char fn[160], n[80];
 	int fd;
 
-	if (vPix->bo->type == DRM_ARMADA_BO_SHMEM && vPix->owner == GPU)
+	if (vPix->bo->type != DRM_ARMADA_BO_SHMEM)
+		owner = CPU;
+
+	if (owner == GPU) {
 		vivante_unmap_gpu(vivante, vPix);
+		vPix->owner = CPU;
+	}
 
 	vsprintf(n, fmt, ap);
 	sprintf(fn, "/tmp/X.%04u.%s-%u.%u.%u.%u.pam",
@@ -345,7 +351,7 @@ static void dump_pix(struct vivante *vivante, struct vivante_pixmap *vPix,
 		close(fd);
 	}
 
-	if (vPix->owner == GPU && vPix->bo->type == DRM_ARMADA_BO_SHMEM)
+	if (owner == GPU)
 		vivante_map_gpu(vivante, vPix);
 }
 
