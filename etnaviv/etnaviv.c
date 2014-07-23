@@ -34,6 +34,7 @@
 #include "cpu_access.h"
 #include "fbutil.h"
 #include "gal_extension.h"
+#include "glyph_cache.h"
 #include "mark.h"
 #include "pixmaputil.h"
 #include "unaccel.h"
@@ -679,6 +680,13 @@ static PixmapPtr etnaviv_CreatePixmap(ScreenPtr pScreen, int w, int h,
 
 	/* Create the appropriate format for this pixmap */
 	switch (pixmap->drawable.bitsPerPixel) {
+	case 8:
+		if (usage_hint & CREATE_PIXMAP_USAGE_GPU) {
+			fmt.format = DE_FORMAT_A8;
+			break;
+		}
+		goto fallback_free_pix;
+
 	case 16:
 		if (pixmap->drawable.depth == 15)
 			fmt.format = DE_FORMAT_A1R5G5B5;
@@ -818,6 +826,56 @@ etnaviv_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask, PicturePtr pDst,
 	unaccel_Composite(op, pSrc, pMask, pDst, xSrc, ySrc,
 			  xMask, yMask, xDst, yDst, width, height);
 }
+
+static void etnaviv_Glyphs(CARD8 op, PicturePtr pSrc, PicturePtr pDst,
+	PictFormatPtr maskFormat, INT16 xSrc, INT16 ySrc, int nlist,
+	GlyphListPtr list, GlyphPtr * glyphs)
+{
+	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pDst->pDrawable->pScreen);
+
+	if (etnaviv->force_fallback ||
+	    !etnaviv_accel_Glyphs(op, pSrc, pDst, maskFormat,
+				  xSrc, ySrc, nlist, list, glyphs))
+		unaccel_Glyphs(op, pSrc, pDst, maskFormat,
+			       xSrc, ySrc, nlist, list, glyphs);
+}
+
+static const unsigned glyph_formats[] = {
+	PICT_a8r8g8b8,
+	PICT_a8,
+};
+
+static Bool etnaviv_CreateScreenResources(ScreenPtr pScreen)
+{
+	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
+	Bool ret;
+
+	pScreen->CreateScreenResources = etnaviv->CreateScreenResources;
+	ret = pScreen->CreateScreenResources(pScreen);
+	if (ret) {
+		size_t num = 1;
+
+		/*
+		 * If the 2D engine can do A8 targets, then enable
+		 * PICT_a8 for glyph cache acceleration.
+		 */
+		if (VIV_FEATURE(etnaviv->conn, chipMinorFeatures0,
+				2D_A8_TARGET)) {
+			xf86DrvMsg(etnaviv->scrnIndex, X_INFO,
+				   "etnaviv: A8 target supported\n");
+			num = 2;
+		} else {
+			xf86DrvMsg(etnaviv->scrnIndex, X_INFO,
+				   "etnaviv: A8 target not supported\n");
+		}
+
+		ret = glyph_cache_init(pScreen, etnaviv_accel_glyph_upload,
+				       glyph_formats, num,
+				       CREATE_PIXMAP_USAGE_TILE |
+				       CREATE_PIXMAP_USAGE_GPU);
+	}
+	return ret;
+}
 #endif
 
 static Bool etnaviv_pre_init(ScrnInfoPtr pScrn, int drm_fd)
@@ -930,10 +988,15 @@ static Bool etnaviv_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 	pScreen->BlockHandler = etnaviv_BlockHandler;
 
 #ifdef RENDER
+	if (!etnaviv->force_fallback) {
+		etnaviv->CreateScreenResources = pScreen->CreateScreenResources;
+		pScreen->CreateScreenResources = etnaviv_CreateScreenResources;
+	}
+
 	etnaviv->Composite = ps->Composite;
 	ps->Composite = etnaviv_Composite;
 	etnaviv->Glyphs = ps->Glyphs;
-	ps->Glyphs = unaccel_Glyphs;
+	ps->Glyphs = etnaviv_Glyphs;
 	etnaviv->UnrealizeGlyph = ps->UnrealizeGlyph;
 	etnaviv->Triangles = ps->Triangles;
 	ps->Triangles = unaccel_Triangles;

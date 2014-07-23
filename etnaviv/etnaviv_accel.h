@@ -100,6 +100,7 @@ struct etnaviv {
 	CreateGCProcPtr CreateGC;
 	BitmapToRegionProcPtr BitmapToRegion;
 	ScreenBlockHandlerProcPtr BlockHandler;
+	CreateScreenResourcesProcPtr CreateScreenResources;
 
 	CompositeProcPtr Composite;
 	GlyphsProcPtr Glyphs;
@@ -247,10 +248,16 @@ Bool etnaviv_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 Bool etnaviv_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 	xRectangle * prect);
 
+void etnaviv_accel_glyph_upload(ScreenPtr, PicturePtr, GlyphPtr,
+				PicturePtr, unsigned, unsigned);
+
 /* 3D acceleration */
 int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	PicturePtr pDst, INT16 xSrc, INT16 ySrc, INT16 xMask, INT16 yMask,
 	INT16 xDst, INT16 yDst, CARD16 width, CARD16 height);
+Bool etnaviv_accel_Glyphs(CARD8 op, PicturePtr pSrc, PicturePtr pDst,
+	PictFormatPtr maskFormat, INT16 xSrc, INT16 ySrc, int nlist,
+	GlyphListPtr list, GlyphPtr * glyphs);
 
 void etnaviv_commit(struct etnaviv *etnaviv, Bool stall, uint32_t *fence);
 void etnaviv_finish_fences(struct etnaviv *etnaviv, uint32_t fence);
