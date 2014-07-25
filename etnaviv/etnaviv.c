@@ -468,6 +468,18 @@ static Bool etnaviv_CloseScreen(CLOSE_SCREEN_ARGS_DECL)
 }
 
 static void
+etnaviv_GetImage(DrawablePtr pDrawable, int x, int y, int w, int h,
+	unsigned int format, unsigned long planeMask, char *d)
+{
+	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pDrawable->pScreen);
+
+	if (etnaviv->force_fallback ||
+	    !etnaviv_accel_GetImage(pDrawable, x, y, w, h, format, planeMask,
+				    d))
+		unaccel_GetImage(pDrawable, x, y, w, h, format, planeMask, d);
+}
+
+static void
 etnaviv_CopyWindow(WindowPtr pWin, DDXPointRec ptOldOrg, RegionPtr prgnSrc)
 {
 	PixmapPtr pPixmap = pWin->drawable.pScreen->GetWindowPixmap(pWin);
@@ -870,7 +882,7 @@ static Bool etnaviv_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 	etnaviv->CloseScreen = pScreen->CloseScreen;
 	pScreen->CloseScreen = etnaviv_CloseScreen;
 	etnaviv->GetImage = pScreen->GetImage;
-	pScreen->GetImage = unaccel_GetImage;
+	pScreen->GetImage = etnaviv_GetImage;
 	etnaviv->GetSpans = pScreen->GetSpans;
 	pScreen->GetSpans = unaccel_GetSpans;
 	etnaviv->ChangeWindowAttributes = pScreen->ChangeWindowAttributes;

@@ -558,6 +558,49 @@ Bool etnaviv_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 	return TRUE;
 }
 
+Bool etnaviv_accel_GetImage(DrawablePtr pDrawable, int x, int y, int w, int h,
+	unsigned int format, unsigned long planeMask, char *d)
+{
+	ScreenPtr pScreen = pDrawable->pScreen;
+	struct etnaviv_pixmap *vPix;
+	PixmapPtr pPix, pTemp;
+	GCPtr gc;
+	xPoint src_offset;
+
+	pPix = drawable_pixmap_offset(pDrawable, &src_offset);
+	vPix = etnaviv_get_pixmap_priv(pPix);
+	if (!vPix || !(vPix->state & ST_GPU_R))
+		return FALSE;
+
+	x += pDrawable->x + src_offset.x;
+	y += pDrawable->y + src_offset.y;
+
+	pTemp = pScreen->CreatePixmap(pScreen, w, h, pPix->drawable.depth,
+				      CREATE_PIXMAP_USAGE_GPU);
+	if (!pTemp)
+		return FALSE;
+
+	/*
+	 * Copy to the temporary pixmap first using the GPU so that the
+	 * source pixmap stays on the GPU.
+	 */
+	gc = GetScratchGC(pTemp->drawable.depth, pScreen);
+	if (!gc) {
+		pScreen->DestroyPixmap(pTemp);
+		return FALSE;
+	}
+
+	ValidateGC(&pTemp->drawable, gc);
+	gc->ops->CopyArea(&pPix->drawable, &pTemp->drawable, gc,
+			  x, y, w, h, 0, 0);
+	FreeScratchGC(gc);
+
+	unaccel_GetImage(&pTemp->drawable, 0, 0, w, h, format, planeMask, d);
+
+	pScreen->DestroyPixmap(pTemp);
+	return TRUE;
+}
+
 void etnaviv_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 	GCPtr pGC, BoxPtr pBox, int nBox, int dx, int dy, Bool reverse,
 	Bool upsidedown, Pixel bitPlane, void *closure)

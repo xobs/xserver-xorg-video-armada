@@ -229,6 +229,8 @@ struct etnaviv_pixmap {
 /* 2D acceleration */
 Bool etnaviv_accel_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int n,
 	DDXPointPtr ppt, int *pwidth, int fSorted);
+Bool etnaviv_accel_GetImage(DrawablePtr pDrawable, int x, int y, int w, int h,
+	unsigned int format, unsigned long planeMask, char *d);
 Bool etnaviv_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 	int x, int y, int w, int h, int leftPad, int format, char *bits);
 void etnaviv_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
