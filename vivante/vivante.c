@@ -31,6 +31,7 @@
 #include "cpu_access.h"
 #include "fbutil.h"
 #include "gal_extension.h"
+#include "mark.h"
 #include "pixmaputil.h"
 #include "unaccel.h"
 
@@ -555,6 +556,8 @@ vivante_BlockHandler(BLOCKHANDLER_ARGS_DECL)
 
 	if (vivante->need_commit)
 		vivante_commit(vivante, FALSE);
+
+	mark_flush();
 
 	pScreen->BlockHandler = vivante->BlockHandler;
 	pScreen->BlockHandler(BLOCKHANDLER_ARGS);
