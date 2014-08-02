@@ -86,18 +86,19 @@ void vivante_set_pixmap_bo(PixmapPtr pixmap, struct drm_armada_bo *bo)
 
 		/*
 		 * This is an imprecise conversion to the Vivante GAL format.
-		 * One important thing here is that Pixmaps don't have an
-		 * alpha channel.
+		 * Although pixmaps in X generally don't have an alpha channel,
+		 * we must set the format to include the alpha channel to
+		 * ensure that the GPU copies all the bits.
 		 */
 		switch (pixmap->drawable.bitsPerPixel) {
 		case 16:
 			if (pixmap->drawable.depth == 15)
-				format = gcvSURF_X1R5G5B5;
+				format = gcvSURF_A1R5G5B5;
 			else
 				format = gcvSURF_R5G6B5;
 			break;
 		case 32:
-			format = gcvSURF_X8R8G8B8;
+			format = gcvSURF_A8R8G8B8;
 			break;
 		default:
 			goto fail;
