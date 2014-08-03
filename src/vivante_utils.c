@@ -237,7 +237,6 @@ void vivante_prepare_drawable(DrawablePtr pDrawable, int access)
 			pixmap->devPrivate.ptr = vPix->bo->ptr;
 		}
 #ifdef DEBUG_CHECK_DRAWABLE_USE
-		assert(vPix->in_use == 0);
 		vPix->in_use++;
 #endif
 		vPix->owner = CPU;
