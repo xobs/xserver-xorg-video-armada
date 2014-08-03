@@ -389,10 +389,21 @@ static Bool armada_drm_ScreenInit(SCREEN_INIT_ARGS_DECL)
 	arm->CreateScreenResources = pScreen->CreateScreenResources;
 	pScreen->CreateScreenResources = armada_drm_CreateScreenResources;
 
-	if (arm->accel && !vivante_ScreenInit(pScreen, arm->bufmgr)) {
-		xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
-			   "[drm] Vivante initialization failed, running unaccelerated\n");
-		arm->accel = FALSE;
+	if (arm->accel) {
+		struct drm_armada_bufmgr *mgr = arm->bufmgr;
+
+		/*
+		 * Only pass the armada-drm bo manager if we are really
+		 * driving armada-drm, other DRMs don't provide bo managers.
+		 */
+		if (!arm->version || !strstr(arm->version->name, "armada"))
+			mgr = NULL;
+
+		if (!vivante_ScreenInit(pScreen, mgr)) {
+			xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
+				   "[drm] Vivante initialization failed, running unaccelerated\n");
+			arm->accel = FALSE;
+		}
 	}
 
 	arm->CloseScreen = pScreen->CloseScreen;
@@ -453,7 +464,6 @@ static Bool armada_drm_open_master(ScrnInfoPtr pScrn)
 	struct all_drm_info *drm;
 	EntityInfoPtr pEnt;
 	drmSetVersion sv;
-	drmVersionPtr version;
 	const char *busid = DRM_DEFAULT_BUS_ID;
 	uint64_t val;
 	unsigned i;
@@ -538,12 +548,10 @@ static Bool armada_drm_open_master(ScrnInfoPtr pScrn)
 
 	SET_DRM_INFO(pScrn, &drm->common);
 
-	version = drmGetVersion(drm->common.fd);
-	if (version) {
+	drm->armada.version = drmGetVersion(drm->common.fd);
+	if (drm->armada.version)
 		xf86DrvMsg(pScrn->scrnIndex, X_INFO, "hardware: %s\n",
-			   version->name);
-		drmFreeVersion(version);
-	}
+			   drm->armada.version->name);
 
 	return TRUE;
 
@@ -562,6 +570,9 @@ static void armada_drm_FreeScreen(FREE_SCREEN_ARGS_DECL)
 		struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(pScrn);
 
 		drm_armada_fini(arm->bufmgr);
+
+		if (arm->version)
+			drmFreeVersion(arm->version);
 	}
 
 	common_drm_FreeScreen(FREE_SCREEN_ARGS(pScrn));

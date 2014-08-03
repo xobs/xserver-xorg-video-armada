@@ -571,6 +571,10 @@ Bool vivante_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 #endif
 	struct vivante *vivante;
 
+	/* We must have a buffer manager */
+	if (!mgr)
+		return FALSE;
+
 	if (!vivante_CreateKey(&vivante_pixmap_index, PRIVATE_PIXMAP) ||
 	    !vivante_CreateKey(&vivante_screen_index, PRIVATE_SCREEN))
 		return FALSE;
