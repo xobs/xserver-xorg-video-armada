@@ -1,0 +1,36 @@
+xf86-video-armada
+X.org graphics driver for KMS based systems with pluggable GPU backend
+
+What is xf86-video-armada?
+--------------------------
+The xf86-video-armada module is a 2D graphics driver for the X Window
+System as implemented by X.org, supporting these DRM KMS drivers:
+
+	Freescale i.MX
+	Marvell Armada 510 (Dove)
+
+and GPUs:
+
+	Vivnate libGAL (Armada only)
+
+Build requirements
+------------------
+xf86-video-armada can be built as a stand-alone KMS driver, or with
+Vivante GPU support.
+
+When building with Vivante libGAL support, the configure options
+--with-libgal-include= and --with-libgal-lib= should indicate the
+location of the libGAL headers and library respectively.
+
+The following packages are required by this driver:
+
+- libdrm-armada   git://ftp.arm.linux.org.uk/~rmk/libdrm-armada.git/
+
+What operations are accelerated?
+--------------------------------
+- Copies using all alu operations.
+- GetImage partially accelerated.
+- PutImage partially accelerated.
+- Solid fills without stipples or partial plane mask.
+- FillSpans without stipples or partial plane mask.
+- Xrender compositing without component alpha or alpha maps.
