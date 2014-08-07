@@ -39,6 +39,23 @@ Description: Xorg X server -- Armada display driver
  .
  This package is built from the X.org xf86-video-armada driver module.
 
+Package: xserver-xorg-video-armada-vivante
+Architecture: armel armhf
+Depends:
+ xserver-xorg-video-armada (= ${binary:Version}),
+ ${misc:Depends},
+ ${shlibs:Depends}
+Description: Xorg X server -- Armada DRM Vivante libGAL GPU acceleration
+ This package provides the GPU driver for Vivante GPU acceleration using
+ the Vivante libGAL closed source library.
+ .
+ More information about X.Org can be found at:
+ <URL:http://www.X.org>
+ <URL:http://xorg.freedesktop.org>
+ <URL:http://lists.freedesktop.org/mailman/listinfo/xorg>
+ .
+ This package is built from the X.org xf86-video-armada driver module.
+
 Package: xserver-xorg-video-armada-dbg
 Section: debug
 Priority: extra
