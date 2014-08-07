@@ -17,6 +17,7 @@ debian/*.log
 debian/*.substvars
 debian/xserver-xorg-video-armada-dbg
 debian/xserver-xorg-video-armada
+debian/xserver-xorg-video-armada-etnaviv
 debian/xserver-xorg-video-armada-vivante
 libtool
 m4
