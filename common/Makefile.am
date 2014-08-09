@@ -31,4 +31,5 @@ libcommon_la_SOURCES = \
 		pixmaputil.c \
 		transform.c \
 		unaccel.c \
-		unaccel_render.c
+		unaccel_render.c \
+		xv_image_format.c

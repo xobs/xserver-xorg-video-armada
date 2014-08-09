@@ -26,6 +26,7 @@
 
 #include "armada_fourcc.h"
 #include "armada_ioctl.h"
+#include "xv_image_format.h"
 
 #define MAKE_ATOM(a) MakeAtom(a, strlen(a), TRUE)
 
@@ -48,11 +49,6 @@ static const char *armada_drm_property_names[NR_DRM_PROPS] = {
 	[PROP_DRM_BRIGHTNESS] = "brightness",
 	[PROP_DRM_CONTRAST] = "contrast",
 	[PROP_DRM_COLORKEY] = "colorkey",
-};
-
-struct armada_format {
-	uint32_t	drm_format;
-	XF86ImageRec	xv_image;
 };
 
 struct drm_xv {
@@ -85,7 +81,7 @@ struct drm_xv {
 		uint32_t *);
 
 	/* Plane information */
-	const struct armada_format *plane_format;
+	const struct xv_image_format *plane_format;
 	uint32_t plane_fb_id;
 	drmModePlanePtr plane;
 	drmModePlanePtr planes[2];
@@ -275,52 +271,81 @@ static XF86VideoFormatRec OverlayFormats[] = {
  * not have any support for it but does have I422) so these comes at
  * the very end, to try to avoid vlc complaining about them.
  */
-static const struct armada_format armada_drm_formats[] = {
+static const struct xv_image_format armada_drm_formats[] = {
 	/* Standard Xv formats */
-	{ DRM_FORMAT_UYVY,	XVIMAGE_UYVY, },
-	{ DRM_FORMAT_YUYV,	XVIMAGE_YUY2, },
-	{ DRM_FORMAT_YUV420,	XVIMAGE_I420, },
-	{ DRM_FORMAT_YVU420,	XVIMAGE_YV12, },
+	{
+		.u.drm_format = DRM_FORMAT_UYVY,
+		.xv_image = XVIMAGE_UYVY,
+	}, {
+		.u.drm_format = DRM_FORMAT_YUYV,
+		.xv_image = XVIMAGE_YUY2,
+	}, {
+		.u.drm_format = DRM_FORMAT_YUV420,
+		.xv_image = XVIMAGE_I420,
+	}, {
+		.u.drm_format = DRM_FORMAT_YVU420,
+		.xv_image = XVIMAGE_YV12,
+	}, {
 	/* Our own formats */
-	{ DRM_FORMAT_YUV422,	XVIMAGE_I422, },
-	{ DRM_FORMAT_YVU422,	XVIMAGE_YV16, },
-	{ DRM_FORMAT_VYUY,	XVIMAGE_VYUY, },
-	{ DRM_FORMAT_ARGB8888,	XVIMAGE_ARGB8888, },
-	{ DRM_FORMAT_ABGR8888,	XVIMAGE_ABGR8888, },
-	{ DRM_FORMAT_XRGB8888,	XVIMAGE_XRGB8888, },
-	{ DRM_FORMAT_XBGR8888,	XVIMAGE_XBGR8888, },
-	{ DRM_FORMAT_RGB888,	XVIMAGE_RGB888,	},
-	{ DRM_FORMAT_BGR888,	XVIMAGE_BGR888, },
-	{ DRM_FORMAT_ARGB1555,	XVIMAGE_ARGB1555, },
-	{ DRM_FORMAT_ABGR1555,	XVIMAGE_ABGR1555, },
-	{ DRM_FORMAT_RGB565,	XVIMAGE_RGB565 },
-	{ DRM_FORMAT_BGR565,	XVIMAGE_BGR565 },
-	{ 0,			XVIMAGE_XVBO },
+		.u.drm_format = DRM_FORMAT_YUV422,
+		.xv_image = XVIMAGE_I422,
+	}, {
+		.u.drm_format = DRM_FORMAT_YVU422,
+		.xv_image = XVIMAGE_YV16,
+	}, {
+		.u.drm_format = DRM_FORMAT_VYUY,
+		.xv_image = XVIMAGE_VYUY,
+	}, {
+		.u.drm_format = DRM_FORMAT_ARGB8888,
+		.xv_image = XVIMAGE_ARGB8888,
+	}, {
+		.u.drm_format = DRM_FORMAT_ABGR8888,
+		.xv_image = XVIMAGE_ABGR8888,
+	}, {
+		.u.drm_format = DRM_FORMAT_XRGB8888,
+		.xv_image = XVIMAGE_XRGB8888,
+	}, {
+		.u.drm_format = DRM_FORMAT_XBGR8888,
+		.xv_image = XVIMAGE_XBGR8888,
+	}, {
+		.u.drm_format = DRM_FORMAT_RGB888,
+		.xv_image = XVIMAGE_RGB888,
+	}, {
+		.u.drm_format = DRM_FORMAT_BGR888,
+		.xv_image = XVIMAGE_BGR888,
+	}, {
+		.u.drm_format = DRM_FORMAT_ARGB1555,
+		.xv_image = XVIMAGE_ARGB1555,
+	}, {
+		.u.drm_format = DRM_FORMAT_ABGR1555,
+		.xv_image = XVIMAGE_ABGR1555,
+	}, {
+		.u.drm_format = DRM_FORMAT_RGB565,
+		.xv_image = XVIMAGE_RGB565
+	}, {
+		.u.drm_format = DRM_FORMAT_BGR565,
+		.xv_image = XVIMAGE_BGR565
+	}, {
+		.u.drm_format = 0,
+		.xv_image = 		XVIMAGE_XVBO
+	},
 };
 
 /* It would be nice to be given the image pointer... */
-static const struct armada_format *armada_drm_lookup_xvfourcc(int fmt)
+static const struct xv_image_format *armada_drm_lookup_xvfourcc(int fmt)
 {
-	unsigned i;
-
-	for (i = 0; i < ARRAY_SIZE(armada_drm_formats); i++)
-		if (armada_drm_formats[i].xv_image.id == fmt)
-			return &armada_drm_formats[i];
-	return NULL;
+	return xv_image_xvfourcc(armada_drm_formats,
+				 ARRAY_SIZE(armada_drm_formats), fmt);
 }
 
-static const struct armada_format *armada_drm_lookup_drmfourcc(uint32_t fmt)
+static const struct xv_image_format *armada_drm_lookup_drmfourcc(uint32_t fmt)
 {
-	unsigned i;
-
-	for (i = 0; i < ARRAY_SIZE(armada_drm_formats); i++)
-		if (armada_drm_formats[i].drm_format == fmt)
-			return &armada_drm_formats[i];
-	return NULL;
+	return xv_image_drm(armada_drm_formats,
+			    ARRAY_SIZE(armada_drm_formats), fmt);
 }
 
 static int
-armada_drm_get_fmt_info(const struct armada_format *fmt,
+armada_drm_get_fmt_info(const struct xv_image_format *fmt,
 	uint32_t *pitch, uint32_t *offset, short width, short height)
 {
 	const XF86ImageRec *img = &fmt->xv_image;
@@ -404,7 +429,7 @@ armada_drm_create_fbid(struct drm_xv *drmxv, struct drm_armada_bo *bo,
 
 	/* Create the framebuffer object for this buffer */
 	if (drmModeAddFB2(drmxv->fd, drmxv->width, drmxv->height,
-			  drmxv->plane_format->drm_format, handles,
+			  drmxv->plane_format->u.drm_format, handles,
 			  drmxv->pitches, drmxv->offsets, id, 0))
 		return FALSE;
 
@@ -614,7 +639,7 @@ armada_drm_Xv_QueryImageAttributes(ScrnInfoPtr pScrn, int image,
 	unsigned short *width, unsigned short *height, int *pitches,
 	int *offsets)
 {
-	const struct armada_format *fmt;
+	const struct xv_image_format *fmt;
 	unsigned i, ret = 0;
 	uint32_t pitch[3], offset[3];
 
@@ -643,7 +668,7 @@ static int
 armada_drm_plane_fbid(ScrnInfoPtr pScrn, struct drm_xv *drmxv, int image,
 	unsigned char *buf, short width, short height, uint32_t *id)
 {
-	const struct armada_format *fmt;
+	const struct xv_image_format *fmt;
 	Bool is_bo = image == FOURCC_XVBO;
 	int ret;
 
@@ -897,7 +922,7 @@ armada_drm_XvInitPlane(ScrnInfoPtr pScrn, DevUnion *priv, struct drm_xv *drmxv)
 	}
 
 	for (num_images = i = 0; i < drmxv->planes[0]->count_formats; i++) {
-		const struct armada_format *fmt;
+		const struct xv_image_format *fmt;
 		uint32_t id = drmxv->planes[0]->formats[i];
 
 		if (id == 0)
