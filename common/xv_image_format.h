@@ -6,6 +6,7 @@
 struct xv_image_format {
 	union {
 		uint32_t drm_format;
+		const void *data;
 	} u;
 	XF86ImageRec	xv_image;
 };

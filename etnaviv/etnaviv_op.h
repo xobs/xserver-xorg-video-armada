@@ -20,7 +20,10 @@ struct etnaviv_format {
 	uint32_t
 		format:5,
 		swizzle:2,
-		tile:1;
+		tile:1,
+		planes:2,
+		u:2,
+		v:2;
 };
 
 struct etnaviv_blend_op {
@@ -67,10 +70,25 @@ struct etnaviv_de_op {
 	uint32_t fg_colour;
 };
 
+struct etnaviv_vr_op {
+	struct etnaviv_blit_buf dst;
+	struct etnaviv_blit_buf src;
+	uint32_t *src_pitches;
+	uint32_t *src_offsets;
+	BoxRec src_bounds;
+	uint32_t h_scale;
+	uint32_t v_scale;
+	unsigned cmd;
+	unsigned vr_op;
+};
+
 void etnaviv_de_start(struct etnaviv *etnaviv, const struct etnaviv_de_op *op);
 void etnaviv_de_end(struct etnaviv *etnaviv);
 void etnaviv_de_op(struct etnaviv *etnaviv, const struct etnaviv_de_op *op,
 	const BoxRec *pBox, size_t nBox);
+void etnaviv_vr_op(struct etnaviv *etnaviv, struct etnaviv_vr_op *op,
+	const BoxRec *dst, uint32_t x1, uint32_t y1,
+	const BoxRec *boxes, size_t n);
 void etnaviv_emit(struct etnaviv *etnaviv);
 void etnaviv_flush(struct etnaviv *etnaviv);
 

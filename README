@@ -48,3 +48,4 @@ What operations are accelerated?
 - Xrender compositing without alpha maps, and for PE1.0 hardware, without
   component alpha.
 - Xrender glyph caching, and rendering of glyphs - etnaviv only.
+- Xv textured adapter - etnaviv only.

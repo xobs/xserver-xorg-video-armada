@@ -224,6 +224,90 @@ void etnaviv_de_op(struct etnaviv *etnaviv, const struct etnaviv_de_op *op,
 	EMIT(etnaviv, 0);
 }
 
+void etnaviv_vr_op(struct etnaviv *etnaviv, struct etnaviv_vr_op *op,
+	const BoxRec *dst, uint32_t x1, uint32_t y1,
+	const BoxRec *boxes, size_t n)
+{
+	uint32_t cfg, offset, pitch;
+
+	cfg = etnaviv_src_config(op->src.format, FALSE);
+	offset = op->src_offsets ? op->src_offsets[0] : 0;
+	pitch = op->src_pitches ? op->src_pitches[0] : op->src.pitch;
+
+	BATCH_SETUP_START(etnaviv);
+	EMIT_LOADSTATE(etnaviv, VIVS_DE_SRC_ADDRESS, 4);
+	EMIT_RELOC(etnaviv, op->src.bo, offset, FALSE);
+	EMIT(etnaviv, VIVS_DE_SRC_STRIDE_STRIDE(pitch));
+	EMIT(etnaviv, VIVS_DE_SRC_ROTATION_CONFIG_ROTATION_DISABLE);
+	EMIT(etnaviv, cfg);
+	EMIT_ALIGN(etnaviv);
+
+	if (op->src.format.planes > 1) {
+		unsigned u = op->src.format.u;
+		unsigned v = op->src.format.v;
+
+		EMIT_LOADSTATE(etnaviv, VIVS_DE_UPLANE_ADDRESS, 4);
+		EMIT_RELOC(etnaviv, op->src.bo, op->src_offsets[u], FALSE);
+		EMIT(etnaviv, VIVS_DE_UPLANE_STRIDE_STRIDE(op->src_pitches[u]));
+		EMIT_RELOC(etnaviv, op->src.bo, op->src_offsets[v], FALSE);
+		EMIT(etnaviv, VIVS_DE_VPLANE_STRIDE_STRIDE(op->src_pitches[v]));
+		EMIT_ALIGN(etnaviv);
+	}
+
+	etnaviv_set_dest_bo(etnaviv, op->dst.bo, op->dst.pitch, op->dst.format,
+			    op->cmd);
+
+	EMIT_LOADSTATE(etnaviv, VIVS_DE_ALPHA_CONTROL, 1);
+	EMIT(etnaviv, VIVS_DE_ALPHA_CONTROL_ENABLE_OFF);
+
+	EMIT_LOADSTATE(etnaviv, VIVS_DE_STRETCH_FACTOR_LOW, 2);
+	EMIT(etnaviv, op->h_scale);
+	EMIT(etnaviv, op->v_scale);
+	EMIT_ALIGN(etnaviv);
+
+	EMIT_LOADSTATE(etnaviv, VIVS_DE_VR_SOURCE_IMAGE_LOW, 2);
+	EMIT(etnaviv,
+	     VIVS_DE_VR_SOURCE_IMAGE_LOW_LEFT(op->src_bounds.x1) |
+	     VIVS_DE_VR_SOURCE_IMAGE_LOW_TOP(op->src_bounds.y1));
+	EMIT(etnaviv,
+	     VIVS_DE_VR_SOURCE_IMAGE_HIGH_RIGHT(op->src_bounds.x2) |
+	     VIVS_DE_VR_SOURCE_IMAGE_HIGH_BOTTOM(op->src_bounds.y2));
+	EMIT_ALIGN(etnaviv);
+
+	while (n--) {
+		BoxRec box = *boxes++;
+		uint32_t x, y;
+
+		x = x1 + (box.x1 - dst->x1) * op->h_scale;
+		y = y1 + (box.y1 - dst->y1) * op->v_scale;
+
+		/* Factor in the drawable offsets for the target position */
+		box.x1 += op->dst.offset.x;
+		box.y1 += op->dst.offset.y;
+		box.x2 += op->dst.offset.x;
+		box.y2 += op->dst.offset.y;
+
+		/* 6 */
+		EMIT_LOADSTATE(etnaviv, VIVS_DE_VR_SOURCE_ORIGIN_LOW, 4);
+		EMIT(etnaviv, VIVS_DE_VR_SOURCE_ORIGIN_LOW_X(x));
+		EMIT(etnaviv, VIVS_DE_VR_SOURCE_ORIGIN_HIGH_Y(y));
+
+		EMIT(etnaviv,
+		     VIVS_DE_VR_TARGET_WINDOW_LOW_LEFT(box.x1) |
+		     VIVS_DE_VR_TARGET_WINDOW_LOW_TOP(box.y1));
+		EMIT(etnaviv,
+		     VIVS_DE_VR_TARGET_WINDOW_HIGH_RIGHT(box.x2) |
+		     VIVS_DE_VR_TARGET_WINDOW_HIGH_BOTTOM(box.y2));
+		EMIT_ALIGN(etnaviv);
+
+		/* 2 */
+		EMIT_LOADSTATE(etnaviv, VIVS_DE_VR_CONFIG, 1);
+		EMIT(etnaviv, op->vr_op);
+	}
+
+	etnaviv_emit(etnaviv);
+}
+
 void etnaviv_flush(struct etnaviv *etnaviv)
 {
 	struct etna_ctx *ctx = etnaviv->ctx;
