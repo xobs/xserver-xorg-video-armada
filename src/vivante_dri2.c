@@ -422,8 +422,8 @@ vivante_dri2_vblank(int fd, unsigned frame, unsigned tv_sec, unsigned tv_usec,
 		break;
 
 	default:
-		xf86DrvMsg(xf86Screens[draw->pScreen->myNum]->scrnIndex, X_WARNING,
-			   "%s: unknown vblank event received\n",
+		xf86DrvMsg(xf86ScreenToScrn(draw->pScreen)->scrnIndex,
+			   X_WARNING, "%s: unknown vblank event received\n",
 			   __FUNCTION__);
 		break;
 	}

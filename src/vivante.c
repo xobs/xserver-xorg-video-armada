@@ -565,7 +565,7 @@ vivante_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask, PicturePtr pDst,
 
 Bool vivante_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 {
-	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 #ifdef RENDER
 	PictureScreenPtr ps = GetPictureScreenIfSet(pScreen);
 #endif
