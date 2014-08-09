@@ -42,6 +42,7 @@
 #include "etnaviv_accel.h"
 #include "etnaviv_dri2.h"
 #include "etnaviv_utils.h"
+#include "etnaviv_xv.h"
 
 etnaviv_Key etnaviv_pixmap_index;
 etnaviv_Key etnaviv_screen_index;
@@ -1116,4 +1117,5 @@ const struct armada_accel_ops etnaviv_ops = {
 	.import_dmabuf	= etnaviv_import_dmabuf,
 	.attach_name	= etnaviv_attach_name,
 	.free_pixmap	= etnaviv_free_pixmap,
+	.xv_init	= etnaviv_xv_init,
 };

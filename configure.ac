@@ -161,6 +161,9 @@ AS_IF([test x$ACCEL_ETNAVIV != xno],
    AC_CHECK_LIB([etnaviv], [etna_bo_from_dmabuf],
                 [DUMMY=y],
                 [AC_MSG_ERROR([etnaviv support requires etna_bo_from_dmabuf()])])
+   AC_CHECK_LIB([etnaviv], [etna_bo_from_usermem_prot],
+                [DUMMY=y],
+                [AC_MSG_ERROR([etnaviv support requires etna_bo_from_usermem_prot()])])
    LDFLAGS="$saved_LDFLAGS"
 ])
 AC_MSG_CHECKING([whether to build Etnaviv acceleration support])
