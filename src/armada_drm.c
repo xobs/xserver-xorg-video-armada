@@ -346,7 +346,7 @@ static Bool armada_drm_CloseScreen(CLOSE_SCREEN_ARGS_DECL)
 
 static Bool armada_drm_CreateScreenResources(ScreenPtr pScreen)
 {
-	ScrnInfoPtr pScrn = xf86Screens[pScreen->myNum];
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(pScrn);
 	Bool ret;
 
