@@ -34,6 +34,13 @@ struct all_drm_info {
 	struct armada_drm_info armada;
 };
 
+enum {
+	OPTION_XV_ACCEL,
+	OPTION_XV_PREFEROVL,
+	OPTION_USE_GPU,
+	OPTION_ACCEL_MODULE,
+};
+
 #define GET_ARMADA_DRM_INFO(pScrn) \
 	((struct armada_drm_info *)GET_DRM_INFO(pScrn)->private)
 

@@ -37,17 +37,12 @@
 #define DRM_MODULE_NAMES	"armada-drm", "imx-drm"
 #define DRM_DEFAULT_BUS_ID	NULL
 
-enum {
-	OPTION_XV_ACCEL,
-	OPTION_USE_GPU,
-	OPTION_ACCEL_MODULE,
-};
-
 const OptionInfoRec armada_drm_options[] = {
-	{ OPTION_XV_ACCEL,	"XvAccel",	OPTV_BOOLEAN, {0}, FALSE },
-	{ OPTION_USE_GPU,	"UseGPU",	OPTV_BOOLEAN, {0}, FALSE },
-	{ OPTION_ACCEL_MODULE,	"AccelModule",	OPTV_STRING,  {0}, FALSE },
-	{ -1,			NULL,		OPTV_NONE,    {0}, FALSE }
+	{ OPTION_XV_ACCEL,	"XvAccel",	   OPTV_BOOLEAN, {0}, FALSE },
+	{ OPTION_XV_PREFEROVL,	"XvPreferOverlay", OPTV_BOOLEAN, {0}, TRUE  },
+	{ OPTION_USE_GPU,	"UseGPU",	   OPTV_BOOLEAN, {0}, FALSE },
+	{ OPTION_ACCEL_MODULE,	"AccelModule",	   OPTV_STRING,  {0}, FALSE },
+	{ -1,			NULL,		   OPTV_NONE,    {0}, FALSE }
 };
 
 static Bool armada_drm_accel_import(ScreenPtr pScreen,

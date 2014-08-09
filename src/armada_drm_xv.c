@@ -1026,15 +1026,21 @@ Bool armada_drm_XvInit(ScrnInfoPtr pScrn)
 	ScreenPtr scrn = screenInfo.screens[pScrn->scrnIndex];
 	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
 	struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(pScrn);
-	XF86VideoAdaptorPtr xv[2], plane;
+	XF86VideoAdaptorPtr xv[2], plane, gpu_adap;
 	drmModePlaneResPtr res;
 	struct drm_xv *drmxv;
 	DevUnion priv[1];
 	unsigned i, num;
-	Bool ret;
+	Bool ret, prefer_overlay;
 
 	if (!armada_drm_init_atoms(pScrn))
 		return FALSE;
+
+	/* Initialise the GPU textured adapter first. */
+	if (arm->accel_ops && arm->accel_ops->xv_init)
+		gpu_adap = arm->accel_ops->xv_init(scrn);
+	else
+		gpu_adap = NULL;
 
 	/* FIXME: we leak this */
 	drmxv = calloc(1, sizeof *drmxv);
@@ -1094,21 +1100,23 @@ Bool armada_drm_XvInit(ScrnInfoPtr pScrn)
 	/* Done with the plane resources */
 	drmModeFreePlaneResources(res);
 
-	priv[0].ptr = drmxv;
+	prefer_overlay = xf86ReturnOptValBool(arm->Options,
+					      OPTION_XV_PREFEROVL, TRUE);
 
 	num = 0;
+	if (gpu_adap && !prefer_overlay)
+		xv[num++] = gpu_adap;
+
 	if (drmxv->planes[0]) {
+		priv[0].ptr = drmxv;
 		plane = armada_drm_XvInitPlane(pScrn, priv, drmxv);
 		if (!plane)
 			goto err_free;
 		xv[num++] = plane;
 	}
 
-	if (arm->accel_ops && arm->accel_ops->xv_init) {
-		xv[num] = arm->accel_ops->xv_init(scrn);
-		if (xv[num])
-			num++;
-	}
+	if (gpu_adap && prefer_overlay)
+		xv[num++] = gpu_adap;
 
 	ret = xf86XVScreenInit(scrn, xv, num);
 
@@ -1126,6 +1134,11 @@ Bool armada_drm_XvInit(ScrnInfoPtr pScrn)
 	for (i = 0; i < ARRAY_SIZE(drmxv->planes); i++)
 		if (drmxv->planes[i])
 			drmModeFreePlane(drmxv->planes[i]);
+	if (gpu_adap) {
+		free(gpu_adap->pImages);
+		free(gpu_adap->pPortPrivates);
+		free(gpu_adap);
+	}
 	free(drmxv);
 	return FALSE;
 }
