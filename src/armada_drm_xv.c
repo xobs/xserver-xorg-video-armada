@@ -14,6 +14,7 @@
 
 #include <armada_bufmgr.h>
 
+#include "armada_accel.h"
 #include "armada_drm.h"
 #include "common_drm.h"
 #include "drm_fourcc.h"
@@ -1101,6 +1102,12 @@ Bool armada_drm_XvInit(ScrnInfoPtr pScrn)
 		if (!plane)
 			goto err_free;
 		xv[num++] = plane;
+	}
+
+	if (arm->accel_ops && arm->accel_ops->xv_init) {
+		xv[num] = arm->accel_ops->xv_init(scrn);
+		if (xv[num])
+			num++;
 	}
 
 	ret = xf86XVScreenInit(scrn, xv, num);

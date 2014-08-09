@@ -8,6 +8,7 @@
 #define ARMADA_ACCEL_H
 
 #include "xf86.h"
+#include "xf86xv.h"
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
@@ -23,6 +24,7 @@ struct armada_accel_ops {
 	void (*vblank_handler)(int fd, unsigned int sequence,
 			       unsigned int tv_sec, unsigned int tv_usec,
 			       void *user_data);
+	XF86VideoAdaptorPtr (*xv_init)(ScreenPtr);
 };
 
 extern Bool accel_module_init(const struct armada_accel_ops **);
