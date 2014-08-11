@@ -103,7 +103,7 @@ static void etnaviv_batch_add(struct etnaviv *etnaviv,
 }
 
 
-static Bool gal_prepare_gpu(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix,
+Bool gal_prepare_gpu(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix,
 	enum gpu_access access)
 {
 #ifdef DEBUG_CHECK_DRAWABLE_USE
