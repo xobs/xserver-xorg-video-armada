@@ -52,9 +52,12 @@ static inline void RectBox(gcsRECT_PTR rect, const BoxRec *box, int off_x, int o
 	rect->bottom = box->y2 + off_y;
 }
 
-void dump_Drawable(DrawablePtr pDraw, const char *, ...);
-void dump_Picture(PicturePtr pDst, const char *, ...);
+void dump_Drawable(DrawablePtr pDraw, const char *, ...)
+	__attribute__((__format__(__printf__, 2, 3)));
+void dump_Picture(PicturePtr pDst, const char *, ...)
+	__attribute__((__format__(__printf__, 2, 3)));
 void dump_vPix(struct vivante *vivante, struct vivante_pixmap *vPix,
-	int alpha, const char *fmt, ...);
+	int alpha, const char *fmt, ...)
+	__attribute__((__format__(__printf__, 4, 5)));
 
 #endif

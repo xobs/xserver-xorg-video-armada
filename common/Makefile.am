@@ -21,6 +21,7 @@ noinst_LTLIBRARIES = libcommon.la
 libcommon_la_SOURCES = \
 		get_first_pixel.c \
 		glyph_extents.c \
+		pamdump.c \
 		picture_solid.c \
 		pixmaputil.c \
 		transform.c

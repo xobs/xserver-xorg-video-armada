@@ -23,6 +23,7 @@
 
 #include <armada_bufmgr.h>
 #include "gal_extension.h"
+#include "pamdump.h"
 #include "pixmaputil.h"
 
 #include "vivante_accel.h"
@@ -308,18 +309,19 @@ Bool vivante_format_valid(struct vivante *vivante, gceSURF_FORMAT fmt)
 }
 
 #if 1 //def DEBUG
-#include <stdarg.h>
-#include <sys/fcntl.h>
-#include <unistd.h>
 static void dump_pix(struct vivante *vivante, struct vivante_pixmap *vPix,
-	int x1, int y1, int x2, int y2, int alpha,
+	bool alpha, int x1, int y1, int x2, int y2,
+	const char *fmt, va_list ap)
+	__attribute__ ((__format__ (__printf__, 8, 0)));
+
+static void dump_pix(struct vivante *vivante, struct vivante_pixmap *vPix,
+	bool alpha, int x1, int y1, int x2, int y2,
 	const char *fmt, va_list ap)
 {
 	struct drm_armada_bo *bo = vPix->bo;
 	static int idx;
 	unsigned owner = vPix->owner;
-	char fn[160], n[80];
-	int fd;
+	char n[80];
 
 	if (vPix->bo->type != DRM_ARMADA_BO_SHMEM)
 		owner = CPU;
@@ -330,36 +332,10 @@ static void dump_pix(struct vivante *vivante, struct vivante_pixmap *vPix,
 	}
 
 	vsprintf(n, fmt, ap);
-	sprintf(fn, "/tmp/X.%04u.%s-%u.%u.%u.%u.pam",
-			idx++, n, x1, y1, x2, y2);
-	fd = open(fn, O_WRONLY | O_CREAT | O_TRUNC, 0666);
-	if (fd >= 0) {
-		char buf[16*1024 + 16384];
-		uint32_t *bo_p;
-		int x, y, i;
 
-		sprintf(buf, "P7\nWIDTH %u\nHEIGHT %u\nDEPTH %u\nMAXVAL 255\nTUPLTYPE RGB%s\nENDHDR\n",
-				x2 - x1, y2 - y1, 3 + alpha, alpha ? "_ALPHA" : "");
-		write(fd, buf, strlen(buf));
-
-		for (y = y1, i = 0; y < y2; y++) {
-			bo_p = (((void *)bo->ptr) + (y * vPix->pitch));
-			for (x = x1; x < x2; x++) {
-				buf[i++] = bo_p[x] >> 16; // R
-				buf[i++] = bo_p[x] >> 8;  // G
-				buf[i++] = bo_p[x];       // B
-				if (alpha)
-					buf[i++] = bo_p[x] >> 24; // A
-			}
-			if (i >= 16*1024) {
-				write(fd, buf, i);
-				i = 0;
-			}
-		}
-		if (i)
-			write(fd, buf, i);
-		close(fd);
-	}
+	dump_pam(bo->ptr, vPix->pitch, alpha, x1, y1, x2, y2,
+		 "/tmp/X.%04u.%s-%u.%u.%u.%u.pam",
+		 idx++, n, x1, y1, x2, y2);
 
 	if (owner == GPU)
 		vivante_map_gpu(vivante, vPix);
@@ -368,32 +344,25 @@ static void dump_pix(struct vivante *vivante, struct vivante_pixmap *vPix,
 void dump_Drawable(DrawablePtr pDraw, const char *fmt, ...)
 {
 	struct vivante *vivante = vivante_get_screen_priv(pDraw->pScreen);
-	struct vivante_pixmap *vPix;
-	PixmapPtr pPix;
-	int off_x, off_y;
+	PixmapPtr pPix = drawable_pixmap(pDraw);
+	struct vivante_pixmap *vPix = vivante_get_pixmap_priv(pPix);
 	va_list ap;
-
-	pPix = drawable_pixmap_deltas(pDraw, &off_x, &off_y);
-	vPix = vivante_get_pixmap_priv(pPix);
 
 	if (!vPix)
 		return;
 
 	va_start(ap, fmt);
-	dump_pix(vivante, vPix, 0, 0, pDraw->width, pDraw->height, 0, fmt, ap);
+	dump_pix(vivante, vPix, false, 0, 0, pDraw->width, pDraw->height, fmt, ap);
 	va_end(ap);
 }
 
 void dump_Picture(PicturePtr pDst, const char *fmt, ...)
 {
 	struct vivante *vivante = vivante_get_screen_priv(pDst->pDrawable->pScreen);
-	struct vivante_pixmap *vPix;
-	PixmapPtr pPix;
-	int alpha, off_x, off_y;
+	PixmapPtr pPix = drawable_pixmap(pDst->pDrawable);
+	struct vivante_pixmap *vPix = vivante_get_pixmap_priv(pPix);
+	bool alpha;
 	va_list ap;
-
-	pPix = drawable_pixmap_deltas(pDst->pDrawable, &off_x, &off_y);
-	vPix = vivante_get_pixmap_priv(pPix);
 
 	if (!vPix)
 		return;
@@ -401,7 +370,7 @@ void dump_Picture(PicturePtr pDst, const char *fmt, ...)
 	alpha = PICT_FORMAT_A(pDst->format) != 0;
 
 	va_start(ap, fmt);
-	dump_pix(vivante, vPix, 0, 0, vPix->width, vPix->height, alpha, fmt, ap);
+	dump_pix(vivante, vPix, alpha, 0, 0, vPix->width, vPix->height, fmt, ap);
 	va_end(ap);
 }
 
@@ -410,7 +379,7 @@ void dump_vPix(struct vivante *vivante, struct vivante_pixmap *vPix,
 {
 	va_list ap;
 	va_start(ap, fmt);
-	dump_pix(vivante, vPix, 0, 0, vPix->width, vPix->height, alpha, fmt, ap);
+	dump_pix(vivante, vPix, !!alpha, 0, 0, vPix->width, vPix->height, fmt, ap);
 	va_end(ap);
 }
 #endif
