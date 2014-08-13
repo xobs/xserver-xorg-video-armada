@@ -19,7 +19,8 @@ struct etnaviv;
 struct etnaviv_format {
 	uint32_t
 		format:5,
-		swizzle:2;
+		swizzle:2,
+		tile:1;
 };
 
 struct etnaviv_blend_op {

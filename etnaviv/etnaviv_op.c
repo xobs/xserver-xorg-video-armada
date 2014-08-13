@@ -28,6 +28,9 @@ static inline uint32_t etnaviv_src_config(struct etnaviv_format fmt,
 	if (relative)
 		src_cfg |= VIVS_DE_SRC_CONFIG_SRC_RELATIVE_RELATIVE;
 
+	if (fmt.tile)
+		src_cfg |= VIVS_DE_SRC_CONFIG_TILED_ENABLE;
+
 	return src_cfg;
 }
 
@@ -55,6 +58,9 @@ static void etnaviv_set_dest_bo(struct etnaviv *etnaviv, struct etna_bo *bo,
 
 	dst_cfg = VIVS_DE_DEST_CONFIG_FORMAT(fmt.format) | cmd |
 		  VIVS_DE_DEST_CONFIG_SWIZZLE(fmt.swizzle);
+
+	if (fmt.tile)
+		dst_cfg |= VIVS_DE_DEST_CONFIG_TILED_ENABLE;
 
 	EMIT_LOADSTATE(etnaviv, VIVS_DE_DEST_ADDRESS, 4);
 	EMIT_RELOC(etnaviv, bo, 0, TRUE);

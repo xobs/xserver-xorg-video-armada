@@ -45,6 +45,11 @@ struct etnaviv_dri2_info;
 
 #define dbg(fmt...) fprintf(stderr, fmt)
 
+/* Private CreatePixmap usage hints. */
+enum {
+	CREATE_PIXMAP_USAGE_TILE = 0x80000000,
+};
+
 /*
  * The maximum size of an operation in the batch buffer.  A 2D draw
  * operation can contain up to 255 rectangles, which equates to 512

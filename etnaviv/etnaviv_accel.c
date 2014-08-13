@@ -877,6 +877,7 @@ static Bool etnaviv_blend(struct etnaviv *etnaviv, const BoxRec *clip,
 static void etnaviv_set_format(struct etnaviv_pixmap *vpix, PicturePtr pict)
 {
 	vpix->pict_format = etnaviv_pict_format(pict->format, FALSE);
+	vpix->pict_format.tile = vpix->format.tile;
 }
 
 static Bool etnaviv_pict_solid_argb(PicturePtr pict, uint32_t *col)
