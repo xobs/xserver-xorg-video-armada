@@ -496,11 +496,18 @@ static Bool etnaviv_alloc_etna_bo(ScreenPtr pScreen, struct etnaviv *etnaviv,
 {
 	struct etnaviv_pixmap *vpix;
 	struct etna_bo *etna_bo;
-	unsigned pitch, bpp = pixmap->drawable.bitsPerPixel;
+	unsigned pitch, size, bpp = pixmap->drawable.bitsPerPixel;
 
-	pitch = etnaviv_pitch(w, bpp);
+	if (usage_hint & CREATE_PIXMAP_USAGE_TILE) {
+		pitch = etnaviv_tile_pitch(w, bpp);
+		size = pitch * etnaviv_tile_height(h);
+		fmt.tile = 1;
+	} else {
+		pitch = etnaviv_pitch(w, bpp);
+		size = pitch * h;
+	}
 
-	etna_bo = etna_bo_new(etnaviv->conn, pitch * h,
+	etna_bo = etna_bo_new(etnaviv->conn, size,
 			DRM_ETNA_GEM_TYPE_BMP | DRM_ETNA_GEM_CACHE_WBACK);
 	if (!etna_bo) {
 		xf86DrvMsg(etnaviv->scrnIndex, X_ERROR,

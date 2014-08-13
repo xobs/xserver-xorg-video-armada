@@ -40,4 +40,23 @@ static inline unsigned int etnaviv_pitch(unsigned width, unsigned bpp)
 	return ALIGN(pitch, 16);
 }
 
+/* Number of pixels in tile */
+#define ETNAVIV_TILE_WIDTH	4
+#define ETNAVIV_TILE_HEIGHT	4
+
+static inline unsigned int etnaviv_tile_pitch(unsigned width, unsigned bpp)
+{
+	unsigned tile_width = (width + ETNAVIV_TILE_WIDTH - 1) /
+			ETNAVIV_TILE_WIDTH;
+	unsigned pitch = ETNAVIV_TILE_WIDTH * ETNAVIV_TILE_HEIGHT *
+			tile_width * ((bpp + 7) / 8);
+
+	return ALIGN(pitch, 16);
+}
+
+static inline size_t etnaviv_tile_height(unsigned height)
+{
+	return ALIGN(height, ETNAVIV_TILE_HEIGHT) / ETNAVIV_TILE_HEIGHT;
+}
+
 #endif
