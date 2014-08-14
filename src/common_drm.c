@@ -1132,3 +1132,58 @@ xf86CrtcPtr common_drm_covering_crtc(ScrnInfoPtr pScrn, BoxPtr box,
 	}
 	return best_crtc;
 }
+
+static inline uint32_t req_crtc(xf86CrtcPtr crtc)
+{
+	struct common_crtc_info *drmc = common_crtc(crtc);
+
+	/*
+	 * We only support newer kernels here - always
+	 * encode the CRTC id in the high crtc field.
+	 */
+	return drmc->num << DRM_VBLANK_HIGH_CRTC_SHIFT;
+}
+
+_X_EXPORT
+int common_drm_vblank_get(ScrnInfoPtr pScrn, xf86CrtcPtr crtc,
+	drmVBlank *vbl, const char *func)
+{
+	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
+	static int limit = 5;
+	int ret;
+
+	vbl->request.type = DRM_VBLANK_RELATIVE | req_crtc(crtc);
+	vbl->request.sequence = 0;
+
+	ret = drmWaitVBlank(drm->fd, vbl);
+	if (ret && limit) {
+		xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
+			   "%s: get vblank counter failed: %s\n",
+			   func, strerror(errno));
+		limit--;
+	}
+	return ret;
+}
+
+_X_EXPORT
+int common_drm_vblank_queue_event(ScrnInfoPtr pScrn, xf86CrtcPtr crtc,
+	drmVBlank *vbl, const char *func, Bool nextonmiss, void *signal)
+{
+	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
+	int ret;
+
+	vbl->request.type = DRM_VBLANK_ABSOLUTE | DRM_VBLANK_EVENT |
+				req_crtc(crtc);
+	vbl->request.signal = (unsigned long)signal;
+
+	if (nextonmiss)
+		vbl->request.type |= DRM_VBLANK_NEXTONMISS;
+
+	ret = drmWaitVBlank(drm->fd, vbl);
+	if (ret)
+		xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
+			   "%s: %s failed: %s\n", func,
+			   __FUNCTION__, strerror(errno));
+
+	return ret;
+}

@@ -19,11 +19,9 @@
 
 /* drm includes */
 #include <xf86drm.h>
-#include <xf86drmMode.h>
 #include <armada_bufmgr.h>
 
 #include "compat-api.h"
-#include "common_drm.h"
 #include "common_drm_helper.h"
 #include "pixmaputil.h"
 #include "vivante_accel.h"
@@ -450,43 +448,12 @@ vivante_dri2_vblank(int fd, unsigned frame, unsigned tv_sec, unsigned tv_usec,
 	del_wait_info(wait);
 }
 
-static uint32_t drm_req_crtc(xf86CrtcPtr crtc)
-{
-	struct common_crtc_info *drmc = common_crtc(crtc);
-
-	/*
-	 * We only support newer kernels here - always
-	 * encode the CRTC id in the high crtc field.
-	 */
-	return drmc->num << DRM_VBLANK_HIGH_CRTC_SHIFT;
-}
-
-static int
-vivante_dri2_waitvblank(struct vivante *vivante, drmVBlank *vbl,
-	xf86CrtcPtr crtc, const char *func)
-{
-	static int limit = 5;
-	int ret;
-
-	vbl->request.type = DRM_VBLANK_RELATIVE | drm_req_crtc(crtc);
-	vbl->request.sequence = 0;
-
-	ret = drmWaitVBlank(vivante->drm_fd, vbl);
-	if (ret && limit) {
-		xf86DrvMsg(vivante->scrnIndex, X_WARNING,
-			   "%s: get vblank counter failed: %s\n",
-			   func, strerror(errno));
-		limit--;
-	}
-	return ret;
-}
-
 static int
 vivante_dri2_ScheduleSwap(ClientPtr client, DrawablePtr draw,
 	DRI2BufferPtr front, DRI2BufferPtr back, CARD64 *target_msc,
 	CARD64 divisor, CARD64 remainder, DRI2SwapEventPtr func, void *data)
 {
-	struct vivante *vivante = vivante_get_screen_priv(draw->pScreen);
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(draw->pScreen);
 	struct vivante_dri_wait *wait;
 	xf86CrtcPtr crtc;
 	drmVBlank vbl;
@@ -516,7 +483,7 @@ vivante_dri2_ScheduleSwap(ClientPtr client, DrawablePtr draw,
 	vivante_dri2_buffer_reference(front);
 	vivante_dri2_buffer_reference(back);
 
-	ret = vivante_dri2_waitvblank(vivante, &vbl, crtc, __FUNCTION__);
+	ret = common_drm_vblank_get(pScrn, crtc, &vbl, __FUNCTION__);
 	if (ret)
 		goto blit_free;
 
@@ -564,18 +531,10 @@ vivante_dri2_ScheduleSwap(ClientPtr client, DrawablePtr draw,
 			 vbl.request.sequence -= 1;
 	}
 
-	vbl.request.type = DRM_VBLANK_ABSOLUTE | DRM_VBLANK_EVENT | drm_req_crtc(crtc);
-	if (wait->type != DRI2_FLIP)
-		vbl.request.type |= DRM_VBLANK_NEXTONMISS;
-
-	vbl.request.signal = (unsigned long)wait;
-	ret = drmWaitVBlank(vivante->drm_fd, &vbl);
-	if (ret) {
-		xf86DrvMsg(vivante->scrnIndex, X_WARNING,
-			   "get vblank counter failed: %s\n",
-			   strerror(errno));
+	ret = common_drm_vblank_queue_event(pScrn, crtc, &vbl, __FUNCTION__,
+					    wait->type != DRI2_FLIP, wait);
+	if (ret)
 		goto blit_free;
-	}
 
 	*target_msc = vbl.reply.sequence + (wait->type == DRI2_FLIP);
 	wait->frame = *target_msc;
@@ -592,7 +551,7 @@ vivante_dri2_ScheduleSwap(ClientPtr client, DrawablePtr draw,
 
 static int vivante_dri2_GetMSC(DrawablePtr draw, CARD64 *ust, CARD64 *msc)
 {
-	struct vivante *vivante = vivante_get_screen_priv(draw->pScreen);
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(draw->pScreen);
 	xf86CrtcPtr crtc;
 	drmVBlank vbl;
 	int ret;
@@ -606,7 +565,7 @@ static int vivante_dri2_GetMSC(DrawablePtr draw, CARD64 *ust, CARD64 *msc)
 		return TRUE;
 	}
 
-	ret = vivante_dri2_waitvblank(vivante, &vbl, crtc, __FUNCTION__);
+	ret = common_drm_vblank_get(pScrn, crtc, &vbl, __FUNCTION__);
 	if (ret)
 		return FALSE;
 
@@ -620,7 +579,7 @@ static int
 vivante_dri2_ScheduleWaitMSC(ClientPtr client, DrawablePtr draw,
 	CARD64 target_msc, CARD64 divisor, CARD64 remainder)
 {
-	struct vivante *vivante = vivante_get_screen_priv(draw->pScreen);
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(draw->pScreen);
 	struct vivante_dri_wait *wait;
 	xf86CrtcPtr crtc;
 	drmVBlank vbl;
@@ -642,7 +601,7 @@ vivante_dri2_ScheduleWaitMSC(ClientPtr client, DrawablePtr draw,
 		goto out;
 
 	/* Get current count */
-	ret = vivante_dri2_waitvblank(vivante, &vbl, crtc, __FUNCTION__);
+	ret = common_drm_vblank_get(pScrn, crtc, &vbl, __FUNCTION__);
 	if (ret)
 		goto out_free;
 
@@ -675,15 +634,10 @@ vivante_dri2_ScheduleWaitMSC(ClientPtr client, DrawablePtr draw,
 			vbl.request.sequence += divisor;
 	}
 
-	vbl.request.type = DRM_VBLANK_ABSOLUTE | DRM_VBLANK_EVENT | drm_req_crtc(crtc);
-	vbl.request.signal = (unsigned long)wait;
-	ret = drmWaitVBlank(vivante->drm_fd, &vbl);
-	if (ret) {
-		xf86DrvMsg(vivante->scrnIndex, X_WARNING,
-				   "%s: get vblank counter failed: %s\n",
-				   __FUNCTION__, strerror(errno));
+	ret = common_drm_vblank_queue_event(pScrn, crtc, &vbl, __FUNCTION__,
+					    FALSE, wait);
+	if (ret)
 		goto out_free;
-	}
 
 	wait->frame = vbl.reply.sequence;
 	DRI2BlockClient(client, draw);
