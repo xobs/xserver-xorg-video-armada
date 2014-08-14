@@ -33,6 +33,7 @@ armada_drv_la_SOURCES = armada_module.c \
 			vivante_unaccel_render.c \
 			vivante_utils.c
 if HAVE_DRI2
+armada_drv_la_SOURCES += common_drm_dri2.c
 armada_drv_la_SOURCES += vivante_dri2.c
 armada_drv_la_LIBADD += $(DRI_LIBS)
 endif

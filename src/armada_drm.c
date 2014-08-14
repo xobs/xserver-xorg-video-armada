@@ -16,6 +16,7 @@
 
 #include "armada_drm.h"
 #include "common_drm.h"
+#include "common_drm_dri2.h"
 #include "xf86_OSproc.h"
 #include "xf86Crtc.h"
 #include "xf86cmap.h"
@@ -491,7 +492,7 @@ static Bool armada_drm_open_master(ScrnInfoPtr pScrn)
 	drm->common.private = &drm->armada;
 	drm->common.event_context.version = DRM_EVENT_CONTEXT_VERSION;
 #ifdef HAVE_DRI2
-	drm->common.event_context.vblank_handler = vivante_dri2_vblank;
+	drm->common.event_context.vblank_handler = common_dri2_event;
 #endif
 
 	for (i = 0; i < ARRAY_SIZE(drm_module_names); i++) {
