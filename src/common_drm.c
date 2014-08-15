@@ -15,7 +15,11 @@
 #include <xf86drmMode.h>
 
 #include "xf86.h"
+
+#include "boxutil.h"
+
 #include "common_drm.h"
+#include "common_drm_helper.h"
 #include "xf86_OSproc.h"
 #include "xf86Crtc.h"
 #include "xf86cmap.h"
@@ -1090,4 +1094,41 @@ void common_drm_FreeScreen(FREE_SCREEN_ARGS_DECL)
 		SET_DRM_INFO(pScrn, NULL);
 		free(drm);
 	}
+}
+
+/*
+ * Helpers for DRI2 and textured Xv
+ */
+_X_EXPORT
+xf86CrtcPtr common_drm_covering_crtc(ScrnInfoPtr pScrn, BoxPtr box,
+	xf86CrtcPtr desired, BoxPtr box_ret)
+{
+	xf86CrtcConfigPtr xf86_config = XF86_CRTC_CONFIG_PTR(pScrn);
+	xf86CrtcPtr crtc, best_crtc;
+	BoxRec crtc_box, cover_box;
+	int coverage, best_coverage, c;
+
+	best_crtc = NULL;
+	best_coverage = 0;
+	box_ret->x1 = box_ret->x2 = box_ret->y1 = box_ret->y2 = 0;
+	for (c = 0; c < xf86_config->num_crtc; c++) {
+		crtc = xf86_config->crtc[c];
+		if (!crtc->enabled)
+			continue;
+		crtc_box.x1 = crtc->x;
+		crtc_box.x2 = crtc->x + xf86ModeWidth(&crtc->mode, crtc->rotation);
+		crtc_box.y1 = crtc->y;
+		crtc_box.y2 = crtc->y + xf86ModeHeight(&crtc->mode, crtc->rotation);
+		box_intersect(&cover_box, &crtc_box, box);
+		coverage = box_area(&cover_box);
+		if (coverage && crtc == desired) {
+			*box_ret = crtc_box;
+			return crtc;
+		} else if (coverage > best_coverage) {
+			*box_ret = crtc_box;
+			best_crtc = crtc;
+			best_coverage = coverage;
+		}
+	}
+	return best_crtc;
 }
