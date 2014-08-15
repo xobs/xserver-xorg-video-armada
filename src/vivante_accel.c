@@ -22,6 +22,7 @@
 #include "gcstruct.h"
 #include "xf86.h"
 
+#include "boxutil.h"
 #include "pixmaputil.h"
 #include "vivante_accel.h"
 #include "vivante_unaccel.h"
@@ -531,7 +532,7 @@ vivante_blit_copy(struct vivante *vivante, GCPtr pGC, const BoxRec *total,
 		BoxRec clipped;
 		gcsRECT src, dst;
 
-		if (BoxClip(&clipped, total, pbox))
+		if (__box_intersect(&clipped, total, pbox))
 			continue;
 
 		RectBox(&src, &clipped, src_off_x, src_off_y);
@@ -854,7 +855,7 @@ Bool vivante_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 
 		for (box = RegionRects(clip), nclip = RegionNumRects(clip);
 		     nclip; nclip--, box++) {
-			if (BoxClip(&boxes[nb], &full_rect, box))
+			if (__box_intersect(&boxes[nb], &full_rect, box))
 				continue;
 
 			if (++nb > 254) {

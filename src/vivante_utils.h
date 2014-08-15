@@ -43,19 +43,6 @@ Bool vivante_format_valid(struct vivante *vivante, gceSURF_FORMAT fmt);
  * in each object including this file.
  */
 
-/*
- * Calculate the intersection of two boxes.  Returns TRUE if
- * they do not overlap.
- */
-static inline Bool BoxClip(BoxPtr out, const BoxRec *in, const BoxRec *clip)
-{
-   out->x1 = max(in->x1, clip->x1);
-   out->y1 = max(in->y1, clip->y1);
-   out->x2 = min(in->x2, clip->x2);
-   out->y2 = min(in->y2, clip->y2);
-   return out->x1 >= out->x2 || out->y1 >= out->y2;
-}
-
 /* Translate the box by off_x, off_y, and convert to a vivante rectangle */
 static inline void RectBox(gcsRECT_PTR rect, const BoxRec *box, int off_x, int off_y)
 {
