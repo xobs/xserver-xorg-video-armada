@@ -1187,3 +1187,24 @@ int common_drm_vblank_queue_event(ScrnInfoPtr pScrn, xf86CrtcPtr crtc,
 
 	return ret;
 }
+
+_X_EXPORT
+int common_drm_vblank_wait(ScrnInfoPtr pScrn, xf86CrtcPtr crtc,
+	drmVBlank *vbl, const char *func, Bool nextonmiss)
+{
+	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
+	int ret;
+
+	vbl->request.type = DRM_VBLANK_ABSOLUTE | req_crtc(crtc);
+
+	if (nextonmiss)
+		vbl->request.type |= DRM_VBLANK_NEXTONMISS;
+
+	ret = drmWaitVBlank(drm->fd, vbl);
+	if (ret)
+		xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
+			   "%s: %s failed: %s\n", func,
+			   __FUNCTION__, strerror(errno));
+
+	return ret;
+}
