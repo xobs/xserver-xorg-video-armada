@@ -8,6 +8,7 @@
 #define VIVANTE_ACCEL_H
 
 #include <gc_hal_base.h>
+#include "compat-list.h"
 #include "vivante_compat.h"
 
 struct drm_armada_bo;
