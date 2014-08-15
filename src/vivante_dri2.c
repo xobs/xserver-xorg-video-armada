@@ -19,9 +19,12 @@
 
 /* drm includes */
 #include <xf86drm.h>
+#include <xf86drmMode.h>
 #include <armada_bufmgr.h>
 
 #include "compat-api.h"
+#include "common_drm.h"
+#include "common_drm_helper.h"
 #include "vivante_accel.h"
 #include "vivante_dri2.h"
 #include "vivante_utils.h"
@@ -54,7 +57,7 @@ struct vivante_dri_wait {
 	XID drawable_id;
 	ClientPtr client;
 	enum event_type type;
-	unsigned crtc;
+	xf86CrtcPtr crtc;
 	int frame;
 
 	/* For swaps/flips */
@@ -86,10 +89,24 @@ static RESTYPE wait_client_restype, wait_drawable_restype;
 	dixRequestPrivate(&vivante_dri2_client_key, sizeof(XID))
 #endif
 
-static int vivante_dri2_drawable_crtc(DrawablePtr draw)
+static xf86CrtcPtr vivante_dri2_drawable_crtc(DrawablePtr pDraw)
 {
-	/* FIXME */
-	return -1;
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pDraw->pScreen);
+	xf86CrtcPtr crtc;
+	BoxRec box, crtcbox;
+
+	box.x1 = pDraw->x;
+	box.y1 = pDraw->y;
+	box.x2 = box.x1 + pDraw->width;
+	box.y2 = box.y1 + pDraw->height;
+
+	crtc = common_drm_covering_crtc(pScrn, &box, NULL, &crtcbox);
+
+	/* Make sure the CRTC is valid and this is the real front buffer */
+	if (crtc && crtc->rotatedData)
+		crtc = NULL;
+
+	return crtc;
 }
 
 static void vivante_dri2_buffer_reference(DRI2Buffer2Ptr buffer)
@@ -432,18 +449,20 @@ vivante_dri2_vblank(int fd, unsigned frame, unsigned tv_sec, unsigned tv_usec,
 	del_wait_info(wait);
 }
 
-static uint32_t drm_req_crtc(unsigned crtc)
+static uint32_t drm_req_crtc(xf86CrtcPtr crtc)
 {
+	struct common_crtc_info *drmc = common_crtc(crtc);
+
 	/*
 	 * We only support newer kernels here - always
 	 * encode the CRTC id in the high crtc field.
 	 */
-	return crtc << DRM_VBLANK_HIGH_CRTC_SHIFT;
+	return drmc->num << DRM_VBLANK_HIGH_CRTC_SHIFT;
 }
 
 static int
-vivante_dri2_waitvblank(struct vivante *vivante, drmVBlank *vbl, unsigned crtc,
-	const char *func)
+vivante_dri2_waitvblank(struct vivante *vivante, drmVBlank *vbl,
+	xf86CrtcPtr crtc, const char *func)
 {
 	static int limit = 5;
 	int ret;
@@ -468,14 +487,15 @@ vivante_dri2_ScheduleSwap(ClientPtr client, DrawablePtr draw,
 {
 	struct vivante *vivante = vivante_get_screen_priv(draw->pScreen);
 	struct vivante_dri_wait *wait;
+	xf86CrtcPtr crtc;
 	drmVBlank vbl;
 	CARD64 cur_msc;
-	int ret, crtc;
+	int ret;
 
 	crtc = vivante_dri2_drawable_crtc(draw);
 
 	/* Drawable not displayed... just complete */
-	if (crtc < 0)
+	if (!crtc)
 		goto blit;
 
 	*target_msc &= 0xffffffff;
@@ -572,13 +592,14 @@ vivante_dri2_ScheduleSwap(ClientPtr client, DrawablePtr draw,
 static int vivante_dri2_GetMSC(DrawablePtr draw, CARD64 *ust, CARD64 *msc)
 {
 	struct vivante *vivante = vivante_get_screen_priv(draw->pScreen);
+	xf86CrtcPtr crtc;
 	drmVBlank vbl;
-	int ret, crtc;
+	int ret;
 
 	crtc = vivante_dri2_drawable_crtc(draw);
 
 	/* Drawable not displayed, make up a value */
-	if (crtc < 0) {
+	if (!crtc) {
 		*ust = 0;
 		*msc = 0;
 		return TRUE;
@@ -600,8 +621,9 @@ vivante_dri2_ScheduleWaitMSC(ClientPtr client, DrawablePtr draw,
 {
 	struct vivante *vivante = vivante_get_screen_priv(draw->pScreen);
 	struct vivante_dri_wait *wait;
+	xf86CrtcPtr crtc;
 	drmVBlank vbl;
-	int ret, crtc;
+	int ret;
 	CARD64 cur_msc;
 
 	target_msc &= 0xffffffff;
@@ -611,7 +633,7 @@ vivante_dri2_ScheduleWaitMSC(ClientPtr client, DrawablePtr draw,
 	crtc = vivante_dri2_drawable_crtc(draw);
 
 	/* Drawable not displayed, just complete */
-	if (crtc < 0)
+	if (!crtc)
 		goto out;
 
 	wait = new_wait_info(client, draw, DRI2_WAITMSC);
