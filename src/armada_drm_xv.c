@@ -26,10 +26,9 @@
 
 #include "armada_fourcc.h"
 #include "armada_ioctl.h"
+#include "xv_attribute.h"
 #include "xv_image_format.h"
 #include "xvbo.h"
-
-#define MAKE_ATOM(a) MakeAtom(a, strlen(a), TRUE)
 
 /* Size of physical addresses via BMM */
 typedef uint32_t phys_t;
@@ -90,31 +89,35 @@ struct drm_xv {
 	uint64_t prop_values[NR_DRM_PROPS];
 };
 
-struct armada_attribute_data {
-	const char *name;
-	unsigned id;
-	int offset;
-	int (*set)(ScrnInfoPtr, struct drm_xv *, unsigned, INT32);
-	int (*get)(ScrnInfoPtr, struct drm_xv *, unsigned, INT32 *);
-	void (*init)(struct drm_xv *, unsigned, drmModePropertyPtr *);
-	Atom x_atom;
+enum {
+	attr_encoding,
+	attr_saturation,
+	attr_brightness,
+	attr_contrast,
+	attr_autopaint_colorkey,
+	attr_colorkey,
+	attr_pipe,
+	attr_deinterlace,
 };
+
+static struct xv_attr_data armada_drm_xv_attributes[];
 
 /*
  * Attribute support code
  */
-static int armada_drm_prop_set(ScrnInfoPtr pScrn, struct drm_xv *drmxv,
-	unsigned id, INT32 value)
+static int armada_drm_prop_set(ScrnInfoPtr pScrn,
+	const struct xv_attr_data *attr, INT32 value, pointer data)
 {
+	struct drm_xv *drmxv = data;
 	uint32_t prop_id;
 	unsigned i;
 
-	if (drmxv->props[id] == NULL)
+	if (drmxv->props[attr->id] == NULL)
 		return Success; /* Actually BadMatch... */
 
-	drmxv->prop_values[id] = value;
+	drmxv->prop_values[attr->id] = value;
 
-	prop_id = drmxv->props[id]->prop_id;
+	prop_id = drmxv->props[attr->id]->prop_id;
 
 	for (i = 0; i < ARRAY_SIZE(drmxv->planes); i++) {
 		if (!drmxv->planes[i])
@@ -128,46 +131,57 @@ static int armada_drm_prop_set(ScrnInfoPtr pScrn, struct drm_xv *drmxv,
 	return Success;
 }
 
-static int armada_drm_prop_get(ScrnInfoPtr pScrn, struct drm_xv *drmxv,
-	unsigned id, INT32 *value)
+static int armada_drm_prop_get(ScrnInfoPtr pScrn,
+	const struct xv_attr_data *attr, INT32 *value, pointer data)
 {
-	*value = drmxv->prop_values[id];
+	struct drm_xv *drmxv = data;
+	*value = drmxv->prop_values[attr->id];
 	return Success;
 }
 
-static int armada_drm_set_colorkey(ScrnInfoPtr pScrn, struct drm_xv *drmxv,
-	unsigned id, INT32 value)
+static int armada_drm_set_colorkey(ScrnInfoPtr pScrn,
+	const struct xv_attr_data *attr, INT32 value, pointer data)
 {
+	struct drm_xv *drmxv = data;
+
 	RegionEmpty(&drmxv->clipBoxes);
 
-	return armada_drm_prop_set(pScrn, drmxv, id, value);
+	return armada_drm_prop_set(pScrn, attr, value, data);
 }
 
 static int armada_drm_set_autopaint(ScrnInfoPtr pScrn,
-	struct drm_xv *drmxv, unsigned id, INT32 value)
+	const struct xv_attr_data *attr, INT32 value, pointer data)
 {
+	struct drm_xv *drmxv = data;
+
 	drmxv->autopaint_colorkey = !!value;
 	if (value != 0) {
 		RegionEmpty(&drmxv->clipBoxes);
 		return Success;
 	}
+
+	attr = &armada_drm_xv_attributes[attr_colorkey];
+
 	/*
 	 * If autopainting of the colorkey is disabled, should we
 	 * zero the colorkey?  For the time being, we do.
 	 */
-	return armada_drm_set_colorkey(pScrn, drmxv, PROP_DRM_COLORKEY, 0);
+	return attr->set(pScrn, attr, 0, data);
 }
 
 static int armada_drm_get_autopaint(ScrnInfoPtr pScrn,
-	struct drm_xv *drmxv, unsigned id, INT32 *value)
+	const struct xv_attr_data *attr, INT32 *value, pointer data)
 {
+	struct drm_xv *drmxv = data;
 	*value = drmxv->autopaint_colorkey;
 	return Success;
 }
 
-static int armada_drm_set_pipe(ScrnInfoPtr pScrn, struct drm_xv *drmxv,
-	unsigned id, INT32 value)
+static int armada_drm_set_pipe(ScrnInfoPtr pScrn,
+	const struct xv_attr_data *attr, INT32 value, pointer data)
 {
+	struct drm_xv *drmxv = data;
+
 	xf86CrtcConfigPtr config = XF86_CRTC_CONFIG_PTR(pScrn);
 
 	if (value < -1 || value >= config->num_crtc)
@@ -179,9 +193,10 @@ static int armada_drm_set_pipe(ScrnInfoPtr pScrn, struct drm_xv *drmxv,
 	return Success;
 }
 
-static int armada_drm_get_pipe(ScrnInfoPtr pScrn, struct drm_xv *drmxv,
-	unsigned id, INT32 *value)
+static int armada_drm_get_pipe(ScrnInfoPtr pScrn,
+	const struct xv_attr_data *attr, INT32 *value, pointer data)
 {
+	struct drm_xv *drmxv = data;
 	xf86CrtcConfigPtr config = XF86_CRTC_CONFIG_PTR(pScrn);
 	unsigned i;
 
@@ -196,42 +211,18 @@ static int armada_drm_get_pipe(ScrnInfoPtr pScrn, struct drm_xv *drmxv,
 	return Success;
 }
 
-static int armada_drm_set_ignore(ScrnInfoPtr pScrn, struct drm_xv *drmxv,
-	unsigned id, INT32 value)
+static int armada_drm_set_ignore(ScrnInfoPtr pScrn,
+	const struct xv_attr_data *attr, INT32 value, pointer data)
 {
 	return Success;
 }
 
-static int armada_drm_get_ignore(ScrnInfoPtr pScrn, struct drm_xv *drmxv,
-	unsigned id, INT32 *value)
+static int armada_drm_get_ignore(ScrnInfoPtr pScrn,
+	const struct xv_attr_data *attr, INT32 *value, pointer data)
 {
-	*value = id;
+	*value = attr->id;
 	return Success;
 }
-
-static struct armada_attribute_data armada_drm_xv_attributes[] = {
-	{ "XV_ENCODING", 0, 0,
-	  armada_drm_set_ignore, armada_drm_get_ignore },
-	{ "XV_SATURATION", PROP_DRM_SATURATION, 16384,
-	  armada_drm_prop_set, armada_drm_prop_get },
-	{ "XV_BRIGHTNESS", PROP_DRM_BRIGHTNESS, 256,
-	  armada_drm_prop_set, armada_drm_prop_get },
-	{ "XV_CONTRAST", PROP_DRM_CONTRAST, 16384,
-	  armada_drm_prop_set, armada_drm_prop_get },
-	{ "XV_AUTOPAINT_COLORKEY", 0, 0,
-	  armada_drm_set_autopaint, armada_drm_get_autopaint },
-	{ "XV_COLORKEY", PROP_DRM_COLORKEY, 0,
-	  armada_drm_set_colorkey, armada_drm_prop_get },
-	{ "XV_PIPE", 0, 0,
-	  armada_drm_set_pipe, armada_drm_get_pipe },
-	/*
-	 * We could stop gst-plugins-bmmxv complaining, but arguably
-	 * it is a bug in that code which _assumes_ that this atom
-	 * exists.  Hence, this code is commented out.
-	{ "XV_DEINTERLACE", 0, 0,
-	  armada_drm_set_ignore, armada_drm_get_ignore },
-	 */
-};
 
 /*
  * This must match the strings and order in the table above
@@ -249,6 +240,69 @@ static XF86AttributeRec OverlayAttributes[] = {
 	{ XvSettable | XvGettable, 0,      0x00ffffff, "XV_COLORKEY" },
 	{ XvSettable | XvGettable, -1,     2,          "XV_PIPE" },
 /*	{ XvSettable | XvGettable, 0,      0,          "XV_DEINTERLACE" }, */
+};
+
+static struct xv_attr_data armada_drm_xv_attributes[] = {
+	[attr_encoding] = {
+		.name = "XV_ENCODING",
+		.set = armada_drm_set_ignore,
+		.get = armada_drm_get_ignore,
+		.attr = &OverlayAttributes[attr_encoding],
+	},
+	[attr_saturation] = {
+		.name = "XV_SATURATION",
+		.id = PROP_DRM_SATURATION,
+		.offset = 16384,
+		.set = armada_drm_prop_set,
+		.get = armada_drm_prop_get,
+		.attr = &OverlayAttributes[attr_saturation],
+	},
+	[attr_brightness] = {
+		.name = "XV_BRIGHTNESS",
+		.id = PROP_DRM_BRIGHTNESS,
+		.offset = 256,
+		.set = armada_drm_prop_set,
+		.get = armada_drm_prop_get,
+		.attr = &OverlayAttributes[attr_brightness],
+	},
+	[attr_contrast] = {
+		.name = "XV_CONTRAST",
+		.id = PROP_DRM_CONTRAST,
+		.offset = 16384,
+		.set = armada_drm_prop_set,
+		.get = armada_drm_prop_get,
+		.attr = &OverlayAttributes[attr_contrast],
+	},
+	[attr_autopaint_colorkey] = {
+		.name = "XV_AUTOPAINT_COLORKEY",
+		.set = armada_drm_set_autopaint,
+		.get = armada_drm_get_autopaint,
+		.attr = &OverlayAttributes[attr_autopaint_colorkey],
+	},
+	[attr_colorkey] = {
+		.name = "XV_COLORKEY",
+		.id = PROP_DRM_COLORKEY,
+		.set = armada_drm_set_colorkey,
+		.get = armada_drm_prop_get,
+		.attr = &OverlayAttributes[attr_colorkey],
+	},
+	[attr_pipe] = {
+		.name = "XV_PIPE",
+		.set = armada_drm_set_pipe,
+		.get = armada_drm_get_pipe,
+		.attr = &OverlayAttributes[attr_pipe],
+	},
+	/*
+	 * We could stop gst-plugins-bmmxv complaining, but arguably
+	 * it is a bug in that code which _assumes_ that this atom
+	 * exists.  Hence, this code is commented out.
+	[attr_deinterlace] = {
+		.name = "XV_DEINTERLACE",
+		.set = armada_drm_set_ignore,
+		.get = armada_drm_get_ignore,
+		.attr = &OverlayAttributes[attr_deinterlace],
+	},
+	 */
 };
 
 static XF86VideoEncodingRec OverlayEncodings[] = {
@@ -576,52 +630,18 @@ static int
 armada_drm_Xv_SetPortAttribute(ScrnInfoPtr pScrn, Atom attribute,
 	INT32 value, pointer data)
 {
-	struct drm_xv *drmxv = data;
-	unsigned i;
-	int ret = BadMatch;
-
-	for (i = 0; i < ARRAY_SIZE(armada_drm_xv_attributes); i++) {
-		struct armada_attribute_data *p = &armada_drm_xv_attributes[i];
-
-		if (attribute == p->x_atom && p->set) {
-			if (value < OverlayAttributes[i].min_value ||
-			    value > OverlayAttributes[i].max_value)
-				return BadValue;
-			ret = p->set(pScrn, drmxv, p->id, value + p->offset);
-			break;
-		}
-	}
-
-//	xf86DrvMsg(pScrn->scrnIndex, X_INFO,
-//		   "SetPortAttribute: attrib %#lx value %#10lx ret %u\n",
-//		   attribute, value, ret);
-
-	return ret;
+	return xv_attr_SetPortAttribute(armada_drm_xv_attributes,
+		ARRAY_SIZE(armada_drm_xv_attributes),
+		pScrn, attribute, value, data);
 }
 
 static int
 armada_drm_Xv_GetPortAttribute(ScrnInfoPtr pScrn, Atom attribute,
 	INT32 *value, pointer data)
 {
-	struct drm_xv *drmxv = data;
-	unsigned i;
-	int ret = BadMatch;
-
-	for (i = 0; i < ARRAY_SIZE(armada_drm_xv_attributes); i++) {
-		struct armada_attribute_data *p = &armada_drm_xv_attributes[i];
-
-		if (attribute == p->x_atom && p->get) {
-			ret = p->get(pScrn, drmxv, p->id, value);
-			*value -= p->offset;
-			break;
-		}
-	}
-
-//	xf86DrvMsg(pScrn->scrnIndex, X_INFO,
-//		   "GetPortAttribute: attrib %#lx value %#10lx ret %d\n",
-//		   attribute, *value, ret);
-
-	return ret;
+	return xv_attr_GetPortAttribute(armada_drm_xv_attributes,
+		ARRAY_SIZE(armada_drm_xv_attributes),
+		pScrn, attribute, value, data);
 }
 
 static void armada_drm_Xv_QueryBestSize(ScrnInfoPtr pScrn, Bool motion,
@@ -968,9 +988,12 @@ static Bool armada_drm_init_atoms(ScrnInfoPtr pScrn)
 	if (armada_drm_xv_attributes[0].x_atom)
 		return TRUE;
 
+	if (!xv_attr_init(armada_drm_xv_attributes,
+			  ARRAY_SIZE(armada_drm_xv_attributes)))
+		return FALSE;
+
 	for (i = 0; i < ARRAY_SIZE(armada_drm_xv_attributes); i++) {
-		struct armada_attribute_data *d =
-			&armada_drm_xv_attributes[i];
+		struct xv_attr_data *d = &armada_drm_xv_attributes[i];
 
 		/*
 		 * We could generate the overlay attributes from
@@ -991,8 +1014,6 @@ static Bool armada_drm_init_atoms(ScrnInfoPtr pScrn)
 			xf86CrtcConfigPtr config = XF86_CRTC_CONFIG_PTR(pScrn);
 			OverlayAttributes[i].max_value = config->num_crtc - 1;
 		}
-
-		d->x_atom = MAKE_ATOM(d->name);
 	}
 
 	/* If we encounter a mismatch, error out */
