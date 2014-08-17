@@ -32,4 +32,5 @@ libcommon_la_SOURCES = \
 		transform.c \
 		unaccel.c \
 		unaccel_render.c \
+		xv_attribute.c \
 		xv_image_format.c
