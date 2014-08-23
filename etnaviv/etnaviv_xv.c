@@ -28,6 +28,7 @@
 #include "utils.h"
 #include "xv_attribute.h"
 #include "xv_image_format.h"
+#include "xvbo.h"
 
 #include "common_drm_helper.h"
 
@@ -116,6 +117,9 @@ static const struct xv_image_format etnaviv_image_formats[] = {
 	}, {
 		.u.data = &fmt_i420,
 		.xv_image = XVIMAGE_I420,
+	}, {
+		.u.data = NULL,
+		.xv_image = XVIMAGE_XVBO,
 	},
 };
 
@@ -271,7 +275,12 @@ static int etnaviv_get_fmt_info(const struct xv_image_format *fmt,
 	uint32_t size[3];
 	int ret;
 
-	if (fmt->xv_image.format == XvPlanar) {
+	if (fmt->xv_image.id == FOURCC_XVBO) {
+		/* Our special XVBO format is only two uint32_t */
+		pitch[0] = 2 * sizeof(uint32_t);
+		offset[0] = 0;
+		ret = pitch[0];
+	} else if (fmt->xv_image.format == XvPlanar) {
 		unsigned y = 0, u, v;
 
 		if (fmt->xv_image.component_order[1] == 'V')
@@ -447,6 +456,7 @@ static int etnaviv_PutImage(ScrnInfoPtr pScrn,
 	BoxRec dst;
 	xPoint dst_offset;
 	INT32 x1, x2, y1, y2;
+	Bool is_bo = id == FOURCC_XVBO;
 	int s_w, s_h, xoff;
 
 	dst.x1 = drw_x;
@@ -465,6 +475,17 @@ static int etnaviv_PutImage(ScrnInfoPtr pScrn,
 
 	if (!gal_prepare_gpu(etnaviv, vPix, GPU_ACCESS_RW))
 		return BadMatch;
+
+	if (is_bo)
+		/*
+		 * XVBO support allows applications to prepare the DRM
+		 * buffer object themselves, and pass a global name to
+		 * the X server to update the hardware with.  This is
+		 * similar to Intel XvMC support, except we also allow
+		 * the image format to be specified via a fourcc as the
+		 * first word.
+		 */
+		id = ((uint32_t *)buf)[0];
 
 	/* If the format or size has changed, recalculate */
 	if (priv->width != width || priv->height != height ||
@@ -488,15 +509,31 @@ static int etnaviv_PutImage(ScrnInfoPtr pScrn,
 			crtc = NULL;
 	}
 
-	/* The GPU alignment offset of the buffer. */
-	xoff = (uintptr_t)buf & 63;
+	if (is_bo) {
+		uint32_t name = ((uint32_t *)buf)[1];
 
-	usr = etna_bo_from_usermem_prot(etnaviv->conn, buf - xoff,
-					priv->size + xoff, PROT_READ);
-	if (!usr)
-		return BadAlloc;
+		/*
+		 * usr = etna_bo_from_name(etnaviv->conn, name);
+		 */
+		usr = NULL;
+		if (!usr || name)
+			return BadAlloc;
 
-	xoff = (xoff >> 1) << 16;
+		if (etna_bo_size(usr) < priv->size) {
+			etna_bo_del(etnaviv->conn, usr, NULL);
+			return BadAlloc;
+		}
+	} else {
+		/* The GPU alignment offset of the buffer. */
+		xoff = (uintptr_t)buf & 63;
+
+		usr = etna_bo_from_usermem_prot(etnaviv->conn, buf - xoff,
+						priv->size + xoff, PROT_READ);
+		if (!usr)
+			return BadAlloc;
+
+		xoff = (xoff >> 1) << 16;
+	}
 
 	op.src = INIT_BLIT_BO(usr, 0, priv->source_format, ZERO_OFFSET);
 	op.src_pitches = priv->pitches;
