@@ -71,10 +71,4 @@
 		16, XvPacked, 1,  16, 0x001f, 0x07e0, 0xf800, \
 		0, 0, 0,  0, 0, 0,  0, 0, 0,  "RGB", XvTopToBottom, }
 
-#define FOURCC_XVBO 0x4f425658
-#define XVIMAGE_XVBO { \
-		FOURCC_XVBO, XvYUV, LSBFirst, { 0 }, \
-		0, XvPlanar, 1,  0, 0, 0, 0, \
-		8, 8, 8,  1, 2, 2,  1, 1, 1,  "I", XvTopToBottom, }
-
 #endif

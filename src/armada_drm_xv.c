@@ -27,6 +27,7 @@
 #include "armada_fourcc.h"
 #include "armada_ioctl.h"
 #include "xv_image_format.h"
+#include "xvbo.h"
 
 #define MAKE_ATOM(a) MakeAtom(a, strlen(a), TRUE)
 
