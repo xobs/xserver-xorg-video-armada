@@ -312,28 +312,18 @@ void common_dri2_event(int fd, unsigned frame, unsigned tv_sec,
 	struct common_dri2_wait *wait = event;
 	DrawablePtr draw;
 
-	if (!wait->drawable_id)
-		goto out;
+	if (wait->drawable_id &&
+	    dixLookupDrawable(&draw, wait->drawable_id, serverClient, M_ANY,
+			      DixWriteAccess) == Success) {
+		if (wait->event_func) {
+			wait->event_func(wait, draw, frame, tv_sec, tv_usec);
+			return;
+		}
 
-	if (dixLookupDrawable(&draw, wait->drawable_id, serverClient, M_ANY,
-			      DixWriteAccess) != Success)
-		goto out;
-
-	switch (wait->type) {
-	case DRI2_FLIP:
-	case DRI2_SWAP:
-	case DRI2_WAITMSC:
-		wait->event_func(wait, draw, frame, tv_sec, tv_usec);
-		return;
-
-	default:
 		xf86DrvMsg(xf86ScreenToScrn(draw->pScreen)->scrnIndex,
 			   X_WARNING, "%s: unknown vblank event received\n",
 			   __FUNCTION__);
-		break;
 	}
-
- out:
 	common_dri2_wait_free(wait);
 }
 
