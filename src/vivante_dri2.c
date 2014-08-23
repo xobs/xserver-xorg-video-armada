@@ -271,6 +271,19 @@ vivante_dri2_ScheduleSwap(ClientPtr client, DrawablePtr draw,
 	return TRUE;
 }
 
+static const DRI2InfoRec dri2_info = {
+	.version = 4,
+	.driverName = "galdri",
+
+	.CreateBuffer = vivante_dri2_CreateBuffer,
+	.DestroyBuffer = common_dri2_DestroyBuffer,
+	.CopyRegion = vivante_dri2_CopyRegion,
+
+	.ScheduleSwap = vivante_dri2_ScheduleSwap,
+	.GetMSC = common_dri2_GetMSC,
+	.ScheduleWaitMSC = common_dri2_ScheduleWaitMSC,
+};
+
 Bool vivante_dri2_ScreenInit(ScreenPtr pScreen)
 {
 	struct vivante *vivante = vivante_get_screen_priv(pScreen);
@@ -297,19 +310,9 @@ Bool vivante_dri2_ScreenInit(ScreenPtr pScreen)
 
 	vivante->dri2 = dri;
 
-	memset(&info, 0, sizeof(info));
-	info.version = 4;
+	info = dri2_info;
 	info.fd = vivante->drm_fd;
-	info.driverName = "galdri";
 	info.deviceName = dri->devname;
-
-	info.CreateBuffer = vivante_dri2_CreateBuffer;
-	info.DestroyBuffer = common_dri2_DestroyBuffer;
-	info.CopyRegion = vivante_dri2_CopyRegion;
-
-	info.ScheduleSwap = vivante_dri2_ScheduleSwap;
-	info.GetMSC = common_dri2_GetMSC;
-	info.ScheduleWaitMSC = common_dri2_ScheduleWaitMSC;
 	info.numDrivers = 1;
 	info.driverNames = driverNames;
 	driverNames[0] = info.driverName;
