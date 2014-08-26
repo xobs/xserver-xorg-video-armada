@@ -125,6 +125,7 @@ void vivante_set_pixmap_bo(PixmapPtr pixmap, struct drm_armada_bo *bo)
 			if (!vivante_map_bo_to_gpu(vivante, bo, &vPix->info,
 						   &vPix->handle)) {
 				free(vPix);
+				vPix = NULL;
 				goto fail;
 			}
 		}
