@@ -68,7 +68,7 @@ static void etnaviv_free_pixmap(PixmapPtr pixmap)
 		if (vPix->etna_bo) {
 			struct etna_bo *etna_bo = vPix->etna_bo;
 
-			if (!vPix->bo && vPix->owner == CPU)
+			if (!vPix->bo && vPix->state & ST_CPU_RW)
 				etna_bo_cpu_fini(etna_bo);
 			etna_bo_del(etnaviv->conn, etna_bo, NULL);
 		}

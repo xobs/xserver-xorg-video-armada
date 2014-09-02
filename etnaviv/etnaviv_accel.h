@@ -116,13 +116,14 @@ struct etnaviv_pixmap {
 	Bool need_stall;
 
 	uint8_t state;
+#define ST_CPU_R	(1 << 0)
+#define ST_CPU_W	(1 << 1)
+#define ST_CPU_RW	(3 << 0)
+#define ST_GPU_R	(1 << 2)
+#define ST_GPU_W	(1 << 3)
+#define ST_GPU_RW	(3 << 2)
 #define ST_DMABUF	(1 << 4)
 
-	enum {
-		NONE,
-		CPU,
-		GPU,
-	} owner;
 #ifdef DEBUG_CHECK_DRAWABLE_USE
 	int in_use;
 #endif
