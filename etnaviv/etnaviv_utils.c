@@ -92,27 +92,45 @@ static void etnaviv_unmap_gpu(struct etnaviv *etnaviv, struct etnaviv_pixmap *vP
 /*
  * Map a pixmap to the GPU, and mark the GPU as owning this BO.
  */
-Bool etnaviv_map_gpu(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix)
+Bool etnaviv_map_gpu(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix,
+	enum gpu_access access)
 {
+	unsigned state, mask;
 	uint32_t handle;
 
 #ifdef DEBUG_CHECK_DRAWABLE_USE
 	assert(vPix->in_use == 0);
 #endif
 
-	if (vPix->owner == GPU)
+	if (access == GPU_ACCESS_RO) {
+		state = ST_GPU_R;
+		mask = ST_CPU_W | ST_GPU_R;
+	} else {
+		state = ST_GPU_R | ST_GPU_W;
+		mask = ST_CPU_R | ST_CPU_W | ST_GPU_R | ST_GPU_W;
+	}
+
+	/* If the pixmap is already appropriately mapped, just return */
+	if ((vPix->state & mask) == state)
 		return TRUE;
 
 	if (vPix->state & ST_DMABUF) {
-		vPix->owner = CPU;
+		vPix->state = (vPix->state & ~mask) | state;
 		return TRUE;
 	}
+
+	/*
+	 * If there is an etna bo, and there's a CPU use against this
+	 * pixmap, finish that first.
+	 */
+	if (vPix->state & ST_CPU_RW && vPix->etna_bo && !vPix->bo)
+		etna_bo_cpu_fini(vPix->etna_bo);
 
 	/*
 	 * If we have a shmem bo from KMS, map it to an etna_bo.  This
 	 * gives us etna_bo's for everything except the dumb KMS buffers.
 	 */
-	if (vPix->bo) {
+	if (vPix->bo && !vPix->etna_bo) {
 		struct drm_armada_bo *bo = vPix->bo;
 		struct etna_bo *etna_bo;
 
@@ -127,14 +145,7 @@ Bool etnaviv_map_gpu(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix)
 		vPix->etna_bo = etna_bo;
 	}
 
-	if (vPix->etna_bo) {
-		struct etna_bo *etna_bo = vPix->etna_bo;
-
-		if (vPix->owner == CPU)
-			etna_bo_cpu_fini(etna_bo);
-	}
-
-	vPix->owner = GPU;
+	vPix->state = (vPix->state & ~ST_CPU_RW) | state;
 
 #ifdef DEBUG_MAP
 	dbg("Mapped vPix %p etna bo %p to 0x%08x\n",
@@ -182,18 +193,25 @@ void prepare_cpu_drawable(DrawablePtr pDrawable, int access)
 	if (vPix) {
 		struct etnaviv *etnaviv = etnaviv_get_screen_priv(pDrawable->pScreen);
 
-		/* Ensure that the drawable is up to date with all GPU operations */
-		etnaviv_batch_wait_commit(etnaviv, vPix);
+		/*
+		 * If the CPU is going to write to the pixmap, then we must
+		 * ensure that the GPU is not using it.  Otherwise, tolerate
+		 * both the GPU and CPU reading the pixmap.
+		 */
+		if (vPix->state &
+		    (access == CPU_ACCESS_RW ? ST_GPU_RW : ST_GPU_W)) {
+			etnaviv_batch_wait_commit(etnaviv, vPix);
+
+			/* The GPU is no longer using this pixmap. */
+			vPix->state &= ~ST_GPU_RW;
+
+			/* Unmap this bo from the GPU */
+			if (vPix->bo && vPix->etna_bo)
+				etnaviv_unmap_gpu(etnaviv, vPix);
+		}
 
 		if (!(vPix->state & ST_DMABUF)) {
 			if (vPix->bo) {
-				/*
-				 * If we have an etna_bo, it means we're mapped on
-				 * the GPU (via etnaviv_map_gpu above).
-				 */
-				if (vPix->etna_bo)
-					etnaviv_unmap_gpu(etnaviv, vPix);
-
 				pixmap->devPrivate.ptr = vPix->bo->ptr;
 #ifdef DEBUG_MAP
 				dbg("Pixmap %p bo %p to %p\n", pixmap, vPix->bo,
@@ -202,7 +220,7 @@ void prepare_cpu_drawable(DrawablePtr pDrawable, int access)
 			} else if (vPix->etna_bo) {
 				struct etna_bo *etna_bo = vPix->etna_bo;
 
-				if (vPix->owner == GPU)
+				if (!(vPix->state & ST_CPU_RW))
 					etna_bo_cpu_prep(etna_bo, NULL, DRM_ETNA_PREP_WRITE);
 
 				pixmap->devPrivate.ptr = etna_bo_map(etna_bo);
@@ -215,7 +233,7 @@ void prepare_cpu_drawable(DrawablePtr pDrawable, int access)
 #ifdef DEBUG_CHECK_DRAWABLE_USE
 		vPix->in_use++;
 #endif
-		vPix->owner = CPU;
+		vPix->state |= access == CPU_ACCESS_RW ? ST_CPU_RW : ST_CPU_R;
 	}
 }
 
@@ -309,7 +327,6 @@ static void dump_pix(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix,
 	const char *fmt, va_list ap)
 {
 	static int idx;
-	unsigned owner = vPix->owner;
 	unsigned state = vPix->state;
 	const uint32_t *ptr;
 	char n[80];
@@ -321,13 +338,11 @@ static void dump_pix(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix,
 		ptr = vPix->bo->ptr;
 	} else {
 		ptr = etna_bo_map(vPix->etna_bo);
-		owner = CPU;
+		state = ST_CPU_RW;
 	}
 
-	if (owner == GPU) {
+	if (state & ST_GPU_W)
 		etnaviv_unmap_gpu(etnaviv, vPix);
-		vPix->owner = CPU;
-	}
 
 	vsprintf(n, fmt, ap);
 
@@ -335,8 +350,10 @@ static void dump_pix(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix,
 		 "/tmp/X.%04u.%s-%u.%u.%u.%u.pam",
 		 idx++, n, x1, y1, x2, y2);
 
-	if (owner == GPU)
-		etnaviv_map_gpu(etnaviv, vPix);
+	if (state & ST_GPU_W) {
+		vPix->state &= ~ST_GPU_RW;
+		etnaviv_map_gpu(etnaviv, vPix, GPU_ACCESS_RW);
+	}
 }
 
 void dump_Drawable(DrawablePtr pDraw, const char *fmt, ...)

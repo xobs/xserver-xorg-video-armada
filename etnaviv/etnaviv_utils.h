@@ -14,11 +14,17 @@
 struct etnaviv;
 struct etnaviv_pixmap;
 
+enum gpu_access {
+	GPU_ACCESS_RO,
+	GPU_ACCESS_RW,
+};
+
 const char *etnaviv_strerror(int err);
 #define etnaviv_error(v,w,e) __etnaviv_error(v,__func__,w,e)
 void __etnaviv_error(struct etnaviv *, const char *, const char *, int);
 
-Bool etnaviv_map_gpu(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix);
+Bool etnaviv_map_gpu(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix,
+	enum gpu_access access);
 
 struct etnaviv_format etnaviv_pict_format(PictFormatShort format, Bool force);
 Bool etnaviv_src_format_valid(struct etnaviv *, struct etnaviv_format fmt);

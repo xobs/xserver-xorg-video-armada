@@ -69,7 +69,8 @@ static void etnaviv_batch_add(struct etnaviv *etnaviv,
 }
 
 
-static Bool gal_prepare_gpu(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix)
+static Bool gal_prepare_gpu(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix,
+	enum gpu_access access)
 {
 #ifdef DEBUG_CHECK_DRAWABLE_USE
 	if (vPix->in_use) {
@@ -82,7 +83,7 @@ static Bool gal_prepare_gpu(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix
 	}
 #endif
 
-	if (!etnaviv_map_gpu(etnaviv, vPix))
+	if (!etnaviv_map_gpu(etnaviv, vPix, access))
 		return FALSE;
 
 	return TRUE;
@@ -167,7 +168,7 @@ static Bool etnaviv_init_dst_drawable(struct etnaviv *etnaviv,
 	if (!op->dst.pixmap)
 		return FALSE;
 
-	if (!gal_prepare_gpu(etnaviv, op->dst.pixmap))
+	if (!gal_prepare_gpu(etnaviv, op->dst.pixmap, GPU_ACCESS_RW))
 		return FALSE;
 
 	op->dst.bo = op->dst.pixmap->etna_bo;
@@ -185,8 +186,8 @@ static Bool etnaviv_init_dstsrc_drawable(struct etnaviv *etnaviv,
 	if (!op->dst.pixmap || !op->src.pixmap)
 		return FALSE;
 
-	if (!gal_prepare_gpu(etnaviv, op->dst.pixmap) ||
-	    !gal_prepare_gpu(etnaviv, op->src.pixmap))
+	if (!gal_prepare_gpu(etnaviv, op->dst.pixmap, GPU_ACCESS_RW) ||
+	    !gal_prepare_gpu(etnaviv, op->src.pixmap, GPU_ACCESS_RO))
 		return FALSE;
 
 	op->dst.bo = op->dst.pixmap->etna_bo;
@@ -206,7 +207,7 @@ static Bool etnaviv_init_src_pixmap(struct etnaviv *etnaviv,
 	if (!op->src.pixmap)
 		return FALSE;
 
-	if (!gal_prepare_gpu(etnaviv, op->src.pixmap))
+	if (!gal_prepare_gpu(etnaviv, op->src.pixmap, GPU_ACCESS_RO))
 		return FALSE;
 
 	op->src.bo = op->src.pixmap->etna_bo;
@@ -835,7 +836,7 @@ static Bool etnaviv_fill_single(struct etnaviv *etnaviv,
 		.fg_colour = colour,
 	};
 
-	if (!gal_prepare_gpu(etnaviv, vPix))
+	if (!gal_prepare_gpu(etnaviv, vPix, GPU_ACCESS_RW))
 		return FALSE;
 
 	op.dst = INIT_BLIT_PIX(vPix, vPix->pict_format, ZERO_OFFSET);
@@ -861,7 +862,8 @@ static Bool etnaviv_blend(struct etnaviv *etnaviv, const BoxRec *clip,
 		.brush = FALSE,
 	};
 
-	if (!gal_prepare_gpu(etnaviv, vDst) || !gal_prepare_gpu(etnaviv, vSrc))
+	if (!gal_prepare_gpu(etnaviv, vDst, GPU_ACCESS_RW) ||
+	    !gal_prepare_gpu(etnaviv, vSrc, GPU_ACCESS_RO))
 		return FALSE;
 
 	op.src = INIT_BLIT_PIX(vSrc, vSrc->pict_format, src_offset);
