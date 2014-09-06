@@ -238,6 +238,8 @@ void etnaviv_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 	Bool upsidedown, Pixel bitPlane, void *closure);
 Bool etnaviv_accel_PolyPoint(DrawablePtr pDrawable, GCPtr pGC, int mode,
 	int npt, DDXPointPtr ppt);
+Bool etnaviv_accel_PolyLines(DrawablePtr pDrawable, GCPtr pGC, int mode,
+	int npt, DDXPointPtr ppt);
 Bool etnaviv_accel_PolySegment(DrawablePtr pDrawable, GCPtr pGC, int nseg,
 	xSegment *pSeg);
 Bool etnaviv_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
