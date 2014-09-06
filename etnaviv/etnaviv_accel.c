@@ -714,6 +714,95 @@ Bool etnaviv_accel_PolyPoint(DrawablePtr pDrawable, GCPtr pGC, int mode,
 	return TRUE;
 }
 
+Bool etnaviv_accel_PolyLines(DrawablePtr pDrawable, GCPtr pGC, int mode,
+	int npt, DDXPointPtr ppt)
+{
+	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pDrawable->pScreen);
+	struct etnaviv_de_op op;
+	RegionPtr clip;
+	const BoxRec *box;
+	int nclip, i;
+	BoxRec *boxes, *b;
+	xSegment seg;
+
+	assert(pGC->miTranslate);
+
+	if (!etnaviv_init_dst_drawable(etnaviv, &op, pDrawable))
+		return FALSE;
+
+	clip = fbGetCompositeClip(pGC);
+	nclip = RegionNumRects(clip);
+	if (nclip == 0)
+		return TRUE;
+
+	etnaviv_init_fill(etnaviv, &op, pGC);
+	op.cmd = VIVS_DE_DEST_CONFIG_COMMAND_LINE;
+
+	boxes = malloc(sizeof(BoxRec) * npt);
+	if (!boxes)
+		return FALSE;
+
+	for (box = RegionRects(clip); nclip; nclip--, box++) {
+		seg.x1 = ppt[0].x;
+		seg.y1 = ppt[0].y;
+
+		for (b = boxes, i = 1; i < npt; i++) {
+			seg.x2 = ppt[i].x;
+			seg.y2 = ppt[i].y;
+
+			if (mode == CoordModePrevious) {
+				seg.x2 += seg.x1;
+				seg.y2 += seg.y1;
+			}
+
+			if (seg.x1 != seg.x2 && seg.y1 != seg.y2) {
+				free(boxes);
+				return FALSE;
+			}
+
+			/* We have to add the drawable position into the offset */
+			seg.x1 += pDrawable->x;
+			seg.x2 += pDrawable->x;
+			seg.y1 += pDrawable->y;
+			seg.y2 += pDrawable->y;
+
+			if (!box_intersect_line_rough(box, &seg))
+				continue;
+
+			if (i == npt - 1 && pGC->capStyle != CapNotLast) {
+				if (seg.x1 < seg.x2)
+					seg.x2 += 1;
+				else if (seg.x1 > seg.x2)
+					seg.x2 -= 1;
+				if (seg.y1 < seg.y2)
+					seg.y2 += 1;
+				else if (seg.y1 > seg.y2)
+					seg.y2 -= 1;
+			}
+
+			b->x1 = seg.x1;
+			b->y1 = seg.y1;
+			b->x2 = seg.x2;
+			b->y2 = seg.y2;
+			b++;
+
+			seg.x1 = ppt[i].x;
+			seg.y1 = ppt[i].y;
+		}
+
+		if (b != boxes) {
+			op.clip = box;
+			etnaviv_blit_start(etnaviv, &op);
+			etnaviv_blit(etnaviv, &op, boxes, b - boxes);
+			etnaviv_blit_complete(etnaviv);
+		}
+	}
+
+	free(boxes);
+
+	return FALSE;
+}
+
 Bool etnaviv_accel_PolySegment(DrawablePtr pDrawable, GCPtr pGC, int nseg,
 	xSegment *pSeg)
 {
