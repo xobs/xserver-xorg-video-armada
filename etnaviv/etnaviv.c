@@ -280,6 +280,20 @@ etnaviv_PolyPoint(DrawablePtr pDrawable, GCPtr pGC, int mode, int npt,
 }
 
 static void
+etnaviv_PolySegment(DrawablePtr pDrawable, GCPtr pGC, int nseg, xSegment *pSeg)
+{
+	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pDrawable->pScreen);
+
+	assert(etnaviv_GC_can_accel(pGC, pDrawable));
+
+	if (etnaviv->force_fallback ||
+	    pGC->lineWidth != 0 || pGC->lineStyle != LineSolid ||
+	    pGC->fillStyle != FillSolid ||
+	    !etnaviv_accel_PolySegment(pDrawable, pGC, nseg, pSeg))
+		unaccel_PolySegment(pDrawable, pGC, nseg, pSeg);
+}
+
+static void
 etnaviv_PolyFillRect(DrawablePtr pDrawable, GCPtr pGC, int nrect,
 	xRectangle * prect)
 {
@@ -312,7 +326,7 @@ static GCOps etnaviv_GCOps = {
 	unaccel_CopyPlane,
 	etnaviv_PolyPoint,
 	unaccel_PolyLines,
-	unaccel_PolySegment,
+	etnaviv_PolySegment,
 	miPolyRectangle,
 	miPolyArc,
 	miFillPolygon,

@@ -714,6 +714,81 @@ Bool etnaviv_accel_PolyPoint(DrawablePtr pDrawable, GCPtr pGC, int mode,
 	return TRUE;
 }
 
+Bool etnaviv_accel_PolySegment(DrawablePtr pDrawable, GCPtr pGC, int nseg,
+	xSegment *pSeg)
+{
+	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pDrawable->pScreen);
+	struct etnaviv_de_op op;
+	RegionPtr clip;
+	const BoxRec *box;
+	int nclip, i;
+	BoxRec *boxes, *b;
+	bool last;
+
+	assert(pGC->miTranslate);
+
+	if (!etnaviv_init_dst_drawable(etnaviv, &op, pDrawable))
+		return FALSE;
+
+	clip = fbGetCompositeClip(pGC);
+	nclip = RegionNumRects(clip);
+	if (nclip == 0)
+		return TRUE;
+
+	etnaviv_init_fill(etnaviv, &op, pGC);
+	op.cmd = VIVS_DE_DEST_CONFIG_COMMAND_LINE;
+
+	last = pGC->capStyle != CapNotLast;
+
+	boxes = malloc(sizeof(BoxRec) * nseg * (1 + last));
+	if (!boxes)
+		return FALSE;
+
+	for (box = RegionRects(clip); nclip; nclip--, box++) {
+		for (b = boxes, i = 0; i < nseg; i++) {
+			xSegment seg = pSeg[i];
+
+			/* We have to add the drawable position into the offset */
+			seg.x1 += pDrawable->x;
+			seg.x2 += pDrawable->x;
+			seg.y1 += pDrawable->y;
+			seg.y2 += pDrawable->y;
+
+			if (!box_intersect_line_rough(box, &seg))
+				continue;
+
+			b->x1 = seg.x1;
+			b->y1 = seg.y1;
+			b->x2 = seg.x2;
+			b->y2 = seg.y2;
+			b++;
+
+			if (last) {
+				/*
+				 * Draw a one pixel long line to light the
+				 * last pixel on the line.
+				 */
+				b->x1 = seg.x2;
+				b->y1 = seg.y2;
+				b->x2 = seg.x2 + 1;
+				b->y2 = seg.y2;
+				b++;
+			}
+		}
+
+		if (b != boxes) {
+			op.clip = box;
+			etnaviv_blit_start(etnaviv, &op);
+			etnaviv_blit(etnaviv, &op, boxes, b - boxes);
+			etnaviv_blit_complete(etnaviv);
+		}
+	}
+
+	free(boxes);
+
+	return TRUE;
+}
+
 Bool etnaviv_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 	xRectangle * prect)
 {
