@@ -31,6 +31,16 @@
 #include <gc_hal_enum.h>
 #include <gc_hal.h>
 
+static inline uint32_t scale16(uint32_t val, int bits)
+{
+	val <<= (16 - bits);
+	while (bits < 16) {
+		val |= val >> bits;
+		bits <<= 1;
+	}
+	return val >> 8;
+}
+
 static CARD32 get_first_pixel(DrawablePtr pDraw)
 {
 	union { CARD32 c32; CARD16 c16; CARD8 c8; char c; } pixel;
@@ -1226,6 +1236,63 @@ static Bool vivante_picture_is_solid(PicturePtr pict, CARD32 *colour)
 	return FALSE;
 }
 
+static Bool vivante_pict_solid_argb(PicturePtr pict, uint32_t *col)
+{
+	unsigned r, g, b, a, rbits, gbits, bbits, abits;
+	PictFormatPtr pFormat;
+	xRenderColor colour;
+	CARD32 pixel;
+	uint32_t argb;
+
+	if (!vivante_picture_is_solid(pict, &pixel))
+		return FALSE;
+
+	pFormat = pict->pFormat;
+	/* If no format (eg, source-only) assume it's the correct format */
+	if (!pFormat || pict->format == PICT_a8r8g8b8) {
+		*col = pixel;
+		return TRUE;
+	}
+
+	switch (pFormat->type) {
+	case PictTypeDirect:
+		r = (pixel >> pFormat->direct.red) & pFormat->direct.redMask;
+		g = (pixel >> pFormat->direct.green) & pFormat->direct.greenMask;
+		b = (pixel >> pFormat->direct.blue) & pFormat->direct.blueMask;
+		a = (pixel >> pFormat->direct.alpha) & pFormat->direct.alphaMask;
+		rbits = Ones(pFormat->direct.redMask);
+		gbits = Ones(pFormat->direct.greenMask);
+		bbits = Ones(pFormat->direct.blueMask);
+		abits = Ones(pFormat->direct.alphaMask);
+		if (abits)
+			argb = scale16(a, abits) << 24;
+		else
+			argb = 0xff000000;
+		if (rbits)
+			argb |= scale16(r, rbits) << 16;
+		if (gbits)
+			argb |= scale16(g, gbits) << 8;
+		if (bbits)
+			argb |= scale16(b, bbits);
+		break;
+	case PictTypeIndexed:
+		miRenderPixelToColor(pFormat, pixel, &colour);
+		argb = (colour.alpha >> 8) << 24;
+		argb |= (colour.red >> 8) << 16;
+		argb |= (colour.green >> 8) << 8;
+		argb |= (colour.blue >> 8);
+		break;
+	default:
+		/* unknown type, just assume pixel value */
+		argb = pixel;
+		break;
+	}
+
+	*col = argb;
+
+	return TRUE;
+}
+
 /*
  *  If we're filling a solid
  * surface, force it to have alpha; it may be used in combination
@@ -1240,14 +1307,12 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 	PixmapPtr pPixmap;
 	struct vivante_pixmap *vSrc;
 	DrawablePtr drawable = pict->pDrawable;
-	CARD32 colour;
+	uint32_t colour;
 	int tx, ty, ox, oy;
 
-	if (vivante_picture_is_solid(pict, &colour)) {
+	if (vivante_pict_solid_argb(pict, &colour)) {
 		*xout = 0;
 		*yout = 0;
-		if (PICT_FORMAT_A(pict->format) == 0)
-			colour |= 0xff000000;
 		if (!vivante_fill_single(vivante, vTemp, clip, colour))
 			return NULL;
 		vivante_flush(vivante);
@@ -1405,7 +1470,7 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	/* Remove repeat on source or mask if useless */
 	adjust_repeat(pSrc, xSrc, ySrc, width, height);
 	if (pMask) {
-		CARD32 colour;
+		uint32_t colour;
 
 		/*
 		 * A PictOpOver with a mask looks like this:
@@ -1436,19 +1501,9 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 		 * format must not have an alpha channel.
 		 */
 		if (op == PictOpOver && !PICT_FORMAT_A(pDst->format) &&
-		    vivante_picture_is_solid(pMask, &colour)) {
-			switch (pMask->format) {
-			case PICT_a8:
-				break;
-			case PICT_a4:
-				colour *= 0x11;
-				break;
-			case PICT_a1:
-				colour *= 0xff;
-				break;
-			default:
-				goto fallback;
-			}
+		    vivante_pict_solid_argb(pMask, &colour)) {
+			/* Convert the colour to A8 */
+			colour >>= 24;
 
 			special = vivante_composite_op[PictOpAtop];
 
