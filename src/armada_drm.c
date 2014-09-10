@@ -366,6 +366,7 @@ static Bool armada_drm_ScreenInit(SCREEN_INIT_ARGS_DECL)
 	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
 	struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(pScrn);
 	struct drm_armada_bo *bo;
+	Bool ret;
 
 	if (drmSetMaster(drm->fd)) {
 		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
@@ -417,7 +418,11 @@ static Bool armada_drm_ScreenInit(SCREEN_INIT_ARGS_DECL)
 
 	pScrn->vtSema = TRUE;
 
-	return common_drm_EnterVT(VT_FUNC_ARGS(0));
+	ret = common_drm_EnterVT(VT_FUNC_ARGS(0));
+	if (!ret)
+		pScrn->vtSema = FALSE;
+
+	return ret;
 }
 
 static Bool armada_drm_pre_init(ScrnInfoPtr pScrn)
