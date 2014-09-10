@@ -1423,8 +1423,7 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	ScreenPtr pScreen = pDst->pDrawable->pScreen;
 	struct vivante *vivante = vivante_get_screen_priv(pScreen);
 	struct vivante_pixmap *vDst, *vSrc, *vMask, *vTemp = NULL;
-	const struct vivante_blend_op *final_op;
-	struct vivante_blend_op special;
+	struct vivante_blend_op final_op;
 	PixmapPtr pPixmap, pPixTemp = NULL;
 	RegionRec region;
 	gcsRECT clipTemp;
@@ -1442,14 +1441,6 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	if (!pSrc->pDrawable && !vivante_picture_is_solid(pSrc, NULL))
 		return FALSE;
 
-	if (pMask) {
-		if (pMask->componentAlpha)
-			return FALSE;
-
-		if (!pMask->pDrawable)
-			return FALSE;
-	}
-
 	/* The destination pixmap must have a bo */
 	pPixmap = vivante_drawable_pixmap_deltas(pDst->pDrawable, &oDst_x, &oDst_y);
 	vDst = vivante_get_pixmap_priv(pPixmap);
@@ -1458,20 +1449,13 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 
 	vDst->pict_format = vivante_pict_format(pDst->format, FALSE);
 
-#if 0
-fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\n",
-	__FUNCTION__, op,  pSrc, xSrc, ySrc,  pMask, xMask, yMask,
-	pDst, xDst, yDst,  width, height);
-#endif
+	final_op = vivante_composite_op[op];
 
-	memset(&region, 0, sizeof(region));
-
-	final_op = &vivante_composite_op[op];
-
-	/* Remove repeat on source or mask if useless */
-	adjust_repeat(pSrc, xSrc, ySrc, width, height);
 	if (pMask) {
 		uint32_t colour;
+
+		if (pMask->componentAlpha)
+			return FALSE;
 
 		/*
 		 * A PictOpOver with a mask looks like this:
@@ -1506,36 +1490,57 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 			/* Convert the colour to A8 */
 			colour >>= 24;
 
-			special = vivante_composite_op[PictOpAtop];
+			final_op = vivante_composite_op[PictOpAtop];
 
 			/*
-			 * This bit is theory: we should be able to use
-			 * scaled source alpha here, but when we're given
-			 * X8R8G8B8, this seems to fail.  Use global
+			 * With global scaled alpha and a non-alpha source,
+			 * the GPU appears to buggily read and use the X bits
+			 * as source alpha.  Work around this by using global
 			 * source alpha instead for this case.
 			 */
 			if (PICT_FORMAT_A(pSrc->format))
-				special.src_global_alpha = gcvSURF_GLOBAL_ALPHA_SCALE;
+				final_op.src_global_alpha = gcvSURF_GLOBAL_ALPHA_SCALE;
 			else
-				special.src_global_alpha = gcvSURF_GLOBAL_ALPHA_ON;
+				final_op.src_global_alpha = gcvSURF_GLOBAL_ALPHA_ON;
 
-			special.dst_global_alpha = gcvSURF_GLOBAL_ALPHA_ON;
-			special.src_alpha =
-			special.dst_alpha = colour;
-			final_op = &special;
+			final_op.dst_global_alpha = gcvSURF_GLOBAL_ALPHA_ON;
+			final_op.src_alpha =
+			final_op.dst_alpha = colour;
 			pMask = NULL;
+		} else if (pMask->pDrawable) {
+			int tx, ty;
+
+			if (!transform_is_integer_translation(pMask->transform, &tx, &ty))
+				return FALSE;
+
+			xMask += tx;
+			yMask += ty;
 		} else {
-			adjust_repeat(pMask, xMask, yMask, width, height);
+			return FALSE;
+		}
+	}
 
-			/* We don't handle mask repeats (yet) */
-			if (pMask->repeat != RepeatNone)
-				goto fallback;
+#if 0
+fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\n",
+	__FUNCTION__, op,  pSrc, xSrc, ySrc,  pMask, xMask, yMask,
+	pDst, xDst, yDst,  width, height);
+#endif
 
-			/* Include the mask drawable's position on the pixmap */
-			if (pMask->pDrawable) {
-				xMask += pMask->pDrawable->x;
-				yMask += pMask->pDrawable->y;
-			}
+	memset(&region, 0, sizeof(region));
+
+	/* Remove repeat on source or mask if useless */
+	adjust_repeat(pSrc, xSrc, ySrc, width, height);
+	if (pMask) {
+		adjust_repeat(pMask, xMask, yMask, width, height);
+
+		/* We don't handle mask repeats (yet) */
+		if (pMask->repeat != RepeatNone)
+			goto fallback;
+
+		/* Include the mask drawable's position on the pixmap */
+		if (pMask->pDrawable) {
+			xMask += pMask->pDrawable->x;
+			yMask += pMask->pDrawable->y;
 		}
 	}
 
@@ -1702,7 +1707,7 @@ if (pMask && pMask->pDrawable)
 		ySrc = 0;
 	}
 
-	rc = vivante_accel_final_blend(vivante, final_op,
+	rc = vivante_accel_final_blend(vivante, &final_op,
 				       oDst_x, oDst_y, &region,
 				       pDst, vDst, xDst, yDst,
 				       pSrc, vSrc, xSrc, ySrc);
