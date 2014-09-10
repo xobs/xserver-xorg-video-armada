@@ -1246,7 +1246,6 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 	if (vivante_picture_is_solid(pict, &colour)) {
 		*xout = 0;
 		*yout = 0;
-		vTemp->pict_format = vivante_pict_format(PICT_a8r8g8b8, FALSE);
 		if (PICT_FORMAT_A(pict->format) == 0)
 			colour |= 0xff000000;
 		if (!vivante_fill_single(vivante, vTemp, clip, colour))
@@ -1271,8 +1270,7 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 		PicturePtr dest;
 		int err;
 
-		f = PictureMatchFormat(drawable->pScreen, pict->pFormat->depth,
-							   PICT_a8r8g8b8);
+		f = PictureMatchFormat(drawable->pScreen, 32, PICT_a8r8g8b8);
 		if (!f)
 			return NULL;
 
@@ -1285,7 +1283,6 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 		FreePicture(dest, 0);
 		*xout = 0;
 		*yout = 0;
-		vTemp->pict_format = vivante_pict_format(PICT_a8r8g8b8, FALSE);
 		vSrc = vTemp;
 	}
 
@@ -1525,14 +1522,15 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	 * Get a temporary pixmap.  We don't really know yet whether we're
 	 * going to use it or not.
 	 */
-	pPixTemp = pScreen->CreatePixmap(pScreen, width, height,
-					 pDst->pDrawable->depth, 0);
+	pPixTemp = pScreen->CreatePixmap(pScreen, width, height, 32, 0);
 	if (!pPixTemp)
 		goto failed;
 
 	vTemp = vivante_get_pixmap_priv(pPixTemp);
 	if (!vTemp)
 		goto failed;
+
+	vTemp->pict_format = vivante_pict_format(PICT_a8r8g8b8, FALSE);
 
 	/*
 	 * Get the source.  The source image will be described by vSrc with
@@ -1541,7 +1539,6 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	 * alpha channel is valid.
 	 */
 	if (op == PictOpClear) {
-		vTemp->pict_format = vivante_pict_format(pSrc->format, TRUE);
 		if (!vivante_fill_single(vivante, vTemp, &clipTemp, 0))
 			goto failed;
 		vivante_flush(vivante);
@@ -1604,8 +1601,6 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 		rdst.bottom = height;
 
 		if (vTemp != vSrc) {
-			gceSURF_FORMAT fTemp;
-
 			/* Copy Source to Temp */
 			rsrc.left = xSrc;
 			rsrc.top = ySrc;
@@ -1618,9 +1613,6 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 			 * while copying.  (If this doesn't work, use OR
 			 * in the brush with maximum alpha value.)
 			 */
-			fTemp = vivante_pict_format(pSrc->format, TRUE);
-			vTemp->pict_format = fTemp;
-
 			if (!vivante_blend(vivante, &clipTemp, NULL,
 					   vTemp, &rdst,
 					   vSrc, &rsrc, 1))
