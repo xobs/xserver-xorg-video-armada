@@ -421,6 +421,15 @@ static const gctUINT8 vivante_fill_rop[] = {
 	/* GXset          */  0xff		// ROP_WHITE
 };
 
+static uint32_t vivante_fg_col(GCPtr pGC)
+{
+	if (pGC->fillStyle == FillTiled)
+		return pGC->tileIsPixel ? pGC->tile.pixel :
+			get_first_pixel(&pGC->tile.pixmap->drawable);
+	else
+		return pGC->fgPixel;
+}
+
 /*
  * Generic solid-like blit fill - takes a set of boxes, and fills them
  * according to the clips in the GC.
@@ -462,15 +471,7 @@ static Bool vivante_fill(struct vivante *vivante, struct vivante_pixmap *vPix,
 		return FALSE;
 	}
 
-	if (pGC->fillStyle == FillTiled) {
-		if (pGC->tileIsPixel)
-			fg = pGC->tile.pixel;
-		else
-			fg = get_first_pixel(&pGC->tile.pixmap->drawable);
-	} else {
-		fg = pGC->fgPixel;
-	}
-
+	fg = vivante_fg_col(pGC);
 	err = gco2D_LoadSolidBrush(vivante->e2d, vPix->format, 0, fg, ~0ULL);
 	if (err != gcvSTATUS_OK) {
 		vivante_error(vivante, "gco2D_LoadSolidBrush", err);
