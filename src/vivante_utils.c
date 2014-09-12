@@ -323,6 +323,8 @@ static void dump_pix(struct vivante *vivante, struct vivante_pixmap *vPix,
 	unsigned owner = vPix->owner;
 	char n[80];
 
+	vivante_commit(vivante, TRUE);
+
 	if (vPix->bo->type != DRM_ARMADA_BO_SHMEM)
 		owner = CPU;
 
@@ -344,7 +346,8 @@ static void dump_pix(struct vivante *vivante, struct vivante_pixmap *vPix,
 void dump_Drawable(DrawablePtr pDraw, const char *fmt, ...)
 {
 	struct vivante *vivante = vivante_get_screen_priv(pDraw->pScreen);
-	PixmapPtr pPix = drawable_pixmap(pDraw);
+	int x, y;
+	PixmapPtr pPix = drawable_pixmap_deltas(pDraw, &x, &y);
 	struct vivante_pixmap *vPix = vivante_get_pixmap_priv(pPix);
 	va_list ap;
 
@@ -352,25 +355,34 @@ void dump_Drawable(DrawablePtr pDraw, const char *fmt, ...)
 		return;
 
 	va_start(ap, fmt);
-	dump_pix(vivante, vPix, false, 0, 0, pDraw->width, pDraw->height, fmt, ap);
+	dump_pix(vivante, vPix, false,
+		 pDraw->x + x, pDraw->y + y, pDraw->width, pDraw->height,
+		 fmt, ap);
 	va_end(ap);
 }
 
 void dump_Picture(PicturePtr pDst, const char *fmt, ...)
 {
-	struct vivante *vivante = vivante_get_screen_priv(pDst->pDrawable->pScreen);
-	PixmapPtr pPix = drawable_pixmap(pDst->pDrawable);
-	struct vivante_pixmap *vPix = vivante_get_pixmap_priv(pPix);
+	DrawablePtr pDraw = pDst->pDrawable;
+	struct vivante *vivante;
+	struct vivante_pixmap *vPix;
+	PixmapPtr pPix;
 	bool alpha;
 	va_list ap;
+	int x, y;
 
+	vivante = vivante_get_screen_priv(pDraw->pScreen);
+	pPix = drawable_pixmap_deltas(pDraw, &x, &y);
+	vPix = vivante_get_pixmap_priv(pPix);
 	if (!vPix)
 		return;
 
 	alpha = PICT_FORMAT_A(pDst->format) != 0;
 
 	va_start(ap, fmt);
-	dump_pix(vivante, vPix, alpha, 0, 0, vPix->width, vPix->height, fmt, ap);
+	dump_pix(vivante, vPix, alpha,
+		 pDraw->x + x, pDraw->y + y, pDraw->width, pDraw->height,
+		 fmt, ap);
 	va_end(ap);
 }
 
@@ -379,7 +391,9 @@ void dump_vPix(struct vivante *vivante, struct vivante_pixmap *vPix,
 {
 	va_list ap;
 	va_start(ap, fmt);
-	dump_pix(vivante, vPix, !!alpha, 0, 0, vPix->width, vPix->height, fmt, ap);
+	dump_pix(vivante, vPix, !!alpha,
+		 0, 0, vPix->width, vPix->height,
+		 fmt, ap);
 	va_end(ap);
 }
 #endif

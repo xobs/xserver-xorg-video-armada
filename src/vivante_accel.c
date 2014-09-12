@@ -1320,7 +1320,6 @@ static int vivante_accel_final_blend(struct vivante *vivante,
 	rdst = rects + nrects;
 
 #if 0
-	vivante_batch_wait_commit(vivante, vSrc);
 	dump_vPix(buf, vivante, vSrc, 1, "A-FSRC%02.2x-%p", op, pSrc);
 	dump_vPix(buf, vivante, vDst, 1, "A-FDST%02.2x-%p", op, pDst);
 #endif
@@ -1331,7 +1330,6 @@ static int vivante_accel_final_blend(struct vivante *vivante,
 	free(rects);
 
 #if 0
-	vivante_batch_wait_commit(vivante, vDst);
 	dump_vPix(buf, vivante, vDst, PICT_FORMAT_A(pDst->format) != 0,
 		  "A-DEST%02.2x-%p", op, pDst);
 #endif
@@ -1625,7 +1623,6 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 		}
 	}
 
-//vivante_batch_wait_commit(vivante, vSrc);
 //dump_vPix(buf, vivante, vSrc, 1, "A-ISRC%02.2x-%p", op, pSrc);
 
 #if 0
@@ -1688,7 +1685,6 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 					   vTemp, &rdst,
 					   vSrc, &rsrc, 1))
 				goto failed;
-//vivante_batch_wait_commit(vivante, vTemp);
 //dump_vPix(buf, vivante, vTemp, 1, "A-TMSK%02.2x-%p", op, pMask);
 		}
 
