@@ -789,15 +789,25 @@ Bool vivante_accel_PolyPoint(DrawablePtr pDrawable, GCPtr pGC, int mode,
 	if (!pBox)
 		return FALSE;
 
-	for (i = 0; i < npt; i++) {
-		pBox[i].x1 = ppt[i].x + pDrawable->x;
-		pBox[i].y1 = ppt[i].y + pDrawable->y;
-		if (i > 0 && mode == CoordModePrevious) {
-			pBox[i].x1 += ppt[i - 1].x;
-			pBox[i].y1 += ppt[i - 1].y;
+	if (mode == CoordModePrevious) {
+		int x, y;
+
+		x = y = 0;
+		for (i = 0; i < npt; i++) {
+			x += ppt[i].x;
+			y += ppt[i].y;
+			pBox[i].x1 = x + pDrawable->x;
+			pBox[i].y1 = y + pDrawable->y;
+			pBox[i].x2 = pBox[i].x1 + 1;
+			pBox[i].y2 = pBox[i].y1 + 1;
 		}
-		pBox[i].x2 = pBox[i].x1 + 1;
-		pBox[i].y2 = pBox[i].y1 + 1;
+	} else {
+		for (i = 0; i < npt; i++) {
+			pBox[i].x1 = ppt[i].x + pDrawable->x;
+			pBox[i].y1 = ppt[i].y + pDrawable->y;
+			pBox[i].x2 = pBox[i].x1 + 1;
+			pBox[i].y2 = pBox[i].y1 + 1;
+		}
 	}
 
 	/* Convert the boxes to a region */
