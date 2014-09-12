@@ -592,7 +592,7 @@ Bool vivante_accel_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int n,
 
 	for (i = n, p = pBox; i; i--, p++, ppt++, pwidth++) {
 		p->x1 = ppt->x;
-		p->x2 = p->x2 + *pwidth;
+		p->x2 = p->x1 + *pwidth;
 		p->y1 = ppt->y;
 		p->y2 = p->y1 + 1;
 	}
