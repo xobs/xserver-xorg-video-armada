@@ -683,7 +683,8 @@ Bool vivante_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 		goto unmap;
 	}
 
-	/* No need to load the brush here - the blit copy doesn't use it. */
+	x += pDrawable->x;
+	y += pDrawable->y;
 
 	total.x1 = x;
 	total.y1 = y;
