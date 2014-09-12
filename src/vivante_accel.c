@@ -845,34 +845,50 @@ Bool vivante_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 	struct vivante *vivante = vivante_get_screen_priv(pDrawable->pScreen);
 	struct vivante_pixmap *vPix;
 	PixmapPtr pPix;
-	RegionPtr rects;
-	int off_x, off_y;
-	Bool ret;
+	RegionPtr clip;
+	BoxPtr box;
+	BoxRec boxes[255], clipBox;
+	int off_x, off_y, nclip, nb;
+	Bool ret = TRUE;
 
 	pPix = vivante_drawable_pixmap_deltas(pDrawable, &off_x, &off_y);
 	vPix = vivante_get_pixmap_priv(pPix);
 	if (!vPix)
 		return FALSE;
 
-	/* Convert the rectangles to a region */
-	rects = RegionFromRects(n, prect, CT_UNSORTED);
+	clip = fbGetCompositeClip(pGC);
+	clipBox = *RegionExtents(clip);
 
-	/* Translate them for the drawable position */
-	RegionTranslate(rects, pDrawable->x, pDrawable->y);
+	nb = 0;
+	while (n--) {
+		BoxRec full_rect;
 
-	/* Intersect them with the clipping region */
-	RegionIntersect(rects, rects, fbGetCompositeClip(pGC));
+		full_rect.x1 = prect->x + pDrawable->x;
+		full_rect.y1 = prect->y + pDrawable->y;
+		full_rect.x2 = full_rect.x1 + prect->width;
+		full_rect.y2 = full_rect.y1 + prect->height;
 
-	if (RegionNumRects(rects)) {
-		ret = vivante_fill(vivante, vPix, pGC, RegionExtents(rects),
-				   RegionRects(rects), RegionNumRects(rects),
-				   off_x, off_y);
-	} else {
-		ret = TRUE;
+		prect++;
+
+		for (box = RegionRects(clip), nclip = RegionNumRects(clip);
+		     nclip; nclip--, box++) {
+			if (BoxClip(&boxes[nb], &full_rect, box))
+				continue;
+
+			if (++nb > 254) {
+				ret = vivante_fill(vivante, vPix, pGC, &clipBox,
+						   boxes, nb, off_x, off_y);
+				nb = 0;
+				if (!ret)
+					break;
+			}
+		}
+		if (!ret)
+			break;
 	}
-
-	RegionUninit(rects);
-	RegionDestroy(rects);
+	if (nb)
+		ret = vivante_fill(vivante, vPix, pGC, &clipBox,
+				   boxes, nb, off_x, off_y);
 
 	return ret;
 }
