@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <stdarg.h>
 #include <stdio.h>
+#include <sys/mman.h>
 #include <unistd.h>
 
 #ifdef HAVE_DIX_CONFIG_H
@@ -133,8 +134,10 @@ Bool vivante_map_bo_to_gpu(struct vivante *vivante, struct drm_armada_bo *bo,
 		return FALSE;
 	}
 
-	map.zero = 0;
+	map.hdr.v2.zero = 0;
+	map.hdr.v2.status = 0;
 	map.fd = fd;
+	map.prot = PROT_READ | PROT_WRITE;
 
 	status = vivante_ioctl(vivante, IOC_GDMABUF_MAP, &map, sizeof(map));
 
@@ -148,8 +151,8 @@ Bool vivante_map_bo_to_gpu(struct vivante *vivante, struct drm_armada_bo *bo,
 		return FALSE;
 	}
 
-	*handle = map.Address;
-	*info = map.Info;
+	*handle = map.address;
+	*info = (void *)(uintptr_t)map.info;
 
 	return TRUE;
 }
