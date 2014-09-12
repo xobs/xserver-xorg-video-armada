@@ -1148,22 +1148,6 @@ static Bool vivante_fill_single(struct vivante *vivante,
 	return TRUE;
 }
 
-#if 0
-static void BoxCopy(gcsRECT_PTR src, gcsRECT_PTR dst, int xSrc, int ySrc,
-	int xDst, int yDst, int w, int h)
-{
-	src->left = xSrc;
-	src->top = ySrc;
-	src->right = xSrc + w;
-	src->bottom = ySrc + h;
-
-	dst->left = xDst;
-	dst->top = yDst;
-	dst->right = xDst + w;
-	dst->bottom = yDst + h;
-}
-#endif
-
 static Bool vivante_blend(struct vivante *vivante, gcsRECT_PTR clip,
 	const struct vivante_blend_op *blend,
 	struct vivante_pixmap *vDst, gcsRECT_PTR rDst,
