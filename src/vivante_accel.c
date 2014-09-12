@@ -426,23 +426,15 @@ static const gctUINT8 vivante_fill_rop[] = {
  * according to the clips in the GC.
  */
 static Bool vivante_fill(struct vivante *vivante, struct vivante_pixmap *vPix,
-	GCPtr pGC, RegionPtr region)
+	GCPtr pGC, const BoxRec *clipBox, const BoxRec *pBox, unsigned nBox,
+	int dx, int dy)
 {
-	const BoxRec *pBox, *b;
-	unsigned nBox, chunk;
+	const BoxRec *b;
+	unsigned chunk;
 	gceSTATUS err;
 	gctUINT32 fg;
 	gctUINT8 rop;
 	gcsRECT *rects, *r, clip;
-
-	if (RegionBroken(region)) {
-		xf86DrvMsg(vivante->scrnIndex, X_ERROR,
-			   "[vivante] %s: broken region\n", __FUNCTION__);
-		return FALSE;
-	}
-
-	nBox = RegionNumRects(region);
-	pBox = RegionRects(region);
 
 	chunk = vivante->max_rect_count;
 	if (nBox < chunk)
@@ -462,7 +454,7 @@ static Bool vivante_fill(struct vivante *vivante, struct vivante_pixmap *vPix,
 
 	vivante_disable_alpha_blend(vivante);
 
-	RectBox(&clip, RegionExtents(region), 0, 0);
+	RectBox(&clip, clipBox, dx, dy);
 	err = gco2D_SetClipping(vivante->e2d, &clip);
 	if (err) {
 		vivante_error(vivante, "gco2D_SetClipping", err);
@@ -495,7 +487,7 @@ static Bool vivante_fill(struct vivante *vivante, struct vivante_pixmap *vPix,
 			chunk = nBox;
 
 		for (i = 0, r = rects; i < chunk; i++, r++, b++)
-			RectBox(r, b, 0, 0);
+			RectBox(r, b, dx, dy);
 
 		err = gco2D_Blit(vivante->e2d, chunk, rects, rop, rop, vPix->format);
 		if (err)
@@ -604,10 +596,9 @@ Bool vivante_accel_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int n,
 	/* Intersect them with the clipping region */
 	RegionIntersect(&region, &region, fbGetCompositeClip(pGC));
 
-	/* Translate them for the drawable offset */
-	RegionTranslate(&region, off_x, off_y);
-
-	ret = vivante_fill(vivante, vPix, pGC, &region);
+	ret = vivante_fill(vivante, vPix, pGC, RegionExtents(&region),
+			   RegionRects(&region), RegionNumRects(&region),
+			   off_x, off_y);
 
 	RegionUninit(&region);
 
@@ -818,10 +809,9 @@ Bool vivante_accel_PolyPoint(DrawablePtr pDrawable, GCPtr pGC, int mode,
 	/* Intersect them with the clipping region */
 	RegionIntersect(&region, &region, fbGetCompositeClip(pGC));
 
-	/* Translate them for the drawable offset */
-	RegionTranslate(&region, off_x, off_y);
-
-	ret = vivante_fill(vivante, vPix, pGC, &region);
+	ret = vivante_fill(vivante, vPix, pGC, RegionExtents(&region),
+			   RegionRects(&region), RegionNumRects(&region),
+			   off_x, off_y);
 
 	RegionUninit(&region);
 
@@ -853,10 +843,9 @@ Bool vivante_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 	RegionIntersect(rects, rects, fbGetCompositeClip(pGC));
 
 	if (RegionNumRects(rects)) {
-		/* Translate them for the drawable offset */
-		RegionTranslate(rects, off_x, off_y);
-
-		ret = vivante_fill(vivante, vPix, pGC, rects);
+		ret = vivante_fill(vivante, vPix, pGC, RegionExtents(rects),
+				   RegionRects(rects), RegionNumRects(rects),
+				   off_x, off_y);
 	} else {
 		ret = TRUE;
 	}
