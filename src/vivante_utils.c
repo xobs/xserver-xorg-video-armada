@@ -298,6 +298,32 @@ gceSURF_FORMAT vivante_pict_format(PictFormatShort format, Bool force)
 }
 #endif
 
+Bool vivante_format_valid(struct vivante *vivante, gceSURF_FORMAT fmt)
+{
+	switch (fmt) {
+	case gcvSURF_A8R8G8B8:
+	case gcvSURF_X8R8G8B8:
+	case gcvSURF_R5G6B5:
+	case gcvSURF_A1R5G5B5:
+	case gcvSURF_X1R5G5B5:
+	case gcvSURF_A4R4G4B4:
+	case gcvSURF_X4R4G4B4:
+		return TRUE;
+	case gcvSURF_A8B8G8R8:
+	case gcvSURF_X8B8G8R8:
+	case gcvSURF_B8G8R8A8:
+	case gcvSURF_B8G8R8X8:
+	case gcvSURF_B5G6R5:
+	case gcvSURF_A1B5G5R5:
+	case gcvSURF_X1B5G5R5:
+	case gcvSURF_A4B4G4R4:
+	case gcvSURF_X4B4G4R4:
+	case gcvSURF_A8:
+		return vivante->pe20;
+	default:
+		return FALSE;
+	}
+}
 
 #if 1 //def DEBUG
 #include <stdarg.h>

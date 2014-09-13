@@ -61,6 +61,7 @@ struct vivante {
 	Bool need_stall;
 #endif
 
+	Bool pe20;
 	Bool need_commit;
 	Bool force_fallback;
 #ifdef RENDER

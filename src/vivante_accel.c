@@ -1326,11 +1326,12 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 	if (!vSrc)
 		return NULL;
 
+	vSrc->pict_format = vivante_pict_format(pict->format, FALSE);
 	if (pict->repeat == RepeatNone &&
-		transform_is_integer_translation(pict->transform, &tx, &ty)) {
+	    transform_is_integer_translation(pict->transform, &tx, &ty) &&
+	    vivante_format_valid(vivante, vSrc->pict_format)) {
 		*xout = ox + x + tx + drawable->x;
 		*yout = ox + y + ty + drawable->y;
-		vSrc->pict_format = vivante_pict_format(pict->format, FALSE);
 	} else {
 		PictFormatPtr f;
 		PicturePtr dest;
@@ -1427,7 +1428,7 @@ static int vivante_accel_final_blend(struct vivante *vivante,
  * global alpha to replace the alpha channel.  The alpha channel subsitution
  * is performed at this function's callsite.
  */
-static Bool vivante_workaround_nonalpha(struct etnaviv_pixmap *vpix)
+static Bool vivante_workaround_nonalpha(struct vivante_pixmap *vpix)
 {
 	switch (vpix->pict_format) {
 	case gcvSURF_X4R4G4B4:
@@ -1469,8 +1470,9 @@ static Bool vivante_workaround_nonalpha(struct etnaviv_pixmap *vpix)
 	case gcvSURF_R5G6B5:
 	case gcvSURF_B5G6R5:
 		return TRUE;
+	default:
+		return FALSE;
 	}
-	return FALSE;
 }
 
 int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
@@ -1505,6 +1507,8 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 		return FALSE;
 
 	vDst->pict_format = vivante_pict_format(pDst->format, FALSE);
+	if (!vivante_format_valid(vivante, vDst->pict_format))
+		return FALSE;
 
 	final_op = vivante_composite_op[op];
 
@@ -1863,6 +1867,9 @@ Bool vivante_accel_init(struct vivante *vivante)
 			   "2d engine", vivante_strerror(ret));
 		return FALSE;
 	}
+
+	vivante->pe20 = gcoHAL_IsFeatureAvailable(vivante->hal,
+						  gcvFEATURE_2DPE20);
 
 	xf86DrvMsg(vivante->scrnIndex, X_PROBED,
 		   "Vivante GC%x GPU revision %x\n", model, rev);

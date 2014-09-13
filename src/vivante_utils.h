@@ -48,6 +48,7 @@ void vivante_finish_drawable(DrawablePtr pDrawable, int access);
 void vivante_prepare_drawable(DrawablePtr pDrawable, int access);
 
 gceSURF_FORMAT vivante_pict_format(PictFormatShort format, Bool force);
+Bool vivante_format_valid(struct vivante *vivante, gceSURF_FORMAT fmt);
 
 /*
  * The following functions are here to allow the compiler to inline them
