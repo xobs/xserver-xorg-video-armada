@@ -1416,6 +1416,63 @@ static int vivante_accel_final_blend(struct vivante *vivante,
 	return rc;
 }
 
+/*
+ * There is a bug in the GPU hardware with destinations lacking alpha and
+ * swizzles BGRA/RGBA.  Rather than the GPU treating bits 7:0 as alpha, it
+ * continues to treat bits 31:24 as alpha.  This results in it replacing
+ * the B or R bits on input to the blend operation with 1.0.  However, it
+ * continues to accept the non-existent source alpha from bits 31:24.
+ *
+ * Work around this by switching to the equivalent alpha format, and using
+ * global alpha to replace the alpha channel.  The alpha channel subsitution
+ * is performed at this function's callsite.
+ */
+static Bool vivante_workaround_nonalpha(struct etnaviv_pixmap *vpix)
+{
+	switch (vpix->pict_format) {
+	case gcvSURF_X4R4G4B4:
+		vpix->pict_format = gcvSURF_A4R4G4B4;
+		return TRUE;
+	case gcvSURF_X4B4G4R4:
+		vpix->pict_format = gcvSURF_A4B4G4R4;
+		return TRUE;
+	case gcvSURF_R4G4B4X4:
+		vpix->pict_format = gcvSURF_R4G4B4A4;
+		return TRUE;
+	case gcvSURF_B4G4R4X4:
+		vpix->pict_format = gcvSURF_B4G4R4A4;
+		return TRUE;
+	case gcvSURF_X1R5G5B5:
+		vpix->pict_format = gcvSURF_A1R5G5B5;
+		return TRUE;
+	case gcvSURF_X1B5G5R5:
+		vpix->pict_format = gcvSURF_A1B5G5R5;
+		return TRUE;
+	case gcvSURF_R5G5B5X1:
+		vpix->pict_format = gcvSURF_R5G5B5A1;
+		return TRUE;
+	case gcvSURF_B5G5R5X1:
+		vpix->pict_format = gcvSURF_B5G5R5A1;
+		return TRUE;
+	case gcvSURF_X8R8G8B8:
+		vpix->pict_format = gcvSURF_A8R8G8B8;
+		return TRUE;
+	case gcvSURF_X8B8G8R8:
+		vpix->pict_format = gcvSURF_A8B8G8R8;
+		return TRUE;
+	case gcvSURF_R8G8B8X8:
+		vpix->pict_format = gcvSURF_R8G8B8A8;
+		return TRUE;
+	case gcvSURF_B8G8R8X8:
+		vpix->pict_format = gcvSURF_B8G8R8A8;
+		return TRUE;
+	case gcvSURF_R5G6B5:
+	case gcvSURF_B5G6R5:
+		return TRUE;
+	}
+	return FALSE;
+}
+
 int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	PicturePtr pDst, INT16 xSrc, INT16 ySrc, INT16 xMask, INT16 yMask,
 	INT16 xDst, INT16 yDst, CARD16 width, CARD16 height)
@@ -1462,50 +1519,9 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	 * Work around this by switching to the equivalent alpha format,
 	 * and use global alpha to replace the alpha channel.
 	 */
-	if (!PICT_FORMAT_A(pDst->format)) {
+	if (vivante_workaround_nonalpha(vDst)) {
 		final_op.dst_global_alpha = gcvSURF_GLOBAL_ALPHA_ON;
 		final_op.dst_alpha = 255;
-
-		switch (vDst->pict_format) {
-		case gcvSURF_X4R4G4B4:
-			vDst->pict_format = gcvSURF_A4R4G4B4;
-			break;
-		case gcvSURF_X4B4G4R4:
-			vDst->pict_format = gcvSURF_A4B4G4R4;
-			break;
-		case gcvSURF_R4G4B4X4:
-			vDst->pict_format = gcvSURF_R4G4B4A4;
-			break;
-		case gcvSURF_B4G4R4X4:
-			vDst->pict_format = gcvSURF_B4G4R4A4;
-			break;
-		case gcvSURF_X1R5G5B5:
-			vDst->pict_format = gcvSURF_A1R5G5B5;
-			break;
-		case gcvSURF_X1B5G5R5:
-			vDst->pict_format = gcvSURF_A1B5G5R5;
-			break;
-		case gcvSURF_R5G5B5X1:
-			vDst->pict_format = gcvSURF_R5G5B5A1;
-			break;
-		case gcvSURF_B5G5R5X1:
-			vDst->pict_format = gcvSURF_B5G5R5A1;
-			break;
-		case gcvSURF_X8R8G8B8:
-			vDst->pict_format = gcvSURF_A8R8G8B8;
-			break;
-		case gcvSURF_X8B8G8R8:
-			vDst->pict_format = gcvSURF_A8B8G8R8;
-			break;
-		case gcvSURF_R8G8B8X8:
-			vDst->pict_format = gcvSURF_R8G8B8A8;
-			break;
-		case gcvSURF_B8G8R8X8:
-			vDst->pict_format = gcvSURF_B8G8R8A8;
-			break;
-		default:
-			break;
-		}
 	}
 
 	if (pMask) {
@@ -1675,51 +1691,11 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 		 * Apply the same work-around for a non-alpha source as for
 		 * a non-alpha destination.
 		 */
-		if (!pMask && vSrc != vTemp && !PICT_FORMAT_A(pSrc->format) &&
-		    final_op.src_global_alpha == gcvSURF_GLOBAL_ALPHA_OFF) {
+		if (!pMask && vSrc != vTemp &&
+		    final_op.src_global_alpha == gcvSURF_GLOBAL_ALPHA_OFF &&
+		    vivante_workaround_nonalpha(vSrc)) {
 			final_op.src_global_alpha = gcvSURF_GLOBAL_ALPHA_ON;
 			final_op.src_alpha = 255;
-
-			switch (vSrc->pict_format) {
-			case gcvSURF_X4R4G4B4:
-				vSrc->pict_format = gcvSURF_A4R4G4B4;
-				break;
-			case gcvSURF_X4B4G4R4:
-				vSrc->pict_format = gcvSURF_A4B4G4R4;
-				break;
-			case gcvSURF_R4G4B4X4:
-				vSrc->pict_format = gcvSURF_R4G4B4A4;
-				break;
-			case gcvSURF_B4G4R4X4:
-				vSrc->pict_format = gcvSURF_B4G4R4A4;
-				break;
-			case gcvSURF_X1R5G5B5:
-				vSrc->pict_format = gcvSURF_A1R5G5B5;
-				break;
-			case gcvSURF_X1B5G5R5:
-				vSrc->pict_format = gcvSURF_A1B5G5R5;
-				break;
-			case gcvSURF_R5G5B5X1:
-				vSrc->pict_format = gcvSURF_R5G5B5A1;
-				break;
-			case gcvSURF_B5G5R5X1:
-				vSrc->pict_format = gcvSURF_B5G5R5A1;
-				break;
-			case gcvSURF_X8R8G8B8:
-				vSrc->pict_format = gcvSURF_A8R8G8B8;
-				break;
-			case gcvSURF_X8B8G8R8:
-				vSrc->pict_format = gcvSURF_A8B8G8R8;
-				break;
-			case gcvSURF_R8G8B8X8:
-				vSrc->pict_format = gcvSURF_R8G8B8A8;
-				break;
-			case gcvSURF_B8G8R8X8:
-				vSrc->pict_format = gcvSURF_B8G8R8A8;
-				break;
-			default:
-				break;
-			}
 		}
 	}
 
