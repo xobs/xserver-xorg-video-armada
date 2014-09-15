@@ -24,3 +24,12 @@ PixmapPtr drawable_pixmap_deltas(DrawablePtr pDrawable, int *x, int *y)
 	}
 	return pPixmap;
 }
+
+PixmapPtr drawable_pixmap_offset(DrawablePtr pDrawable, xPoint *offset)
+{
+	int x, y;
+	PixmapPtr pix = drawable_pixmap_deltas(pDrawable, &x, &y);
+	offset->x = x;
+	offset->y = y;
+	return pix;
+}

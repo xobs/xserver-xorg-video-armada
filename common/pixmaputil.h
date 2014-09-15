@@ -25,6 +25,7 @@ static inline PixmapPtr drawable_pixmap(DrawablePtr pDrawable)
 }
 
 PixmapPtr drawable_pixmap_deltas(DrawablePtr pDrawable, int *x, int *y);
+PixmapPtr drawable_pixmap_offset(DrawablePtr pDrawable, xPoint *offset);
 
 /*
  * drawable_contains: returns true if x,y,w,h is contained entirely
