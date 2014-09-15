@@ -48,6 +48,7 @@ struct etnaviv_dri2_info;
 /* Private CreatePixmap usage hints. */
 enum {
 	CREATE_PIXMAP_USAGE_TILE = 0x80000000,
+	CREATE_PIXMAP_USAGE_GPU = 0x40000000,	/* Must be vpix backed */
 };
 
 /*
