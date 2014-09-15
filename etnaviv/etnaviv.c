@@ -667,6 +667,10 @@ static PixmapPtr etnaviv_CreatePixmap(ScreenPtr pScreen, int w, int h,
  fallback_free_pix:
 	etnaviv->DestroyPixmap(pixmap);
  fallback:
+	/* GPU pixmaps must fail rather than fall back */
+	if (usage_hint & CREATE_PIXMAP_USAGE_GPU)
+		return NULL;
+
 	pixmap = etnaviv->CreatePixmap(pScreen, w, h, depth, usage_hint);
 
  out:
