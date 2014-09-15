@@ -45,6 +45,6 @@ What operations are accelerated?
 - PutImage partially accelerated.
 - Solid fills without stipples or partial plane mask.
 - FillSpans without stipples or partial plane mask.
-- Xrender compositing without component alpha or alpha maps.
-- Xrender glyph caching and assembling of glyphs (with or without
-  component alpha.) - etnaviv only.
+- Xrender compositing without alpha maps, and for PE1.0 hardware, without
+  component alpha.
+- Xrender glyph caching, and rendering of glyphs - etnaviv only.

@@ -1185,7 +1185,7 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	ScreenPtr pScreen = pDst->pDrawable->pScreen;
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
 	struct etnaviv_pixmap *vDst, *vSrc, *vMask, *vTemp = NULL;
-	struct etnaviv_blend_op final_op;
+	struct etnaviv_blend_op final_op, mask_op;
 	PixmapPtr pPixTemp = NULL;
 	RegionRec region;
 	BoxRec clip_temp;
@@ -1241,8 +1241,22 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	if (pMask) {
 		uint32_t colour;
 
-		if (pMask->componentAlpha)
+		mask_op = etnaviv_composite_op[PictOpInReverse];
+
+		if (VIV_FEATURE(etnaviv->conn, chipMinorFeatures0, 2DPE20)) {
+			/*
+			 * PE2.0 can do component alpha blends.  Adjust
+			 * the mask blend (InReverse) to perform the blend.
+			 */
+			mask_op.alpha_mode =
+				VIVS_DE_ALPHA_MODES_GLOBAL_SRC_ALPHA_MODE_NORMAL |
+				VIVS_DE_ALPHA_MODES_GLOBAL_DST_ALPHA_MODE_NORMAL |
+				VIVS_DE_ALPHA_MODES_SRC_BLENDING_MODE(DE_BLENDMODE_ZERO) |
+				VIVS_DE_ALPHA_MODES_DST_BLENDING_MODE(DE_BLENDMODE_COLOR);
+		} else if (pMask->componentAlpha) {
+			/* No support for component alpha blending on PE1.0 */
 			return FALSE;
+		}
 
 		/*
 		 * A PictOpOver with a mask looks like this:
@@ -1476,7 +1490,7 @@ if (pMask && pMask->pDrawable)
   xMask, yMask, vMask->pict_format, pMask->format);
 #endif
 
-		if (!etnaviv_blend(etnaviv, &clip_temp, &etnaviv_composite_op[PictOpInReverse],
+		if (!etnaviv_blend(etnaviv, &clip_temp, &mask_op,
 				   vTemp, vMask, &clip_temp, 1,
 				   mask_offset, temp_offset))
 			goto failed;
