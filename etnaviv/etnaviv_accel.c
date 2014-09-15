@@ -536,7 +536,8 @@ Bool etnaviv_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 	x += pDrawable->x;
 	y += pDrawable->y;
 
-	pTemp = pScreen->CreatePixmap(pScreen, w, h, pPix->drawable.depth, 0);
+	pTemp = pScreen->CreatePixmap(pScreen, w, h, pPix->drawable.depth,
+				      CREATE_PIXMAP_USAGE_GPU);
 	if (!pTemp)
 		return FALSE;
 
@@ -1380,14 +1381,11 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	 * box.
 	 */
 	pPixTemp = pScreen->CreatePixmap(pScreen, clip_temp.x2, clip_temp.y2,
-					 32, 0);
+					 32, CREATE_PIXMAP_USAGE_GPU);
 	if (!pPixTemp)
 		goto failed;
 
 	vTemp = etnaviv_get_pixmap_priv(pPixTemp);
-	if (!vTemp)
-		goto failed;
-
 	vTemp->pict_format = etnaviv_pict_format(PICT_a8r8g8b8, FALSE);
 
 	/*
