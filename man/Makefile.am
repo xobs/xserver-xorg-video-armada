@@ -51,7 +51,8 @@ MAN_SUBSTS = \
 	-e 's|__drivermansuffix__|$(DRIVER_MAN_SUFFIX)|g' \
 	-e 's|__adminmansuffix__|$(ADMIN_MAN_SUFFIX)|g' \
 	-e 's|__miscmansuffix__|$(MISC_MAN_SUFFIX)|g' \
-	-e 's|__filemansuffix__|$(FILE_MAN_SUFFIX)|g'
+	-e 's|__filemansuffix__|$(FILE_MAN_SUFFIX)|g' \
+	-e 's|__gpu_drivers__|$(DRIVERS)|g'
 
 SUFFIXES = .$(DRIVER_MAN_SUFFIX) .man
 
