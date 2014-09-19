@@ -110,6 +110,7 @@ AS_IF([test x$ACCEL_GALCORE != xno],
                     [#include <gc_hal.h>])
    CPPFLAGS="$saved_CPPFLAGS"
    AS_IF([test x$ACCEL_GALCORE = xauto], [ACCEL_GALCORE=yes])
+   AS_IF([test x$ACCEL_GALCORE = xyes], [DRIVERS="vivante_gpu $DRIVERS"])
 ])
 AC_MSG_CHECKING([whether to build Vivante libGAL acceleration support])
 AS_IF([test x$ACCEL_GALCORE = xyes],
@@ -165,6 +166,7 @@ AS_IF([test x$ACCEL_ETNAVIV != xno],
                 [DUMMY=y],
                 [AC_MSG_ERROR([etnaviv support requires etna_bo_from_usermem_prot()])])
    LDFLAGS="$saved_LDFLAGS"
+   AS_IF([test x$ACCEL_ETNAVIV = xyes], [DRIVERS="etnaviv_gpu $DRIVERS"])
 ])
 AC_MSG_CHECKING([whether to build Etnaviv acceleration support])
 AS_IF([test x$ACCEL_ETNAVIV = xyes],
@@ -223,6 +225,7 @@ AC_SUBST([DRIVER_NAME])
 AC_SUBST([ETNAVIV_CFLAGS])
 AC_SUBST([ETNAVIV_LIBS])
 AC_SUBST([moduledir])
+AC_SUBST([DRIVERS])
 
 AC_OUTPUT([
 	Makefile

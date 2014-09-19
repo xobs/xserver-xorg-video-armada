@@ -3,42 +3,77 @@
 .ds q \N'34'
 .TH ARMADA __drivermansuffix__ __vendorversion__
 .SH NAME
-armada \- Marvell Armada 510 Xorg driver
+armada \- Marvell Armada 510 and Freescale iMX6 Xorg driver
 .SH SYNOPSIS
 .nf
 .B "Section \*qDevice\*q"
 .BI "  Identifier \*q"  devname \*q
 .B  "  Driver \*qarmada\*q"
-.BI "  BusID  \*qplatform:armada-drm:" id \*q
 \ \ ...
 .B EndSection
 .fi
+
 .SH DESCRIPTION
 .B armada
-is an __xservername__ driver for Marvell Armada SoCs.  This is an accelerated
-driver, the following framebuffer depths are supported: 8, 15, 16, 24.
+is an __xservername__ driver for Marvell Armada and Freescale iMX6 SoCs.
+This is kernel mode setting front end driver, with modular acceleration
+backends.  The following framebuffer depths are supported: 8, 15, 16, 24.
 All visual types are supported for depth 8, and TrueColor visual is
 supported for the other depths.  The driver has preliminary support for
-the Direct Rendering Infrastructure (DRI).  Multi-head configurations are
-supported.
+the Direct Rendering Infrastructure (DRI).  Multi-head configurations
+are supported.
+.PP
+Acceleration support is dependent on a separate acceleration module.  See
+the "GPU ACCELERATION MODULES" section below for additional information.
 .PP
 Support for video overlay is provided, supporting I420, YV12, I422, YUY2,
-UYVY, VYUY and YV16 formats.  The common I420 and YV12 formats are
-converted on the fly by this driver to I422 and YV16 for the hardware.
-Support is also provided for video overlay using an XVBO format, which
-can be used to pass a drm buffer handle to the video overlay backend, as
-well as Marvell's special
-.B libbmm
-based method.
+UYVY, VYUY and YV16 formats, dependent on support from the kernel DRM
+driver.  The common I420 and YV12 formats are converted on the fly by
+this driver to I422 and YV16 for the hardware.  Support is also provided
+for video overlay using an XVBO format, which can be used to pass a DRM
+buffer handle to the video overlay backend.
+.PP
+
 .SH SUPPORTED HARDWARE
 The 
 .B armada
-driver currently supports the Marvell Armada 510 LCD controller(s).
+driver currently supports the Marvell Armada 510 LCD controller(s) and
+the Freescale iMX6 IPU.
 .PP
 .B armada
 communicates with the Linux Kernel Direct Rendering Manager (drm) layer
 to control and arbitrate access to the hardware.  Kernel drm support is
 required.
+.PP
+Other hardware which provides a Linux Kernel drm driver should also work
+with this driver.
+
+.SH SUPPORTED GPU HARDWARE
+Several GPU acceleration methods are supported by the DDX driver.  Each
+method is contained within its own module.  Details are listed below.
+.PP
+
+.SH GPU ACCELERATION MODULES
+Two GPU acceleration modules are currently supported.
+.SS etnaviv_gpu
+The etnaviv_gpu module provides 2D acceleration with the Vivante 2D PE1.0
+and PE2.0 hardware (eg, GC600, GC320), supporting framebuffers with depths
+of 15, 16, 24.
+.PP
+Xrender acceleration is provided for most formats with a depth of 15,
+16, 24, 32, and on PE2.0 hardware, A8 alpha-only format.  Full glyph
+compositing is also supported with PE2.0 hardware, however glyph caching
+and accelerated assembling of glyphs for final blend is supported with
+all hardware.
+.PP
+XV textured overlay is also provided, with support for I420, YV12,
+UYVY and YUY2 formatted images.
+.SS vivante_gpu
+The vivante_gpu module provides 2D acceleration with the Vivante 2D PE1.0
+and PE2.0 hardware, supporting framebuffers with depths of 15, 16, 24
+but is only usable with the
+.B armada
+kernel DRM driver.
 .SH CONFIGURATION DETAILS
 Please refer to __xconfigfile__(__filemansuffix__) for general configuration
 details.  This section only covers configuration details specific to
@@ -56,6 +91,13 @@ The following driver
 .B Options
 are supported:
 .TP
+.BI "Option \*qAccelModule\*q \*q"filename\*q
+Force the usage of an acceleration module.
+.IP
+Default: try the
+.B __gpu_drivers__
+drivers in turn, selecting the first which initialises.
+.TP
 .BI "Option \*qHotplug\*q \*q" boolean \*q
 This option controls whether the driver automatically notifies when
 monitors are connected or disconnected.
@@ -68,7 +110,8 @@ Enable or disable use of the hardware cursor.
 Default: disabled.
 .TP
 .BI "Option \*qUseGPU\*q \*q" boolean \*q
-Enable or disable use of the Vivante GPU for acceleration.
+Enable or disable use of a GPU module for acceleration and textured XV
+support.
 .IP
 Default: enabled.
 .TP
@@ -77,6 +120,55 @@ Enable or disable the X Video backend.
 .IP
 Default: enabled.
 .TP
+.BI "Option \*qXvPreferOverlay\*q \*q" boolean \*q
+Make the hardware overlay the first XV adapter.  Disabling this option
+makes any GPU provided textured overlay the first XV adapter.
+.IP
+.B Note:
+iMX hardware does not provide scaling for XV overlay, and this option
+should be disabled on such systems to prefer textured overlay instead.
+.IP
+Default: Overlay is preferred.
+
+.SH XV OVERLAY VIDEO ATTRIBUTES
+The following XV attributes are supported by the XV overlay video driver.
+.SS "XV_AUTOPAINT_COLORKEY"
+XV_AUTOPAINT_COLORKEY is used to control whether driver automatically fills
+the overlay window with the overlay color key.  It is a Boolean attribute,
+with values 0 (never paint color key) and 1 (always paint color key).
+Default: 1.
+.SS "XV_COLORKEY"
+XV_COLORKEY sets the color used for the overlay color key, in R8G8B8 format.
+Default: 0x0101fe.
+.SS "XV_PIPE"
+XV_PIPE is used to control the CRTC to be used for overlay.  A value of -1
+allows the driver to select the appropriate CRTC based upon the position of
+the overlay window.  Other values select an explicit CRTC.  Default: -1.
+.SS "XV_BRIGHTNESS"
+.SS "XV_CONTRAST"
+.SS "XV_SATURATION"
+These options can be used to adjust the overlaid picture brightness,
+contrast and saturation levels.  These options are dependent on their
+presence in the Linux kernel drm driver.
+
+
+.SH XV TEXTURED VIDEO ATTRIBUTES
+Textured overlay attributes are dependent on the GPU acceleration module.
+.SS "XV_PIPE"
+XV_PIPE is used to select which CRTC is used to synchronize the screen
+update with the screen scanout to minimise tearing.  A value of -1 allows
+the driver to select the appropriate CRTC based upon the position of the
+overlay window.  Other vlaues select an explicit CRTC.  Default: -1.
+.SS "XV_SYNC_TO_VBLANK"
+XV_SYNC_TO_VBLANK is used to control whether the textured adapter
+synchronises with the screen scanout to minimise tearing.  It is a
+Boolean attribute with values 0 (never sync) and 1 (always sync.)
+Default: 1.
+
+.SH REPORTING BUGS
+The xf86-video-armada driver is a separately maintained driver, and
+bugs should be reported to the author.
+
 .SH "SEE ALSO"
 __xservername__(__appmansuffix__), __xconfigfile__(__filemansuffix__), xorgconfig(__appmansuffix__), Xserver(__appmansuffix__),
 X(__miscmansuffix__)
