@@ -528,6 +528,7 @@ Bool etnaviv_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 	int x, int y, int w, int h, int leftPad, int format, char *bits)
 {
 	ScreenPtr pScreen = pDrawable->pScreen;
+	struct etnaviv_pixmap *vPix;
 	PixmapPtr pPix, pTemp;
 	GCPtr gc;
 
@@ -535,6 +536,9 @@ Bool etnaviv_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 		return FALSE;
 
 	pPix = drawable_pixmap(pDrawable);
+	vPix = etnaviv_get_pixmap_priv(pPix);
+	if (!(vPix->state & ST_GPU_RW))
+		return FALSE;
 
 	x += pDrawable->x;
 	y += pDrawable->y;
