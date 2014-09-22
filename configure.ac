@@ -187,6 +187,13 @@ XORG_DRIVER_CHECK_EXT(XV, videoproto)
 # Obtain compilter/linker options for the driver dependencies
 PKG_CHECK_MODULES(DRM, [libdrm >= 2.4.38])
 PKG_CHECK_MODULES(DRMARMADA, [libdrm_armada >= 2.0.0])
+
+save_LDFLAGS="$LDFLAGS"
+LDFLAGS="$LDFLAGS $DRMARMADA_LDFLAGS"
+AC_CHECK_LIB([drm_armada], [drm_armada_bo_create_size],
+	     [AC_DEFINE(HAVE_DRM_ARMADA_BO_CREATE_SIZE,1,[Use drm_armada_bo_create_size API])])
+LDFLAGS="$save_LDFLAGS"
+
 PKG_CHECK_MODULES(DRI2, [dri2proto >= 2.6], , DRI2=no)
 
 # Check those options requiring DRM support

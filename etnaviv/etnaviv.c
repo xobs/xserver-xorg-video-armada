@@ -560,15 +560,38 @@ static Bool etnaviv_alloc_armada_bo(ScreenPtr pScreen, struct etnaviv *etnaviv,
 {
 	struct etnaviv_pixmap *vpix;
 	struct drm_armada_bo *bo;
+	unsigned pitch, bpp = pixmap->drawable.bitsPerPixel;
 
-	bo = drm_armada_bo_create(etnaviv->bufmgr, w, h,
-				  pixmap->drawable.bitsPerPixel);
+#ifndef HAVE_DRM_ARMADA_BO_CREATE_SIZE
+	bo = drm_armada_bo_create(etnaviv->bufmgr, w, h, bpp);
 	if (!bo) {
 		xf86DrvMsg(etnaviv->scrnIndex, X_ERROR,
 			   "etnaviv: failed to allocate armada bo for %dx%d %dbpp\n",
-			   w, h, pixmap->drawable.bitsPerPixel);
+			   w, h, bpp);
 		return FALSE;
 	}
+
+	pitch = bo->pitch;
+#else
+	unsigned size;
+
+	if (usage_hint & CREATE_PIXMAP_USAGE_TILE) {
+		pitch = etnaviv_tile_pitch(w, bpp);
+		size = pitch * etnaviv_tile_height(h);
+		fmt.tile = 1;
+	} else {
+		pitch = etnaviv_pitch(w, bpp);
+		size = pitch * h;
+	}
+
+	bo = drm_armada_bo_create_size(etnaviv->bufmgr, size);
+	if (!bo) {
+		xf86DrvMsg(etnaviv->scrnIndex, X_ERROR,
+			   "etnaviv: failed to allocate armada bo for %dx%d %dbpp\n",
+			   w, h, bpp);
+		return FALSE;
+	}
+#endif
 
 	if (drm_armada_bo_map(bo))
 		goto free_bo;
@@ -580,7 +603,7 @@ static Bool etnaviv_alloc_armada_bo(ScreenPtr pScreen, struct etnaviv *etnaviv,
 	 * any spurious unchecked accesses to the pixmap data while the GPU
 	 * has ownership of the pixmap.
 	 */
-	pScreen->ModifyPixmapHeader(pixmap, w, h, 0, 0, bo->pitch, NULL);
+	pScreen->ModifyPixmapHeader(pixmap, w, h, 0, 0, pitch, NULL);
 
 	vpix = etnaviv_alloc_pixmap(pixmap, fmt);
 	if (!vpix)
