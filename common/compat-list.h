@@ -11,6 +11,7 @@
 #define xorg_list_append list_append
 #define xorg_list_is_empty list_is_empty
 #define xorg_list_first_entry list_first_entry
+#define xorg_list_last_entry list_last_entry
 #define xorg_list_for_each_entry list_for_each_entry
 #define xorg_list_for_each_entry_safe list_for_each_entry_safe
 #endif
