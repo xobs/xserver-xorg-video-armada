@@ -55,6 +55,25 @@ const OptionInfoRec etnaviv_options[] = {
 	{ -1,			NULL,		OPTV_NONE,    {0}, FALSE }
 };
 
+void etnaviv_finish_fences(struct etnaviv *etnaviv, uint32_t fence)
+{
+	struct etnaviv_pixmap *i, *n;
+	int ret;
+
+	xorg_list_for_each_entry_safe(i, n, &etnaviv->fence_head, batch_node) {
+		assert(i->batch_state == B_FENCED);
+		if (VIV_FENCE_BEFORE(fence, i->fence)) {
+			fence = i->fence;
+			ret = viv_fence_finish(etnaviv->conn, fence, 0);
+			if (ret != VIV_STATUS_OK)
+				break;
+			etnaviv->last_fence = fence;
+		}
+		xorg_list_del(&i->batch_node);
+		i->batch_state = B_NONE;
+	}
+}
+
 static void etnaviv_free_pixmap(PixmapPtr pixmap)
 {
 	struct etnaviv_pixmap *vPix = etnaviv_get_pixmap_priv(pixmap);
@@ -63,8 +82,34 @@ static void etnaviv_free_pixmap(PixmapPtr pixmap)
 		struct etnaviv *etnaviv;
 
 		etnaviv = etnaviv_get_screen_priv(pixmap->drawable.pScreen);
-		etnaviv_batch_wait_commit(etnaviv, vPix);
 
+		switch (vPix->batch_state) {
+		case B_NONE:
+			/*
+			 * The pixmap may be only on the CPU, or it may be on
+			 * the GPU but we have already seen a commit+stall.
+			 * We can just free this pixmap.
+			 */
+			break;
+
+		case B_FENCED:
+			/*
+			 * The pixmap is part of a batch of submitted GPU
+			 * operations.  Check whether it has completed.
+			 */
+			if (VIV_FENCE_BEFORE_EQ(vPix->fence, etnaviv->last_fence)) {
+				xorg_list_del(&vPix->batch_node);
+				break;
+			}
+
+		case B_PENDING:
+			/*
+			 * The pixmap is part of a batch of unsubmitted GPU
+			 * operations.  Wait for it to complete.
+			 */
+			etnaviv_batch_wait_commit(etnaviv, vPix);
+			break;
+		}
 		if (vPix->etna_bo) {
 			struct etna_bo *etna_bo = vPix->etna_bo;
 
@@ -87,9 +132,10 @@ static void etnaviv_flush_callback(CallbackListPtr *list, pointer user_data,
 {
 	ScrnInfoPtr pScrn = user_data;
 	struct etnaviv *etnaviv = pScrn->privates[etnaviv_private_index].ptr;
+	uint32_t fence;
 
-	if (pScrn->vtSema && etnaviv->need_commit)
-		etnaviv_commit(etnaviv, FALSE);
+	if (pScrn->vtSema && !xorg_list_is_empty(&etnaviv->batch_head))
+		etnaviv_commit(etnaviv, FALSE, &fence);
 }
 
 static struct etnaviv_pixmap *etnaviv_alloc_pixmap(PixmapPtr pixmap,
@@ -103,7 +149,6 @@ static struct etnaviv_pixmap *etnaviv_alloc_pixmap(PixmapPtr pixmap,
 		vpix->height = pixmap->drawable.height;
 		vpix->pitch = pixmap->devKind;
 		vpix->format = fmt;
-		xorg_list_init(&vpix->pending_node);
 	}
 	return vpix;
 }
@@ -634,14 +679,14 @@ static Bool etnaviv_CreateGC(GCPtr pGC)
 }
 
 /* Commit any pending GPU operations */
-static void
-etnaviv_BlockHandler(BLOCKHANDLER_ARGS_DECL)
+static void etnaviv_BlockHandler(BLOCKHANDLER_ARGS_DECL)
 {
 	SCREEN_PTR(arg);
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
+	uint32_t fence;
 
-	if (etnaviv->need_commit)
-		etnaviv_commit(etnaviv, FALSE);
+	if (!xorg_list_is_empty(&etnaviv->batch_head))
+		etnaviv_commit(etnaviv, FALSE, &fence);
 
 	mark_flush();
 
@@ -649,6 +694,14 @@ etnaviv_BlockHandler(BLOCKHANDLER_ARGS_DECL)
 	pScreen->BlockHandler(BLOCKHANDLER_ARGS);
 	etnaviv->BlockHandler = pScreen->BlockHandler;
 	pScreen->BlockHandler = etnaviv_BlockHandler;
+
+	/*
+	 * Check for any completed fences.  If the fence numberspace
+	 * wraps, it can allow an idle pixmap to become "active" again.
+	 * This prevents that occuring.
+	 */
+	if (!xorg_list_is_empty(&etnaviv->fence_head))
+		etnaviv_finish_fences(etnaviv, etnaviv->last_fence);
 }
 
 #ifdef RENDER
@@ -734,7 +787,8 @@ static Bool etnaviv_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 	if (!etnaviv_accel_init(etnaviv))
 		goto fail_accel;
 
-	xorg_list_init(&etnaviv->pending_list);
+	xorg_list_init(&etnaviv->batch_head);
+	xorg_list_init(&etnaviv->fence_head);
 
 	etnaviv_set_screen_priv(pScreen, etnaviv);
 

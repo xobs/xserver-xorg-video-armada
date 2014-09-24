@@ -62,9 +62,11 @@ enum {
 struct etnaviv {
 	struct viv_conn *conn;
 	struct etna_ctx *ctx;
-	struct xorg_list pending_list;
-	Bool need_stall;
-	Bool need_commit;
+	/* pixmaps queued for next commit */
+	struct xorg_list batch_head;
+	/* pixmaps committed with fence id, ordered by id */
+	struct xorg_list fence_head;
+	uint32_t last_fence;
 	Bool force_fallback;
 	struct drm_armada_bufmgr *bufmgr;
 	int scrnIndex;
@@ -111,9 +113,14 @@ struct etnaviv_pixmap {
 	unsigned pitch;
 	struct etnaviv_format format;
 	struct etnaviv_format pict_format;
+	struct xorg_list batch_node;
+	uint32_t fence;
 	viv_usermem_t info;
-	struct xorg_list pending_node;
-	Bool need_stall;
+
+	uint8_t batch_state;
+#define B_NONE		0
+#define B_PENDING	1
+#define B_FENCED	2
 
 	uint8_t state;
 #define ST_CPU_R	(1 << 0)
@@ -234,7 +241,8 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	PicturePtr pDst, INT16 xSrc, INT16 ySrc, INT16 xMask, INT16 yMask,
 	INT16 xDst, INT16 yDst, CARD16 width, CARD16 height);
 
-void etnaviv_commit(struct etnaviv *etnaviv, Bool stall);
+void etnaviv_commit(struct etnaviv *etnaviv, Bool stall, uint32_t *fence);
+void etnaviv_finish_fences(struct etnaviv *etnaviv, uint32_t fence);
 
 void etnaviv_batch_wait_commit(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix);
 

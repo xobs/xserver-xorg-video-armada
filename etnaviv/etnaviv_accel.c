@@ -52,20 +52,51 @@ static inline uint32_t scale16(uint32_t val, int bits)
 void etnaviv_batch_wait_commit(struct etnaviv *etnaviv,
 	struct etnaviv_pixmap *vPix)
 {
-	if (vPix->need_stall && etnaviv->need_stall) {
-		etnaviv_commit(etnaviv, TRUE);
-		etnaviv->need_stall = FALSE;
+	int ret;
+
+	switch (vPix->batch_state) {
+	case B_NONE:
+		return;
+
+	case B_PENDING:
+		etnaviv_commit(etnaviv, TRUE, NULL);
+		break;
+
+	case B_FENCED:
+		if (VIV_FENCE_BEFORE_EQ(vPix->fence, etnaviv->last_fence)) {
+			/* The pixmap has already completed. */
+			xorg_list_del(&vPix->batch_node);
+			vPix->batch_state = B_NONE;
+			break;
+		}
+
+		/*
+		 * The pixmap is part of a batch which has been
+		 * submitted, so we must wait for the batch to complete.
+		 */
+		ret = viv_fence_finish(etnaviv->conn, vPix->fence,
+				       VIV_WAIT_INDEFINITE);
+		if (ret != VIV_STATUS_OK)
+			etnaviv_error(etnaviv, "fence finish", ret);
+
+		etnaviv_finish_fences(etnaviv, vPix->fence);
+		break;
 	}
 }
 
 static void etnaviv_batch_add(struct etnaviv *etnaviv,
 	struct etnaviv_pixmap *vPix)
 {
-	if (xorg_list_is_empty(&vPix->pending_node))
-		xorg_list_append(&vPix->pending_node, &etnaviv->pending_list);
-
-	etnaviv->need_stall = TRUE;
-	etnaviv->need_commit = TRUE;
+	switch (vPix->batch_state) {
+	case B_PENDING:
+		break;
+	case B_FENCED:
+		xorg_list_del(&vPix->batch_node);
+	case B_NONE:
+		xorg_list_append(&vPix->batch_node, &etnaviv->batch_head);
+		vPix->batch_state = B_PENDING;
+		break;
+	}
 }
 
 
@@ -218,39 +249,61 @@ static Bool etnaviv_init_src_pixmap(struct etnaviv *etnaviv,
 	return TRUE;
 }
 
-void etnaviv_commit(struct etnaviv *etnaviv, Bool stall)
+void etnaviv_commit(struct etnaviv *etnaviv, Bool stall, uint32_t *fence)
 {
 	struct etna_ctx *ctx = etnaviv->ctx;
+	struct etnaviv_pixmap *i, *n;
+	uint32_t tmp_fence;
 	int ret;
 
-	if (stall)
-		ret = etna_finish(ctx);
-	else
-		ret = etna_flush(ctx, NULL);
+	if (!fence && stall)
+		fence = &tmp_fence;
 
+	ret = etna_flush(ctx, fence);
 	if (ret) {
 		etnaviv_error(etnaviv, "etna_flush", ret);
 		return;
 	}
 
 	if (stall) {
-		struct etnaviv_pixmap *i, *n;
+		ret = viv_fence_finish(etnaviv->conn, *fence,
+				       VIV_WAIT_INDEFINITE);
+		if (ret != VIV_STATUS_OK)
+			etnaviv_error(etnaviv, "fence finish", ret);
 
 		/*
-		 * After these operations are committed with a stall,
-		 * these pixmaps on the pending list will no longer be
-		 * in-use by the GPU.
+		 * After these operations are committed with a stall, the
+		 * pixmaps on the batch head will no longer be in-use by
+		 * the GPU.
 		 */
-		xorg_list_for_each_entry_safe(i, n, &etnaviv->pending_list,
-					      pending_node) {
-			xorg_list_del(&i->pending_node);
-			xorg_list_init(&i->pending_node);
+		xorg_list_for_each_entry_safe(i, n, &etnaviv->batch_head,
+					      batch_node) {
+			xorg_list_del(&i->batch_node);
+			i->batch_state = B_NONE;
+		}
 
-			i->need_stall = FALSE;
+		/*
+		 * Reap the previously submitted pixmaps, now that we know
+		 * that a fence has completed.
+		 */
+		etnaviv->last_fence = *fence;
+		etnaviv_finish_fences(etnaviv, *fence);
+	} else if (fence) {
+		uint32_t fence_val = *fence;
+
+		/*
+		 * After these operations have been committed, we assign
+		 * a fence to them, and place them on the ordered list
+		 * of fenced pixmaps.
+		 */
+		xorg_list_for_each_entry_safe(i, n, &etnaviv->batch_head,
+					      batch_node) {
+			xorg_list_del(&i->batch_node);
+			xorg_list_append(&i->batch_node, &etnaviv->fence_head);
+			i->batch_state = B_FENCED;
+			i->fence = fence_val;
 		}
 	}
-
-	etnaviv->need_commit = FALSE;
 }
 
 
