@@ -48,13 +48,30 @@ const OptionInfoRec armada_drm_options[] = {
 static Bool armada_drm_accel_import(ScreenPtr pScreen,
 	struct armada_drm_info *arm, PixmapPtr pixmap, struct drm_armada_bo *bo)
 {
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	const struct armada_accel_ops *ops = arm->accel_ops;
+	Bool ret;
+	int fd;
 
 	if (!ops)
 		return TRUE;
 
-	ops->set_pixmap_bo(pixmap, bo);
-	return TRUE;
+	if (!ops->import_dmabuf) {
+		ops->set_pixmap_bo(pixmap, bo);
+		return TRUE;
+	}
+
+	if (drm_armada_bo_to_fd(bo, &fd)) {
+		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+			   "etnaviv: unable to get prime fd for bo: %s\n",
+			   strerror(errno));
+		return FALSE;
+	}
+
+	ret = ops->import_dmabuf(pScreen, pixmap, fd);
+	close(fd);
+
+	return ret;
 }
 
 static Bool armada_drm_ModifyScreenPixmap(ScreenPtr pScreen,

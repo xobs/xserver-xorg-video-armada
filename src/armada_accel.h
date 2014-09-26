@@ -19,6 +19,7 @@ struct drm_armada_bufmgr;
 struct armada_accel_ops {
 	Bool (*pre_init)(ScrnInfoPtr, int);
 	int (*screen_init)(ScreenPtr, struct drm_armada_bufmgr *);
+	Bool (*import_dmabuf)(ScreenPtr, PixmapPtr, int);
 	void (*set_pixmap_bo)(PixmapPtr, struct drm_armada_bo *);
 	void (*free_pixmap)(PixmapPtr);
 	void (*vblank_handler)(int fd, unsigned int sequence,
