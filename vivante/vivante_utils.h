@@ -18,6 +18,8 @@ const char *vivante_strerror(int err);
 #define vivante_error(v,w,e) __vivante_error(v,__func__,w,e)
 void __vivante_error(struct vivante *, const char *, const char *, int);
 
+Bool vivante_map_dmabuf(struct vivante *vivante, int fd,
+	struct vivante_pixmap *vPix);
 Bool vivante_map_bo_to_gpu(struct vivante *vivante, struct drm_armada_bo *bo,
 	void **info, uint32_t *handle);
 void vivante_unmap_from_gpu(struct vivante *vivante, void *info,

@@ -52,12 +52,14 @@ void vivante_free_pixmap(PixmapPtr pixmap)
 
 		vivante = vivante_get_screen_priv(pixmap->drawable.pScreen);
 		vivante_batch_wait_commit(vivante, vPix);
-		if (vPix->bo->type == DRM_ARMADA_BO_SHMEM && vPix->owner == GPU)
-			vivante_unmap_gpu(vivante, vPix);
-		if (vPix->bo->type != DRM_ARMADA_BO_SHMEM)
+		if (!vPix->bo) {
 			vivante_unmap_from_gpu(vivante, vPix->info,
 					       vPix->handle);
-		drm_armada_bo_put(vPix->bo);
+		} else {
+			if (vPix->owner == GPU)
+				vivante_unmap_gpu(vivante, vPix);
+			drm_armada_bo_put(vPix->bo);
+		}
 		free(vPix);
 	}
 }
@@ -119,20 +121,6 @@ void vivante_set_pixmap_bo(PixmapPtr pixmap, struct drm_armada_bo *bo)
 		vPix->handle = -1;
 		vPix->format = format;
 		vPix->owner = NONE;
-
-		/*
-		 * If this is not a SHMEM bo, then we need to map it
-		 * for the GPU.  As it will not be a fully cached mapping,
-		 * we can keep this mapped.
-		 */
-		if (bo->type != DRM_ARMADA_BO_SHMEM) {
-			if (!vivante_map_bo_to_gpu(vivante, bo, &vPix->info,
-						   &vPix->handle)) {
-				free(vPix);
-				vPix = NULL;
-				goto fail;
-			}
-		}
 
 #ifdef DEBUG_PIXMAP
 		dbg("Pixmap %p: vPix=%p bo=%p\n", pixmap, vPix, bo);
@@ -717,9 +705,61 @@ fail:
 	return FALSE;
 }
 
+static Bool vivante_import_dmabuf(ScreenPtr pScreen, PixmapPtr pPixmap, int fd)
+{
+	struct vivante *vivante = vivante_get_screen_priv(pPixmap->drawable.pScreen);
+	struct vivante_pixmap *vpix = vivante_get_pixmap_priv(pPixmap);
+	gceSURF_FORMAT format;
+
+	if (vpix)
+		vivante_free_pixmap(pPixmap);
+	vpix = NULL;
+
+	/*
+	 * This is an imprecise conversion to the Vivante GAL format.
+	 * Although pixmaps in X generally don't have an alpha channel,
+	 * we must set the format to include the alpha channel to
+	 * ensure that the GPU copies all the bits.
+	 */
+	switch (pPixmap->drawable.bitsPerPixel) {
+	case 16:
+		if (pPixmap->drawable.depth == 15)
+			format = gcvSURF_A1R5G5B5;
+		else
+			format = gcvSURF_R5G6B5;
+		break;
+	case 32:
+		format = gcvSURF_A8R8G8B8;
+		break;
+	default:
+		goto fail;
+	}
+
+	vpix = calloc(1, sizeof *vpix);
+	if (!vpix)
+		return FALSE;
+
+	vpix->bo = NULL;
+	vpix->width = pPixmap->drawable.width;
+	vpix->height = pPixmap->drawable.height;
+	vpix->pitch = pPixmap->devKind;
+	vpix->format = format;
+	vpix->owner = NONE;
+
+	if (!vivante_map_dmabuf(vivante, fd, vpix)) {
+		free(vpix);
+		vpix = NULL;
+	}
+
+ fail:
+	vivante_set_pixmap_priv(pPixmap, vpix);
+
+	return TRUE;
+}
+
 static const struct armada_accel_ops accel_ops = {
 	.screen_init	= vivante_ScreenInit,
-	.set_pixmap_bo	= vivante_set_pixmap_bo,
+	.import_dmabuf	= vivante_import_dmabuf,
 	.free_pixmap	= vivante_free_pixmap,
 };
 

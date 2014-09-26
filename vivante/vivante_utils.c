@@ -104,6 +104,31 @@ void vivante_unmap_gpu(struct vivante *vivante, struct vivante_pixmap *vPix)
 }
 
 
+Bool vivante_map_dmabuf(struct vivante *vivante, int fd,
+	struct vivante_pixmap *vPix)
+{
+	struct dmabuf_map map;
+	gceSTATUS status;
+
+	map.hdr.v2.zero = 0;
+	map.hdr.v2.status = 0;
+	map.fd = fd;
+	map.prot = PROT_READ | PROT_WRITE;
+
+	status = vivante_ioctl(vivante, IOC_GDMABUF_MAP, &map, sizeof(map));
+	if (gcmIS_ERROR(status)) {
+		xf86DrvMsg(vivante->scrnIndex, X_INFO,
+			   "vivante: gpu dmabuf map failed: %d\n",
+			   status);
+		return FALSE;
+	}
+
+	vPix->handle = map.address;
+	vPix->info = (void *)(uintptr_t)map.info;
+
+	return TRUE;
+}
+
 Bool vivante_map_bo_to_gpu(struct vivante *vivante, struct drm_armada_bo *bo,
 	void **info, uint32_t *handle)
 {
@@ -161,7 +186,7 @@ Bool vivante_map_gpu(struct vivante *vivante, struct vivante_pixmap *vPix)
 	if (vPix->owner == GPU)
 		return TRUE;
 
-	if (bo->type == DRM_ARMADA_BO_SHMEM) {
+	if (bo) {
 		gceSTATUS err;
 		gctUINT32 addr;
 
@@ -196,7 +221,7 @@ void finish_cpu_drawable(DrawablePtr pDrawable, int access)
 #ifdef DEBUG_CHECK_DRAWABLE_USE
 		vPix->in_use--;
 #endif
-		if (vPix->bo->type == DRM_ARMADA_BO_SHMEM)
+		if (vPix->bo)
 			pixmap->devPrivate.ptr = NULL;
 	}
 }
@@ -217,7 +242,7 @@ void prepare_cpu_drawable(DrawablePtr pDrawable, int access)
 		/* Ensure that the drawable is up to date with all GPU operations */
 		vivante_batch_wait_commit(vivante, vPix);
 
-		if (vPix->bo->type == DRM_ARMADA_BO_SHMEM) {
+		if (vPix->bo) {
 			if (vPix->owner == GPU)
 				vivante_unmap_gpu(vivante, vPix);
 
@@ -326,7 +351,7 @@ static void dump_pix(struct vivante *vivante, struct vivante_pixmap *vPix,
 
 	vivante_commit(vivante, TRUE);
 
-	if (vPix->bo->type != DRM_ARMADA_BO_SHMEM)
+	if (!bo)
 		owner = CPU;
 
 	if (owner == GPU) {
