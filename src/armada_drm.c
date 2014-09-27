@@ -56,11 +56,6 @@ static Bool armada_drm_accel_import(ScreenPtr pScreen,
 	if (!ops)
 		return TRUE;
 
-	if (!ops->import_dmabuf) {
-		ops->set_pixmap_bo(pixmap, bo);
-		return TRUE;
-	}
-
 	if (drm_armada_bo_to_fd(bo, &fd)) {
 		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
 			   "etnaviv: unable to get prime fd for bo: %s\n",
