@@ -38,3 +38,23 @@ if HAVE_DRI2
 etnaviv_gpu_la_SOURCES += etnaviv_dri2.c
 etnaviv_gpu_la_LIBADD += $(DRI_LIBS)
 endif
+
+etnadrm_gpu_la_LTLIBRARIES = etnadrm_gpu.la
+etnadrm_gpu_la_LDFLAGS = -module -avoid-version
+etnadrm_gpu_la_LIBADD = \
+	$(DRMARMADA_LIBS) \
+	$(top_builddir)/common/libcommon.la
+etnadrm_gpu_ladir = @moduledir@/drivers
+etnadrm_gpu_la_SOURCES = \
+	etnaviv.c \
+	etnaviv_accel.c \
+	etnadrm_emit.c \
+	etnadrm_module.c \
+	etnaviv_op.c \
+	etnaviv_utils.c \
+	etnaviv_xv.c \
+	etnadrm.c
+if HAVE_DRI2
+etnadrm_gpu_la_SOURCES += etnaviv_dri2.c
+etnadrm_gpu_la_LIBADD += $(DRI_LIBS)
+endif
