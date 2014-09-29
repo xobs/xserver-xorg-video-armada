@@ -538,6 +538,7 @@ etnaviv_CopyWindow(WindowPtr pWin, DDXPointRec ptOldOrg, RegionPtr prgnSrc)
 #ifdef HAVE_DRI2
 Bool etnaviv_pixmap_flink(PixmapPtr pixmap, uint32_t *name)
 {
+	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pixmap->drawable.pScreen);
 	struct etnaviv_pixmap *vpix = etnaviv_get_pixmap_priv(pixmap);
 	Bool ret = FALSE;
 
@@ -549,6 +550,15 @@ Bool etnaviv_pixmap_flink(PixmapPtr pixmap, uint32_t *name)
 		ret = TRUE;
 	} else if (vpix->bo && !drm_armada_bo_flink(vpix->bo, name)) {
 		ret = TRUE;
+	} else {
+		struct drm_gem_flink flink = {
+			.handle = etna_bo_handle(vpix->etna_bo),
+		};
+
+		if (!drmIoctl(etnaviv->conn->fd, DRM_IOCTL_GEM_FLINK, &flink)) {
+			*name = flink.name;
+			ret = TRUE;
+		}
 	}
 
 	return ret;
@@ -970,9 +980,21 @@ static Bool etnaviv_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 			   "direct rendering: disabled\n");
 	} else {
 		const char *name;
+		drmVersionPtr version;
 		int dri_fd = -1;
 
-		if (mgr) {
+		/*
+		 * Use drmGetVersion() to check whether the etnaviv fd
+		 * is a DRM fd.
+		 */
+		version = drmGetVersion(etnaviv->conn->fd);
+		if (version) {
+			drmFreeVersion(version);
+
+			/* etnadrm fd, etnadrm buffer management */
+			dri_fd = etnaviv->conn->fd;
+			name = "etnadrm";
+		} else if (mgr) {
 			/* armada fd, armada buffer management */
 			dri_fd = GET_DRM_INFO(pScrn)->fd;
 			etnaviv->dri2_armada = TRUE;
