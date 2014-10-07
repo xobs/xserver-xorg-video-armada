@@ -51,6 +51,7 @@ static Bool armada_drm_accel_import(ScreenPtr pScreen, PixmapPtr pixmap,
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(pScrn);
 	const struct armada_accel_ops *ops = arm->accel_ops;
+	uint32_t name;
 	Bool ret;
 	int fd;
 
@@ -66,6 +67,9 @@ static Bool armada_drm_accel_import(ScreenPtr pScreen, PixmapPtr pixmap,
 
 	ret = ops->import_dmabuf(pScreen, pixmap, fd);
 	close(fd);
+
+	if (ops->attach_name && !drm_armada_bo_flink(bo, &name))
+		ops->attach_name(pScreen, pixmap, name);
 
 	return ret;
 }
