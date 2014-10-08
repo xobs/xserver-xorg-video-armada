@@ -13,6 +13,7 @@
 #include "dri2.h"
 #include "xf86.h"
 
+#include "common_drm.h"
 #include "common_drm_dri2.h"
 #include "common_drm_helper.h"
 #include "compat-api.h"
@@ -126,8 +127,13 @@ xf86CrtcPtr common_dri2_drawable_crtc(DrawablePtr pDraw)
 _X_EXPORT
 Bool common_dri2_can_flip(DrawablePtr pDraw, struct common_dri2_wait *wait)
 {
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pDraw->pScreen);
+	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
 	PixmapPtr front_pix = to_common_dri2_buffer(wait->front)->pixmap;
 	PixmapPtr back_pix = to_common_dri2_buffer(wait->back)->pixmap;
+
+	if (drm->shadow_present)
+		return FALSE;
 
 	if (!DRI2CanFlip(pDraw))
 		return FALSE;

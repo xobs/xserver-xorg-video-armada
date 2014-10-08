@@ -43,6 +43,8 @@ struct common_drm_info {
 	unsigned short cursor_max_width;
 	unsigned short cursor_max_height;
 
+	int shadow_present;
+
 #ifdef HAVE_UDEV
 	struct drm_udev_info udev;
 #endif

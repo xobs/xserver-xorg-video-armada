@@ -680,6 +680,8 @@ Bool common_drm_crtc_shadow_allocate(xf86CrtcPtr crtc, int width, int height,
 			   "Failed to add rotate fb: %s\n",
 			   strerror(errno));
 		return FALSE;
+	} else {
+		GET_DRM_INFO(crtc->scrn)->shadow_present++;
 	}
 
 	return TRUE;
@@ -691,6 +693,7 @@ void common_drm_crtc_shadow_destroy(xf86CrtcPtr crtc)
 
 	drmModeRmFB(drmc->drm_fd, drmc->rotate_fb_id);
 	drmc->rotate_fb_id = 0;
+	GET_DRM_INFO(crtc->scrn)->shadow_present--;
 }
 
 static Bool common_drm_crtc_init(ScrnInfoPtr pScrn, unsigned num,
