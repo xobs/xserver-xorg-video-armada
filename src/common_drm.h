@@ -56,6 +56,9 @@ void common_drm_crtc_gamma_set(xf86CrtcPtr crtc,
 void common_drm_crtc_set_cursor_position(xf86CrtcPtr crtc, int x, int y);
 void common_drm_crtc_show_cursor(xf86CrtcPtr crtc);
 void common_drm_crtc_hide_cursor(xf86CrtcPtr crtc);
+Bool common_drm_crtc_shadow_allocate(xf86CrtcPtr crtc, int width, int height,
+	uint32_t pitch, uint32_t handle);
+void common_drm_crtc_shadow_destroy(xf86CrtcPtr crtc);
 
 Bool common_drm_init_mode_resources(ScrnInfoPtr pScrn,
 	const xf86CrtcFuncsRec *funcs);

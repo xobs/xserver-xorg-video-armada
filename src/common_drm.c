@@ -639,6 +639,34 @@ void common_drm_crtc_hide_cursor(xf86CrtcPtr crtc)
 	drmModeSetCursor(drmc->drm_fd, drmc->mode_crtc->crtc_id, 0, 0, 0);
 }
 
+Bool common_drm_crtc_shadow_allocate(xf86CrtcPtr crtc, int width, int height,
+	uint32_t pitch, uint32_t handle)
+{
+	struct common_crtc_info *drmc = common_crtc(crtc);
+	ScrnInfoPtr pScrn = crtc->scrn;
+	int ret;
+
+	ret = drmModeAddFB(drmc->drm_fd, width, height, pScrn->depth,
+			   pScrn->bitsPerPixel, pitch, handle,
+			   &drmc->rotate_fb_id);
+	if (ret) {
+		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+			   "Failed to add rotate fb: %s\n",
+			   strerror(errno));
+		return FALSE;
+	}
+
+	return TRUE;
+}
+
+void common_drm_crtc_shadow_destroy(xf86CrtcPtr crtc)
+{
+	struct common_crtc_info *drmc = common_crtc(crtc);
+
+	drmModeRmFB(drmc->drm_fd, drmc->rotate_fb_id);
+	drmc->rotate_fb_id = 0;
+}
+
 static Bool common_drm_crtc_init(ScrnInfoPtr pScrn, unsigned num,
 	const xf86CrtcFuncsRec *funcs)
 {

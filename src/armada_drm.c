@@ -127,10 +127,8 @@ static void armada_drm_crtc_load_cursor_argb(xf86CrtcPtr crtc, CARD32 *image)
 static void *
 armada_drm_crtc_shadow_allocate(xf86CrtcPtr crtc, int width, int height)
 {
-	struct common_crtc_info *drmc = common_crtc(crtc);
 	ScrnInfoPtr pScrn = crtc->scrn;
 	struct drm_armada_bo *bo;
-	int ret;
 
 	bo = armada_bo_alloc_framebuffer(pScrn, width, height,
 					 pScrn->bitsPerPixel);
@@ -140,13 +138,8 @@ armada_drm_crtc_shadow_allocate(xf86CrtcPtr crtc, int width, int height)
 		return NULL;
 	}
 
-	ret = drmModeAddFB(drmc->drm_fd, width, height, pScrn->depth,
-			   pScrn->bitsPerPixel, bo->pitch, bo->handle,
-			   &drmc->rotate_fb_id);
-	if (ret) {
-		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
-			   "Failed to add rotate fb: %s\n",
-			   strerror(errno));
+	if (!common_drm_crtc_shadow_allocate(crtc, width, height,
+					     bo->pitch, bo->handle)) {
 		drm_armada_bo_put(bo);
 		return NULL;
 	}
@@ -198,11 +191,7 @@ armada_drm_crtc_shadow_destroy(xf86CrtcPtr crtc, PixmapPtr rot_pixmap,
 		FreeScratchPixmapHeader(rot_pixmap);
 	}
 	if (data) {
-		struct common_crtc_info *drmc = common_crtc(crtc);
-
-		drmModeRmFB(drmc->drm_fd, drmc->rotate_fb_id);
-		drmc->rotate_fb_id = 0;
-
+		common_drm_crtc_shadow_destroy(crtc);
 		drm_armada_bo_put(data);
 	}
 }
