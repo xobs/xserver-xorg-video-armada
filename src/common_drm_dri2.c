@@ -141,6 +141,58 @@ Bool common_dri2_can_flip(DrawablePtr pDraw, struct common_dri2_wait *wait)
 	return TRUE;
 }
 
+/*
+ * This works out whether we may (at some point in the future) be able
+ * to flip this drawable.  This is almost the same as DRI2CanFlip()
+ * except for the lack of clipping check, and attachment test.
+ */
+_X_EXPORT
+Bool common_dri2_may_flip(DrawablePtr pDraw, unsigned int attachment)
+{
+	ScreenPtr pScreen = pDraw->pScreen;
+	WindowPtr pWin, pRoot;
+	PixmapPtr pWinPixmap, pRootPixmap;
+
+	if (attachment != DRI2BufferFrontLeft &&
+	    attachment != DRI2BufferBackLeft &&
+	    attachment != DRI2BufferFrontRight &&
+	    attachment != DRI2BufferBackRight)
+		return FALSE;
+
+	pWin = (WindowPtr)pDraw;
+	pWinPixmap = pScreen->GetWindowPixmap(pWin);
+	pRoot = pScreen->root;
+	pRootPixmap = pScreen->GetWindowPixmap(pRoot);
+
+	if (pWinPixmap != pRootPixmap ||
+	    pDraw->x != 0 || pDraw->y != 0 ||
+#ifdef COMPOSITE
+	    pDraw->x != pWinPixmap->screen_x ||
+	    pDraw->y != pWinPixmap->screen_y ||
+#endif
+	    pDraw->width != pWinPixmap->drawable.width ||
+	    pDraw->height != pWinPixmap->drawable.height)
+		return FALSE;
+
+	return TRUE;
+}
+
+_X_EXPORT
+void common_dri2_flip_buffers(ScreenPtr pScreen, struct common_dri2_wait *wait)
+{
+	struct common_dri2_buffer *front = to_common_dri2_buffer(wait->front);
+	struct common_dri2_buffer *back = to_common_dri2_buffer(wait->back);
+	uint32_t name;
+
+	/* Swap the DRI2 buffer names */
+	name = front->base.name;
+	front->base.name = back->base.name;
+	back->base.name = name;
+
+	/* Swap the common drm pixmap information */
+	common_drm_flip_pixmap(pScreen, front->pixmap, back->pixmap);
+}
+
 _X_EXPORT
 PixmapPtr common_dri2_create_pixmap(DrawablePtr pDraw, unsigned int attachment,
 	unsigned int format, int usage_hint)

@@ -2,7 +2,10 @@
 #define COMMON_DRM_H
 
 #include "xf86Crtc.h"
+#include "xf86drmMode.h"
 #include "compat-api.h"
+
+struct common_dri2_wait;
 
 struct common_crtc_info {
 	int drm_fd;
@@ -24,9 +27,16 @@ struct drm_udev_info {
 
 struct common_drm_info {
 	int fd;
-	drmEventContext event_context;
 	uint32_t fb_id;
 	drmModeResPtr mode_res;
+	drmEventContext event_context;
+
+	struct common_dri2_wait *flip_info;
+	unsigned int flip_count;
+	unsigned int flip_frame;
+	unsigned int flip_tv_sec;
+	unsigned int flip_tv_usec;
+	uint32_t flip_old_fb_id;
 
 	Bool has_hw_cursor;
 	Bool hw_cursor;
@@ -65,6 +75,12 @@ void common_drm_crtc_shadow_destroy(xf86CrtcPtr crtc);
 
 Bool common_drm_init_mode_resources(ScrnInfoPtr pScrn,
 	const xf86CrtcFuncsRec *funcs);
+
+Bool common_drm_flip(ScrnInfoPtr pScrn, PixmapPtr pixmap,
+	struct common_dri2_wait *flip_info, xf86CrtcPtr ref_crtc);
+void common_drm_flip_handler(int fd, unsigned int frame, unsigned int tv_sec,
+	unsigned int tv_usec, void *event_data);
+void common_drm_flip_pixmap(ScreenPtr pScreen, PixmapPtr a, PixmapPtr b);
 
 void common_drm_LoadPalette(ScrnInfoPtr pScrn, int num, int *indices,
 	LOCO *colors, VisualPtr pVisual);

@@ -19,6 +19,7 @@
 #include "boxutil.h"
 
 #include "common_drm.h"
+#include "common_drm_dri2.h"
 #include "common_drm_helper.h"
 #include "xf86_OSproc.h"
 #include "xf86Crtc.h"
@@ -765,6 +766,132 @@ Bool common_drm_init_mode_resources(ScrnInfoPtr pScrn,
 		return FALSE;
 
 	return TRUE;
+}
+
+struct common_crtc_flip {
+	struct common_drm_info *drm;
+	Bool ref;
+};
+
+_X_EXPORT
+Bool common_drm_flip(ScrnInfoPtr pScrn, PixmapPtr pixmap,
+	struct common_dri2_wait *flip_info, xf86CrtcPtr ref_crtc)
+{
+	xf86CrtcConfigPtr xf86_config = XF86_CRTC_CONFIG_PTR(pScrn);
+	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
+	uint32_t old_fb_id, pitch, handle;
+	int i;
+
+	old_fb_id = drm->fb_id;
+
+	pitch = pixmap->devKind;
+	handle = common_drm_pixmap(pixmap)->handle;
+
+	if (drmModeAddFB(drm->fd, pScrn->virtualX, pScrn->virtualY,
+			 pScrn->depth, pScrn->bitsPerPixel, pitch, handle,
+			 &drm->fb_id)) {
+		xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
+			   "page flip: add fb failed: %s\n", strerror(errno));
+		goto err;
+	}
+
+	for (i = 0; i < xf86_config->num_crtc; i++) {
+		xf86CrtcPtr crtc = xf86_config->crtc[i];
+		struct common_crtc_info *drmc;
+		struct common_crtc_flip *flip;
+
+		if (!crtc->enabled)
+			continue;
+
+		flip = calloc(1, sizeof *flip);
+		if (!flip) {
+			xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
+				   "page flip: malloc failed\n");
+			continue;
+		}
+
+		flip->drm = drm;
+		flip->ref = ref_crtc == crtc;
+
+		drmc = common_crtc(crtc);
+		if (drmModePageFlip(drm->fd, drmc->mode_crtc->crtc_id,
+				    drm->fb_id, DRM_MODE_PAGE_FLIP_EVENT,
+				    flip)) {
+			xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
+				   "page flip: queue failed: %s\n", strerror(errno));
+			free(flip);
+			continue;
+		}
+		drm->flip_count++;
+	}
+
+	if (drm->flip_count) {
+		drm->flip_info = flip_info;
+		drm->flip_frame = 0;
+		drm->flip_tv_sec = 0;
+		drm->flip_tv_usec = 0;
+		drm->flip_old_fb_id = old_fb_id;
+		return TRUE;
+	}
+
+	drmModeRmFB(drm->fd, drm->fb_id);
+	drm->fb_id = old_fb_id;
+ err:
+	return FALSE;
+}
+
+void common_drm_flip_handler(int fd, unsigned int frame, unsigned int tv_sec,
+	unsigned int tv_usec, void *event_data)
+{
+	struct common_crtc_flip *flip = event_data;
+	struct common_drm_info *drm = flip->drm;
+
+	if (flip->ref) {
+		drm->flip_frame = frame;
+		drm->flip_tv_sec = tv_sec;
+		drm->flip_tv_usec = tv_usec;
+	}
+
+	free(flip);
+
+	if (--drm->flip_count)
+		return;
+
+	drmModeRmFB(drm->fd, drm->flip_old_fb_id);
+
+#ifdef HAVE_DRI2
+	if (drm->flip_info) {
+		common_dri2_event(fd, drm->flip_frame, drm->flip_tv_sec,
+				  drm->flip_tv_usec, drm->flip_info);
+		drm->flip_info = NULL;
+	}
+#endif
+}
+
+void common_drm_flip_pixmap(ScreenPtr pScreen, PixmapPtr front, PixmapPtr b)
+{
+	struct common_pixmap front_c;
+	RegionRec region;
+	void *front_ptr;
+
+	/* Swap the pointers */
+	front_ptr = front->devPrivate.ptr;
+	front->devPrivate.ptr = b->devPrivate.ptr;
+	b->devPrivate.ptr = front_ptr;
+
+	/* Swap the common pixmap data (bo pointer and handle) */
+	front_c = *common_drm_pixmap(front);
+	*common_drm_pixmap(front) = *common_drm_pixmap(b);
+	*common_drm_pixmap(b) = front_c;
+
+	/* Mark the front pixmap as having changed */
+	region.extents.x1 = region.extents.y1 = 0;
+	region.extents.x2 = front->drawable.width;
+	region.extents.y2 = front->drawable.height;
+	region.data = NULL;
+
+	DamageRegionAppend(&front->drawable, &region);
+	DamageRegionProcessPending(&front->drawable);
 }
 
 void common_drm_LoadPalette(ScrnInfoPtr pScrn, int num, int *indices,
