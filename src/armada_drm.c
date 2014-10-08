@@ -114,30 +114,6 @@ static struct drm_armada_bo *armada_bo_alloc_framebuffer(ScrnInfoPtr pScrn,
 /*
  * CRTC support
  */
-static Bool
-armada_drm_crtc_set_mode_major(xf86CrtcPtr crtc, DisplayModePtr mode,
-	Rotation rotation, int x, int y)
-{
-	ScrnInfoPtr pScrn = crtc->scrn;
-	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
-	struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(pScrn);
-
-	if (drm->fb_id == 0) {
-		if (drmModeAddFB(drm->fd,
-				 pScrn->virtualX, pScrn->virtualY,
-				 pScrn->depth, pScrn->bitsPerPixel,
-				 arm->front_bo->pitch, arm->front_bo->handle,
-				 &drm->fb_id) < 0) {
-			xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
-				   "[drm] failed to add fb: %s\n",
-				   strerror(errno));
-			return FALSE;
-		}
-	}
-
-	return common_drm_crtc_set_mode_major(crtc, mode, rotation, x, y);
-}
-
 static void armada_drm_crtc_load_cursor_argb(xf86CrtcPtr crtc, CARD32 *image)
 {
 	struct common_crtc_info *drmc = common_crtc(crtc);
@@ -248,7 +224,7 @@ static void armada_drm_crtc_destroy(xf86CrtcPtr crtc)
 static const xf86CrtcFuncsRec drm_crtc_funcs = {
 	.dpms = common_drm_crtc_dpms,
 	.gamma_set = common_drm_crtc_gamma_set,
-	.set_mode_major = armada_drm_crtc_set_mode_major,
+	.set_mode_major = common_drm_crtc_set_mode_major,
 	.set_cursor_position = common_drm_crtc_set_cursor_position,
 	.show_cursor = common_drm_crtc_show_cursor,
 	.hide_cursor = common_drm_crtc_hide_cursor,
@@ -406,6 +382,15 @@ static Bool armada_drm_ScreenInit(SCREEN_INIT_ARGS_DECL)
 					 pScrn->virtualY, pScrn->bitsPerPixel);
 	if (!bo)
 		return FALSE;
+
+	if (drmModeAddFB(drm->fd, pScrn->virtualX, pScrn->virtualY,
+			 pScrn->depth, pScrn->bitsPerPixel, bo->pitch,
+			 bo->handle, &drm->fb_id) < 0) {
+		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+			   "[drm] failed to add fb: %s\n", strerror(errno));
+		drm_armada_bo_put(bo);
+		return FALSE;
+	}
 
 	arm->front_bo = bo;
 	pScrn->displayWidth = bo->pitch / arm->cpp;
