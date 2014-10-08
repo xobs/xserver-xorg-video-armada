@@ -132,7 +132,7 @@ Bool common_dri2_can_flip(DrawablePtr pDraw, struct common_dri2_wait *wait)
 	PixmapPtr front_pix = to_common_dri2_buffer(wait->front)->pixmap;
 	PixmapPtr back_pix = to_common_dri2_buffer(wait->back)->pixmap;
 
-	if (drm->shadow_present)
+	if (pDraw->type == DRAWABLE_PIXMAP || drm->shadow_present)
 		return FALSE;
 
 	if (!DRI2CanFlip(pDraw))
@@ -158,6 +158,9 @@ Bool common_dri2_may_flip(DrawablePtr pDraw, unsigned int attachment)
 	ScreenPtr pScreen = pDraw->pScreen;
 	WindowPtr pWin, pRoot;
 	PixmapPtr pWinPixmap, pRootPixmap;
+
+	if (pDraw->type == DRAWABLE_PIXMAP)
+		return FALSE;
 
 	if (attachment != DRI2BufferFrontLeft &&
 	    attachment != DRI2BufferBackLeft &&
