@@ -13,6 +13,7 @@
 #include "dri2.h"
 #include "xf86.h"
 
+#include "armada_drm.h"
 #include "common_drm.h"
 #include "common_drm_dri2.h"
 #include "common_drm_helper.h"
@@ -212,8 +213,18 @@ PixmapPtr common_dri2_create_pixmap(DrawablePtr pDraw, unsigned int attachment,
 	int height = pDraw->height;
 	int depth = format ? format : pDraw->depth;
 
-	pixmap = pScreen->CreatePixmap(pScreen, width, height,
-				       depth, usage_hint);
+	/*
+	 * If this pixmap may be used for scanout, we have
+	 * to allocate the backing buffer appropriately.
+	 */
+	if (common_dri2_may_flip(pDraw, attachment)) {
+		/* It would be nice not to have Armada specifics here... */
+		pixmap = armada_drm_alloc_dri_scanout(pScreen, width, height,
+						      depth);
+	} else {
+		pixmap = pScreen->CreatePixmap(pScreen, width, height,
+					       depth, usage_hint);
+	}
 
 	return pixmap;
 }

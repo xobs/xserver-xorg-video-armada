@@ -134,6 +134,33 @@ static struct drm_armada_bo *armada_bo_alloc_framebuffer(ScrnInfoPtr pScrn,
 	return bo;
 }
 
+PixmapPtr armada_drm_alloc_dri_scanout(ScreenPtr pScreen, int width,
+	int height, int depth)
+{
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
+	struct drm_armada_bo *bo;
+	PixmapPtr pixmap;
+
+	pixmap = pScreen->CreatePixmap(pScreen, 0, 0, depth, 0);
+	if (!pixmap)
+		return NULL;
+
+	bo = armada_bo_alloc_framebuffer(pScrn, width, height,
+					 pixmap->drawable.bitsPerPixel);
+	if (!bo) {
+		pScreen->DestroyPixmap(pixmap);
+		return NULL;
+	}
+
+	if (!armada_drm_ModifyScanoutPixmap(pixmap, width, height, bo)) {
+		drm_armada_bo_put(bo);
+		pScreen->DestroyPixmap(pixmap);
+		return NULL;
+	}
+
+	return pixmap;
+}
+
 /*
  * CRTC support
  */
