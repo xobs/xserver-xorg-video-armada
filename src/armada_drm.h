@@ -51,4 +51,7 @@ Bool armada_drm_init_screen(ScrnInfoPtr pScrn);
 /* DRM Xv support */
 Bool armada_drm_XvInit(ScrnInfoPtr pScrn);
 
+PixmapPtr armada_drm_alloc_dri_scanout(ScreenPtr pScreen, int width,
+	int height, int depth);
+
 #endif
