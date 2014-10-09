@@ -6,6 +6,7 @@
 #include "pixmapstr.h"
 #include "scrnintstr.h"
 #include "windowstr.h"
+#include "utils.h"
 
 CARD32 get_first_pixel(DrawablePtr pDraw);
 

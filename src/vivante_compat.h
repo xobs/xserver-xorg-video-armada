@@ -7,11 +7,7 @@
 #ifndef VIVANTE_COMPAT_H
 #define VIVANTE_COMPAT_H
 
-#ifndef container_of
-#define container_of(ptr, type, member) ({ \
-	const typeof( ((type *)0)->member ) *__mptr = (ptr); \
-	(type *)( (char *)__mptr - offsetof(type,member) );})
-#endif
+#include "utils.h"
 
 #if HAS_DEVPRIVATEKEYREC
 #define vivante_CreateKey(key, type) dixRegisterPrivateKey(key, type, 0)
