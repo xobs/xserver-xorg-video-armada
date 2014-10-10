@@ -46,6 +46,9 @@ struct common_drm_info {
 #define GET_DRM_INFO(pScrn)		((struct common_drm_info *)(pScrn)->driverPrivate)
 #define SET_DRM_INFO(pScrn, ptr)	((pScrn)->driverPrivate = (ptr))
 
+void common_drm_set_pixmap_data(PixmapPtr pixmap, uint32_t handle, void *data);
+void *common_drm_get_pixmap_data(PixmapPtr pixmap);
+
 void common_drm_crtc_dpms(xf86CrtcPtr crtc, int mode);
 Bool common_drm_crtc_set_mode_major(xf86CrtcPtr crtc, DisplayModePtr mode,
 	Rotation rotation, int x, int y);

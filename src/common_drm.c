@@ -61,6 +61,31 @@ struct common_conn_info {
 	drmModeEncoderPtr mode_encoder;
 };
 
+static DevPrivateKeyRec pixmap_key;
+
+struct common_pixmap {
+	uint32_t handle;
+	void *data;
+};
+
+static struct common_pixmap *common_drm_pixmap(PixmapPtr pixmap)
+{
+	return dixGetPrivateAddr(&pixmap->devPrivates, &pixmap_key);
+}
+
+void common_drm_set_pixmap_data(PixmapPtr pixmap, uint32_t handle, void *data)
+{
+	struct common_pixmap *c = common_drm_pixmap(pixmap);
+
+	c->handle = handle;
+	c->data = data;
+}
+
+void *common_drm_get_pixmap_data(PixmapPtr pixmap)
+{
+	return common_drm_pixmap(pixmap)->data;
+}
+
 static void drmmode_ConvertFromKMode(ScrnInfoPtr pScrn,
 	drmModeModeInfoPtr kmode, DisplayModePtr mode)
 {
@@ -889,6 +914,10 @@ Bool common_drm_PreScreenInit(ScreenPtr pScreen)
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
 	int visuals, preferredCVC;
+
+	if (!dixRegisterPrivateKey(&pixmap_key, PRIVATE_PIXMAP,
+				   sizeof(struct common_pixmap)))
+		return FALSE;
 
 	drm->Options = xnfalloc(sizeof(common_drm_options));
 	memcpy(drm->Options, common_drm_options, sizeof(common_drm_options));

@@ -95,6 +95,8 @@ static Bool armada_drm_ModifyScanoutPixmap(PixmapPtr pixmap,
 		return FALSE;
 	}
 
+	common_drm_set_pixmap_data(pixmap, bo->handle, bo);
+
 	return TRUE;
 }
 
@@ -191,6 +193,8 @@ armada_drm_crtc_shadow_create(xf86CrtcPtr crtc, void *data,
 		return NULL;
 	}
 
+	common_drm_set_pixmap_data(rotate_pixmap, bo->handle, NULL);
+
 	armada_drm_accel_import(pScrn->pScreen, rotate_pixmap, bo);
 
 	return rotate_pixmap;
@@ -204,6 +208,7 @@ armada_drm_crtc_shadow_destroy(xf86CrtcPtr crtc, PixmapPtr rot_pixmap,
 		struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(crtc->scrn);
 		if (arm->accel_ops)
 			arm->accel_ops->free_pixmap(rot_pixmap);
+		common_drm_set_pixmap_data(rot_pixmap, 0, NULL);
 		FreeScratchPixmapHeader(rot_pixmap);
 	}
 	if (data) {
@@ -270,6 +275,7 @@ static void armada_drm_crtc_alloc_cursors(ScrnInfoPtr pScrn)
 static Bool armada_drm_xf86crtc_resize(ScrnInfoPtr pScrn, int width, int height)
 {
 	ScreenPtr screen = xf86ScrnToScreen(pScrn);
+	PixmapPtr pixmap;
 	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
 	struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(pScrn);
 	struct drm_armada_bo *bo, *old_bo;
@@ -278,6 +284,9 @@ static Bool armada_drm_xf86crtc_resize(ScrnInfoPtr pScrn, int width, int height)
 
 	if (pScrn->virtualX == width && pScrn->virtualY == height)
 		return TRUE;
+
+	pixmap = screen->GetScreenPixmap(screen);
+	old_bo = common_drm_get_pixmap_data(pixmap);
 
 	bo = armada_bo_alloc_framebuffer(pScrn, width, height,
 					 pScrn->bitsPerPixel);
@@ -299,8 +308,6 @@ static Bool armada_drm_xf86crtc_resize(ScrnInfoPtr pScrn, int width, int height)
 		goto err_modpix;
 	}
 
-	old_bo = arm->front_bo;
-	arm->front_bo = bo;
 	displayWidth = bo->pitch / arm->cpp;
 	common_drm_crtc_resize(pScrn, width, height, displayWidth, fb_id);
 
@@ -341,12 +348,17 @@ static Bool armada_drm_CloseScreen(CLOSE_SCREEN_ARGS_DECL)
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(pScrn);
 	PixmapPtr pixmap = pScreen->GetScreenPixmap(pScreen);
+	struct drm_armada_bo *bo = common_drm_get_pixmap_data(pixmap);
 
 	if (arm->front_bo) {
 		drm_armada_bo_put(arm->front_bo);
 		arm->front_bo = NULL;
 	}
 
+	if (bo)
+		drm_armada_bo_put(bo);
+
+	pScreen->DestroyPixmap = arm->DestroyPixmap;
 	pScreen->CloseScreen = arm->CloseScreen;
 
 	return pScreen->CloseScreen(CLOSE_SCREEN_ARGS);
@@ -365,8 +377,27 @@ static Bool armada_drm_CreateScreenResources(ScreenPtr pScreen)
 
 		ret = armada_drm_ModifyScanoutPixmap(pixmap, -1, -1,
 						     arm->front_bo);
+
+		arm->front_bo = NULL;
 	}
 	return ret;
+}
+
+static Bool armada_drm_DestroyPixmap(PixmapPtr pixmap)
+{
+	ScreenPtr pScreen = pixmap->drawable.pScreen;
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
+	struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(pScrn);
+
+	if (pixmap->refcnt == 1) {
+		struct drm_armada_bo *bo;
+
+		bo = common_drm_get_pixmap_data(pixmap);
+		if (bo)
+			drm_armada_bo_put(bo);
+	}
+
+	return arm->DestroyPixmap(pixmap);
 }
 
 static Bool armada_drm_ScreenInit(SCREEN_INIT_ARGS_DECL)
@@ -405,6 +436,10 @@ static Bool armada_drm_ScreenInit(SCREEN_INIT_ARGS_DECL)
 
 	arm->CreateScreenResources = pScreen->CreateScreenResources;
 	pScreen->CreateScreenResources = armada_drm_CreateScreenResources;
+	arm->DestroyPixmap = pScreen->DestroyPixmap;
+	pScreen->DestroyPixmap = armada_drm_DestroyPixmap;
+	arm->CloseScreen = pScreen->CloseScreen;
+	pScreen->CloseScreen = armada_drm_CloseScreen;
 
 	if (arm->accel) {
 		struct drm_armada_bufmgr *mgr = arm->bufmgr;
@@ -423,9 +458,6 @@ static Bool armada_drm_ScreenInit(SCREEN_INIT_ARGS_DECL)
 			arm->accel_ops = NULL;
 		}
 	}
-
-	arm->CloseScreen = pScreen->CloseScreen;
-	pScreen->CloseScreen = armada_drm_CloseScreen;
 
 	if (!common_drm_PostScreenInit(pScreen))
 		return FALSE;

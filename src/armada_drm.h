@@ -20,6 +20,7 @@ struct armada_drm_info {
 	OptionInfoPtr Options;
 	CloseScreenProcPtr CloseScreen;
 	CreateScreenResourcesProcPtr CreateScreenResources;
+	DestroyPixmapProcPtr DestroyPixmap;
 	drmVersionPtr version;
 	struct drm_armada_bufmgr *bufmgr;
 	struct drm_armada_bo *front_bo;
