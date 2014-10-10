@@ -336,9 +336,6 @@ static Bool armada_drm_CloseScreen(CLOSE_SCREEN_ARGS_DECL)
 		arm->front_bo = NULL;
 	}
 
-	if (arm->accel)
-		vivante_free_pixmap(pixmap);
-
 	pScreen->CloseScreen = arm->CloseScreen;
 
 	return pScreen->CloseScreen(CLOSE_SCREEN_ARGS);

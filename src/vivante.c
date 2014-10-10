@@ -379,6 +379,7 @@ static Bool vivante_CloseScreen(CLOSE_SCREEN_ARGS_DECL)
 #ifdef RENDER
 	PictureScreenPtr ps = GetPictureScreenIfSet(pScreen);
 #endif
+	PixmapPtr pixmap;
 
 #ifdef RENDER
 	/* Restore the Pointers */
@@ -405,6 +406,10 @@ static Bool vivante_CloseScreen(CLOSE_SCREEN_ARGS_DECL)
 #ifdef HAVE_DRI2
 	vivante_dri2_CloseScreen(CLOSE_SCREEN_ARGS);
 #endif
+
+	pixmap = pScreen->GetScreenPixmap(pScreen);
+	vivante_free_pixmap(pixmap);
+	vivante_set_pixmap_priv(pixmap, NULL);
 
 #ifdef VIVANTE_BATCH
 	vivante_unmap_from_gpu(vivante, vivante->batch_info,
