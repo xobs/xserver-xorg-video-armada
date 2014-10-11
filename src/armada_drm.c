@@ -74,11 +74,28 @@ static Bool armada_drm_ModifyScanoutPixmap(PixmapPtr pixmap,
 	int width, int height, struct drm_armada_bo *bo)
 {
 	ScreenPtr pScreen = pixmap->drawable.pScreen;
+	int old_width, old_height, old_devKind;
+	void *old_ptr;
+	Bool ret;
 
-	pScreen->ModifyPixmapHeader(pixmap, width, height, -1, -1,
-				    bo->pitch, bo->ptr);
+	old_width = pixmap->drawable.width;
+	old_height = pixmap->drawable.height;
+	old_devKind = pixmap->devKind;
+	old_ptr = pixmap->devPrivate.ptr;
 
-	return armada_drm_accel_import(pScreen, pixmap, bo);
+	if (!pScreen->ModifyPixmapHeader(pixmap, width, height, -1, -1,
+					 bo->pitch, bo->ptr))
+		return FALSE;
+
+	ret = armada_drm_accel_import(pScreen, pixmap, bo);
+	if (!ret) {
+		assert(pScreen->ModifyPixmapHeader(pixmap, old_width,
+						   old_height, -1, -1,
+						   old_devKind, old_ptr));
+		return FALSE;
+	}
+
+	return TRUE;
 }
 
 static struct drm_armada_bo *armada_bo_alloc_framebuffer(ScrnInfoPtr pScrn,
