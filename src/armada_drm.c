@@ -45,10 +45,11 @@ const OptionInfoRec armada_drm_options[] = {
 	{ -1,			NULL,		   OPTV_NONE,    {0}, FALSE }
 };
 
-static Bool armada_drm_accel_import(ScreenPtr pScreen,
-	struct armada_drm_info *arm, PixmapPtr pixmap, struct drm_armada_bo *bo)
+static Bool armada_drm_accel_import(ScreenPtr pScreen, PixmapPtr pixmap,
+	struct drm_armada_bo *bo)
 {
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
+	struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(pScrn);
 	const struct armada_accel_ops *ops = arm->accel_ops;
 	Bool ret;
 	int fd;
@@ -69,16 +70,15 @@ static Bool armada_drm_accel_import(ScreenPtr pScreen,
 	return ret;
 }
 
-static Bool armada_drm_ModifyScreenPixmap(ScreenPtr pScreen,
-	struct armada_drm_info *arm, int width, int height, int depth, int bpp,
-	struct drm_armada_bo *bo)
+static Bool armada_drm_ModifyScanoutPixmap(PixmapPtr pixmap,
+	int width, int height, struct drm_armada_bo *bo)
 {
-	PixmapPtr pixmap = pScreen->GetScreenPixmap(pScreen);
+	ScreenPtr pScreen = pixmap->drawable.pScreen;
 
-	pScreen->ModifyPixmapHeader(pixmap, width, height, depth, bpp,
+	pScreen->ModifyPixmapHeader(pixmap, width, height, -1, -1,
 				    bo->pitch, bo->ptr);
 
-	return armada_drm_accel_import(pScreen, arm, pixmap, bo);
+	return armada_drm_accel_import(pScreen, pixmap, bo);
 }
 
 static struct drm_armada_bo *armada_bo_alloc_framebuffer(ScrnInfoPtr pScrn,
@@ -152,7 +152,6 @@ armada_drm_crtc_shadow_create(xf86CrtcPtr crtc, void *data,
 	int width, int height)
 {
 	ScrnInfoPtr pScrn = crtc->scrn;
-	struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(pScrn);
 	PixmapPtr rotate_pixmap;
 	struct drm_armada_bo *bo;
 
@@ -175,7 +174,7 @@ armada_drm_crtc_shadow_create(xf86CrtcPtr crtc, void *data,
 		return NULL;
 	}
 
-	armada_drm_accel_import(pScrn->pScreen, arm, rotate_pixmap, bo);
+	armada_drm_accel_import(pScrn->pScreen, rotate_pixmap, bo);
 
 	return rotate_pixmap;
 }
@@ -277,7 +276,7 @@ static Bool armada_drm_xf86crtc_resize(ScrnInfoPtr pScrn, int width, int height)
 		goto err_addfb;
 	}
 
-	if (!armada_drm_ModifyScreenPixmap(screen, arm, width, height, -1, -1, bo)) {
+	if (!armada_drm_ModifyScanoutPixmap(pixmap, width, height, bo)) {
 		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
 			   "[drm] failed to modify screen pixmap: %s\n", strerror(errno));
 		goto err_modpix;
@@ -345,10 +344,10 @@ static Bool armada_drm_CreateScreenResources(ScreenPtr pScreen)
 	pScreen->CreateScreenResources = arm->CreateScreenResources;
 	ret = pScreen->CreateScreenResources(pScreen);
 	if (ret) {
-		struct drm_armada_bo *bo = arm->front_bo;
+		PixmapPtr pixmap = pScreen->GetScreenPixmap(pScreen);
 
-		ret = armada_drm_ModifyScreenPixmap(pScreen, arm, -1, -1,
-						    -1, -1, bo);
+		ret = armada_drm_ModifyScanoutPixmap(pixmap, -1, -1,
+						     arm->front_bo);
 	}
 	return ret;
 }
