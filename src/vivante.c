@@ -436,6 +436,12 @@ vivante_CopyWindow(WindowPtr pWin, DDXPointRec ptOldOrg, RegionPtr prgnSrc)
 	RegionInit(&rgnDst, NullBox, 0);
 	RegionIntersect(&rgnDst, &pWin->borderClip, prgnSrc);
 
+#ifdef COMPOSITE
+	if (pPixmap->screen_x || pPixmap->screen_y)
+		RegionTranslate(&rgnDst, -pPixmap->screen_x,
+				-pPixmap->screen_y);
+#endif
+
 	miCopyRegion(&pPixmap->drawable, &pPixmap->drawable, NULL,
 		     &rgnDst, dx, dy, vivante_accel_CopyNtoN, 0, NULL);
 
