@@ -205,6 +205,8 @@ save_LDFLAGS="$LDFLAGS"
 LDFLAGS="$LDFLAGS $DRMARMADA_LDFLAGS"
 AC_CHECK_LIB([drm_armada], [drm_armada_bo_create_size],
 	     [AC_DEFINE(HAVE_DRM_ARMADA_BO_CREATE_SIZE,1,[Use drm_armada_bo_create_size API])])
+AC_CHECK_LIB([drm_armada], [drm_armada_cache_reap],
+             [AC_DEFINE(HAVE_DRM_ARMADA_CACHE_REAP,1,[Use drm_armada_cache_reap API])])
 LDFLAGS="$save_LDFLAGS"
 
 PKG_CHECK_MODULES(DRI2, [dri2proto >= 2.6], , DRI2=no)
