@@ -1960,9 +1960,21 @@ Bool etnaviv_accel_init(struct etnaviv *etnaviv)
 	/*
 	 * The high watermark is the index in our batch buffer at which
 	 * we dump the queued operation over to the command buffers.
-	 * We need room for a flush (two words.)
+	 * We need room for a flush, semaphore, stall, and 20 NOPs
+	 * (46 words.)
 	 */
-	etnaviv->batch_de_high_watermark = MAX_BATCH_SIZE - 2;
+	etnaviv->batch_de_high_watermark = MAX_BATCH_SIZE - (6 + 20 * 2);
+
+	/*
+	 * GC320 at least seems to have a problem with corruption of
+	 * consecutive operations.
+	 */
+	if (etnaviv->conn->chip.chip_model == chipModel_GC320) {
+		etnaviv->gc320_etna_bo = etna_bo_new(etnaviv->conn, 4096,
+						     DRM_ETNA_GEM_TYPE_BMP);
+		/* reserve some additional batch space */
+		etnaviv->batch_de_high_watermark -= 22;
+	}
 
 	return TRUE;
 }
@@ -1984,6 +1996,10 @@ void etnaviv_accel_shutdown(struct etnaviv *etnaviv)
 		i->batch_state = B_NONE;
 	}
 	etnaviv_free_busy_vpix(etnaviv);
+
+	if (etnaviv->gc320_etna_bo)
+		etna_bo_del(etnaviv->conn, etnaviv->gc320_etna_bo, NULL);
+
 	etna_free(etnaviv->ctx);
 	viv_close(etnaviv->conn);
 }
