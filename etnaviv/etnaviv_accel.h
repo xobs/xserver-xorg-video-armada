@@ -72,6 +72,7 @@ struct etnaviv {
 	uint32_t last_fence;
 	Bool force_fallback;
 	struct drm_armada_bufmgr *bufmgr;
+	struct etna_bo *gc320_etna_bo;
 	int scrnIndex;
 #ifdef HAVE_DRI2
 	Bool dri2_enabled;

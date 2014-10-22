@@ -168,9 +168,35 @@ void etnaviv_de_start(struct etnaviv *etnaviv, const struct etnaviv_de_op *op)
 
 void etnaviv_de_end(struct etnaviv *etnaviv)
 {
-	/* Append a flush */
+	if (etnaviv->gc320_etna_bo) {
+		struct etnaviv_format fmt = { .format = DE_FORMAT_A1R5G5B5 };
+		xPoint offset = { 0, -1 };
+		BoxRec box = { 0, 1, 1, 2 };
+
+		/* Append the GC320 workaround - 6 + 6 + 2 + 4 + 4 */
+		etnaviv_set_source_bo(etnaviv, etnaviv->gc320_etna_bo, 64,
+				      fmt, &offset);
+		etnaviv_set_dest_bo(etnaviv, etnaviv->gc320_etna_bo, 64, fmt,
+				    VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT);
+		etnaviv_set_blend(etnaviv, NULL);
+		etnaviv_emit_rop_clip(etnaviv, 0xcc, 0xcc, &box, ZERO_OFFSET);
+		etnaviv_emit_2d_draw(etnaviv, &box, 1, ZERO_OFFSET);
+	}
+
+	/* Append a flush, semaphore and stall to ensure that the FE */
 	EMIT_LOADSTATE(etnaviv, VIVS_GL_FLUSH_CACHE, 1);
 	EMIT(etnaviv, VIVS_GL_FLUSH_CACHE_PE2D);
+	EMIT_LOADSTATE(etnaviv, VIVS_GL_SEMAPHORE_TOKEN, 1);
+	EMIT(etnaviv, VIVS_GL_SEMAPHORE_TOKEN_FROM(SYNC_RECIPIENT_FE) |
+		      VIVS_GL_SEMAPHORE_TOKEN_TO(SYNC_RECIPIENT_PE));
+	EMIT_STALL(etnaviv, SYNC_RECIPIENT_FE, SYNC_RECIPIENT_PE);
+
+	if (etnaviv->gc320_etna_bo) {
+		int i;
+
+		for (i = 0; i < 20; i++)
+			EMIT_NOP(etnaviv);
+	}
 
 	etnaviv_emit(etnaviv);
 }
@@ -183,16 +209,24 @@ void etnaviv_de_op(struct etnaviv *etnaviv, const struct etnaviv_de_op *op,
 
 	assert(nBox <= VIVANTE_MAX_2D_RECTS);
 
-	if (2 + 2 * nBox > remaining) {
+	if (2 + 2 * nBox + 6 > remaining) {
 		etnaviv_emit(etnaviv);
 		BATCH_OP_START(etnaviv);
 	}
 
 	etnaviv_emit_2d_draw(etnaviv, pBox, nBox, op->dst.offset);
+
+	EMIT_LOADSTATE(etnaviv, 4, 1);
+	EMIT(etnaviv, 0);
+	EMIT_LOADSTATE(etnaviv, 4, 1);
+	EMIT(etnaviv, 0);
+	EMIT_LOADSTATE(etnaviv, 4, 1);
+	EMIT(etnaviv, 0);
 }
 
 void etnaviv_flush(struct etnaviv *etnaviv)
 {
 	struct etna_ctx *ctx = etnaviv->ctx;
+	etna_set_state(ctx, VIVS_GL_FLUSH_CACHE, VIVS_GL_FLUSH_CACHE_PE2D);
 	etna_set_state(ctx, VIVS_GL_FLUSH_CACHE, VIVS_GL_FLUSH_CACHE_PE2D);
 }
