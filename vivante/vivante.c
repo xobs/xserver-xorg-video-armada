@@ -64,74 +64,21 @@ void vivante_free_pixmap(PixmapPtr pixmap)
 	}
 }
 
-void vivante_set_pixmap_bo(PixmapPtr pixmap, struct drm_armada_bo *bo)
+static struct vivante_pixmap *vivante_alloc_pixmap(PixmapPtr pixmap,
+	gceSURF_FORMAT fmt)
 {
-	struct vivante_pixmap *vPix = vivante_get_pixmap_priv(pixmap);
-	struct vivante *vivante = vivante_get_screen_priv(pixmap->drawable.pScreen);
+	struct vivante_pixmap *vpix;
 
-	if (!vPix && !bo)
-		return;
-
-	if (vPix) {
-		if (vPix->bo == bo)
-			return;
-
-		vivante_free_pixmap(pixmap);
-		vPix = NULL;
+	vpix = calloc(1, sizeof *vpix);
+	if (vpix) {
+		vpix->width = pixmap->drawable.width;
+		vpix->height = pixmap->drawable.height;
+		vpix->pitch = pixmap->devKind;
+		vpix->format = fmt;
+		vpix->handle = -1;
 	}
-
-	if (bo) {
-		gceSURF_FORMAT format;
-
-		if (bo->pitch != pixmap->devKind) {
-			xf86DrvMsg(vivante->scrnIndex, X_ERROR,
-				   "%s: bo pitch %u and pixmap pitch %u mismatch\n",
-				   __FUNCTION__, bo->pitch, pixmap->devKind);
-			goto fail;
-		}
-
-		/*
-		 * This is an imprecise conversion to the Vivante GAL format.
-		 * Although pixmaps in X generally don't have an alpha channel,
-		 * we must set the format to include the alpha channel to
-		 * ensure that the GPU copies all the bits.
-		 */
-		switch (pixmap->drawable.bitsPerPixel) {
-		case 16:
-			if (pixmap->drawable.depth == 15)
-				format = gcvSURF_A1R5G5B5;
-			else
-				format = gcvSURF_R5G6B5;
-			break;
-		case 32:
-			format = gcvSURF_A8R8G8B8;
-			break;
-		default:
-			goto fail;
-		}
-
-		vPix = calloc(1, sizeof *vPix);
-		if (!vPix)
-			goto fail;
-
-		vPix->bo = bo;
-		vPix->width = pixmap->drawable.width;
-		vPix->height = pixmap->drawable.height;
-		vPix->pitch = bo->pitch;
-		vPix->handle = -1;
-		vPix->format = format;
-		vPix->owner = NONE;
-
-#ifdef DEBUG_PIXMAP
-		dbg("Pixmap %p: vPix=%p bo=%p\n", pixmap, vPix, bo);
-#endif
-		drm_armada_bo_get(bo);
-	}
-
- fail:
-	vivante_set_pixmap_priv(pixmap, vPix);
+	return vpix;
 }
-
 
 /* Determine whether this GC can be accelerated */
 static Bool vivante_GC_can_accel(GCPtr pGC, DrawablePtr pDrawable)
@@ -449,7 +396,9 @@ static PixmapPtr
 vivante_CreatePixmap(ScreenPtr pScreen, int w, int h, int depth, unsigned usage)
 {
 	struct vivante *vivante = vivante_get_screen_priv(pScreen);
+	struct vivante_pixmap *vpix;
 	struct drm_armada_bo *bo;
+	gceSURF_FORMAT fmt;
 	PixmapPtr pixmap;
 	int ret, bpp;
 
@@ -466,9 +415,22 @@ vivante_CreatePixmap(ScreenPtr pScreen, int w, int h, int depth, unsigned usage)
 	if (pixmap == NullPixmap || w == 0 || h == 0)
 		return pixmap;
 
-	bpp = pixmap->drawable.bitsPerPixel;
-	if (bpp != 16 && bpp != 32)
+	/* Create the appropriate format for this pixmap */
+	switch (pixmap->drawable.bitsPerPixel) {
+	case 16:
+		if (pixmap->drawable.depth == 15)
+			fmt = gcvSURF_A1R5G5B5;
+		else
+			fmt = gcvSURF_R5G6B5;
+		break;
+	case 32:
+		fmt = gcvSURF_A8R8G8B8;
+		break;
+	default:
 		goto fallback_free_pix;
+	}
+
+	bpp = pixmap->drawable.bitsPerPixel;
 
 	bo = drm_armada_bo_create(vivante->bufmgr, w, h, bpp);
 	if (!bo)
@@ -487,11 +449,17 @@ vivante_CreatePixmap(ScreenPtr pScreen, int w, int h, int depth, unsigned usage)
 	 */
 	pScreen->ModifyPixmapHeader(pixmap, w, h, 0, 0, bo->pitch, NULL);
 
-	vivante_set_pixmap_bo(pixmap, bo);
-	if (!vivante_get_pixmap_priv(pixmap))
+	vpix = vivante_alloc_pixmap(pixmap, fmt);
+	if (!vpix)
 		goto fallback_free_bo;
 
-	drm_armada_bo_put(bo);
+	vpix->bo = bo;
+	
+#ifdef DEBUG_PIXMAP
+	dbg("Pixmap %p: vPix=%p bo=%p\n", pixmap, vpix, bo);
+#endif
+
+	vivante_set_pixmap_priv(pixmap, vpix);
 	goto out;
 
  fallback_free_bo:
@@ -735,16 +703,9 @@ static Bool vivante_import_dmabuf(ScreenPtr pScreen, PixmapPtr pPixmap, int fd)
 		goto fail;
 	}
 
-	vpix = calloc(1, sizeof *vpix);
+	vpix = vivante_alloc_pixmap(pPixmap, format);
 	if (!vpix)
 		return FALSE;
-
-	vpix->bo = NULL;
-	vpix->width = pPixmap->drawable.width;
-	vpix->height = pPixmap->drawable.height;
-	vpix->pitch = pPixmap->devKind;
-	vpix->format = format;
-	vpix->owner = NONE;
 
 	if (!vivante_map_dmabuf(vivante, fd, vpix)) {
 		free(vpix);
