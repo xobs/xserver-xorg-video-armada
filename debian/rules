@@ -3,6 +3,9 @@
 
 DEB_HOST_MULTIARCH=
 
+override_dh_auto_configure:
+	dh_auto_configure -- --with-etnaviv-source=/home/xobs/Code/novena-packages/etnaviv/ --disable-vivante
+
 override_dh_auto_install:
 	dh_auto_install --destdir=debian/tmp
 
