@@ -99,12 +99,12 @@ AS_IF([test x$ACCEL_GALCORE != xno],
    CPPFLAGS="$CPPFLAGS $LIBGAL_CFLAGS"
    AC_CHECK_HEADERS([gc_hal.h gc_hal_base.h gc_hal_enum.h],
                     [],
-                    AS_IF([test x$ACCEL_GALCORE != xyes],
+                    AS_IF([test x$ACCEL_GALCORE = xyes],
                           [AC_MSG_ERROR([required libGAL header file missing])],
 			  [ACCEL_GALCORE=no]))
    AC_CHECK_HEADERS([gc_hal_raster.h],
                     [],
-                    AS_IF([test x$ACCEL_GALCORE != xyes],
+                    AS_IF([test x$ACCEL_GALCORE = xyes],
                           [AC_MSG_ERROR([required libGAL header file missing])],
 			  [ACCEL_GALCORE=no]),
                     [#include <gc_hal.h>])
