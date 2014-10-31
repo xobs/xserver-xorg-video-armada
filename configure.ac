@@ -133,15 +133,13 @@ AC_ARG_WITH(etnaviv-source,
 
 AC_ARG_WITH(etnaviv-include,
             AC_HELP_STRING([--with-etnaviv-include=PATH],
-                           [specify directory for installed etnaviv include files [[default=/usr/include]]]),
-            [etnaviv_include="$withval"],
-            [etnaviv_include="/usr/include"])
+                           [specify directory for installed etnaviv include files [[default=unset]]]),
+            [etnaviv_include="$withval"])
 
 AC_ARG_WITH(etnaviv-lib,
             AC_HELP_STRING([--with-etnaviv-lib=PATH],
-                           [specify directory for installed etnaviv library [[default=/usr/lib]]]),
-            [etnaviv_lib="$withval"],
-            [etnaviv_lib="/usr/lib"])
+                           [specify directory for installed etnaviv library [[default=unset]]]),
+            [etnaviv_lib="$withval"])
 
 AS_IF([test x$ACCEL_ETNAVIV != xno],
       [
@@ -151,13 +149,21 @@ AS_IF([test x$ACCEL_ETNAVIV != xno],
            ETNAVIV_LIBS="-L$etnaviv_source/src/etnaviv"
          ],
          [
-           ETNAVIV_CFLAGS="-I$etnaviv_include"
-           ETNAVIV_LIBS="-L$etnaviv_lib"
+           AS_IF([test x$etnaviv_include = x],
+           [
+             PKG_CHECK_MODULES(ETNAVIV, [libetnaviv >= 1.0.0], [PKGCFG_ETNAVIV=yes], [PKGCFG_ETNAVIV=no])
+           ],
+           [
+             ETNAVIV_CFLAGS="-I$etnaviv_include"
+             ETNAVIV_LIBS="-L$etnaviv_lib"
+           ])
          ])
    saved_LDFLAGS="$LDFLAGS"
+   saved_CFLAGS="$CFLAGS"
    LDFLAGS="$LDFLAGS $ETNAVIV_LIBS"
+   CFLAGS="$CFLAGS $ETNAVIV_CFLAGS"
    AC_CHECK_LIB([etnaviv], [viv_open],
-                [ETNAVIV_LIBS+=" -letnaviv" ACCEL_ETNAVIV=yes],
+                [ACCEL_ETNAVIV=yes],
                 [ACCEL_ETNAVIV=no])
    AC_CHECK_LIB([etnaviv], [etna_bo_from_dmabuf],
                 [DUMMY=y],
@@ -166,6 +172,8 @@ AS_IF([test x$ACCEL_ETNAVIV != xno],
                 [DUMMY=y],
                 [AC_MSG_ERROR([etnaviv support requires etna_bo_from_usermem_prot()])])
    LDFLAGS="$saved_LDFLAGS"
+   CFLAGS="$saved_CFLAGS"
+   AS_IF([test x$PKGCFG_ETNAVIV = xno], [ETNAVIV_LIBS+=" -letnaviv"])
    AS_IF([test x$ACCEL_ETNAVIV = xyes], [DRIVERS="etnaviv_gpu $DRIVERS"])
 ])
 AC_MSG_CHECKING([whether to build Etnaviv acceleration support])
