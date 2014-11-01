@@ -21,6 +21,8 @@
 #include "compat-list.h"
 #include "utils.h"
 
+#define etnadrm_pipe last_fence_id
+
 struct chip_specs {
 	uint32_t param;
 	uint32_t offset;
@@ -78,26 +80,14 @@ static const struct chip_specs specs[] = {
 	},
 };
 
-static int etnadrm_pipe(struct viv_conn *conn)
-{
-	switch (conn->hw_type) {
-	case VIV_HW_2D:
-		return ETNADRM_PIPE_2D;
-	case VIV_HW_3D:
-		return ETNADRM_PIPE_3D;
-	default:
-		return -1;
-	}
-}
-
-static int chip_specs(struct viv_conn *conn, struct viv_specs *out)
+static int chip_specs(struct viv_conn *conn, struct viv_specs *out, int pipe)
 {
 	struct drm_etnaviv_param req;
 	uint8_t *p = (uint8_t *)out;
 	int i;
 
 	memset(&req, 0, sizeof(req));
-	req.pipe = etnadrm_pipe(conn);
+	req.pipe = pipe;
 
 	for (i = 0; i < ARRAY_SIZE(specs); i++) {
 		req.param = specs[i].param;
@@ -142,7 +132,8 @@ int viv_open(enum viv_hw_type hw_type, struct viv_conn **out)
 {
 	struct viv_conn *conn;
 	drmVersionPtr version;
-	int err = -1;
+	Bool found = FALSE;
+	int pipe, err = -1;
 
 	conn = calloc(1, sizeof *conn);
 	if (!conn)
@@ -171,7 +162,52 @@ int viv_open(enum viv_hw_type hw_type, struct viv_conn **out)
 
 	conn->base_address = 0;
 
-	if (chip_specs(conn, &conn->chip))
+	/*
+	 * Current etnadrm is slightly broken in that it deals with
+	 * pipes rather than cores.  A core can be 2D, 2D+3D, 3D or
+	 * VG, and conceivably we could have multiple cores of the
+	 * same type (though unlikely.)  To allow etnadrm to evolve,
+	 * scan the available pipes looking for the first core of the
+	 * appropriate GPU type.
+	 */
+	for (pipe = 0; ; pipe++) {
+		if (chip_specs(conn, &conn->chip, pipe)) {
+			if (pipe < ETNA_MAX_PIPES)
+				continue;
+			else
+				break;
+		}
+
+		switch (hw_type) {
+		case VIV_HW_2D:
+			if (VIV_FEATURE(conn, chipFeatures, PIPE_2D))
+				found = TRUE;
+			break;
+
+		case VIV_HW_3D:
+			if (VIV_FEATURE(conn, chipFeatures, PIPE_3D))
+				found = TRUE;
+			break;
+
+		case VIV_HW_2D3D:
+			if (VIV_FEATURE(conn, chipFeatures, PIPE_2D) &&
+			    VIV_FEATURE(conn, chipFeatures, PIPE_3D))
+				found = TRUE;
+			break;
+
+		case VIV_HW_VG:
+			if (VIV_FEATURE(conn, chipFeatures, PIPE_VG))
+				found = TRUE;
+			break;
+		}
+
+		if (found) {
+			conn->etnadrm_pipe = pipe;
+			break;
+		}
+	}
+
+	if (!found)
 		goto error;
 
 	*out = conn;
@@ -198,7 +234,7 @@ int viv_fence_finish(struct viv_conn *conn, uint32_t fence, uint32_t timeout)
 {
 	struct timespec ts;
 	struct drm_etnaviv_wait_fence req = {
-		.pipe = etnadrm_pipe(conn),
+		.pipe = conn->etnadrm_pipe,
 		.fence = fence,
 	};
 	int ret;
@@ -551,7 +587,7 @@ int etna_flush(struct etna_ctx *ctx, uint32_t *fence_out)
 	cmd.nr_relocs = buf->num_relocs;
 
 	memset(&req, 0, sizeof(req));
-	req.pipe = etnadrm_pipe(ctx->conn);
+	req.pipe = ctx->conn->etnadrm_pipe;
 	req.cmds = (uintptr_t)&cmd;
 	req.nr_cmds = 1;
 	req.bos = (uintptr_t)buf->bos;
