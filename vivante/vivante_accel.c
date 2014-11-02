@@ -1007,13 +1007,13 @@ static void adjust_repeat(PicturePtr pPict, int x, int y, unsigned w, unsigned h
 	int tx, ty;
 
 	if (pPict->pDrawable &&
-	    pPict->repeat != RepeatNone &&
+	    pPict->repeat &&
 	    pPict->filter != PictFilterConvolution &&
 	    transform_is_integer_translation(pPict->transform, &tx, &ty) &&
 	    (pPict->pDrawable->width > 1 || pPict->pDrawable->height > 1) &&
 	    drawable_contains(pPict->pDrawable, x + tx, y + ty, w, h)) {
 //fprintf(stderr, "%s: removing repeat on %p\n", __FUNCTION__, pPict);
-		pPict->repeat = RepeatNone;
+		pPict->repeat = 0;
 	}
 }
 
@@ -1233,7 +1233,7 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 		return NULL;
 
 	vSrc->pict_format = vivante_pict_format(pict->format, FALSE);
-	if (pict->repeat == RepeatNone &&
+	if (!pict->repeat &&
 	    transform_is_integer_translation(pict->transform, &tx, &ty) &&
 	    vivante_format_valid(vivante, vSrc->pict_format)) {
 		src_topleft->x = src_offset.x + x + tx + drawable->x;
@@ -1515,7 +1515,7 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 		adjust_repeat(pMask, xMask, yMask, width, height);
 
 		/* We don't handle mask repeats (yet) */
-		if (pMask->repeat != RepeatNone)
+		if (pMask->repeat)
 			goto fallback;
 
 		/* Include the mask drawable's position on the pixmap */
