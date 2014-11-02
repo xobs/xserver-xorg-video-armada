@@ -1314,6 +1314,64 @@ static Bool vivante_workaround_nonalpha(struct vivante_pixmap *vpix)
 	}
 }
 
+/* Perform the simple PictOpClear operation. */
+static Bool vivante_Composite_Clear(PicturePtr pSrc, PicturePtr pMask,
+	PicturePtr pDst, INT16 xSrc, INT16 ySrc, INT16 xMask, INT16 yMask,
+	INT16 xDst, INT16 yDst, CARD16 width, CARD16 height)
+{
+	ScreenPtr pScreen = pDst->pDrawable->pScreen;
+	struct vivante *vivante = vivante_get_screen_priv(pScreen);
+	struct vivante_pixmap *vDst;
+	RegionRec region;
+	xPoint src_topleft, dst_offset;
+	int rc;
+
+	vDst = vivante_drawable_offset(pDst->pDrawable, &dst_offset);
+	if (!vDst)
+		return FALSE;
+
+	vivante_set_format(vDst, pDst);
+	vivante_workaround_nonalpha(vDst);
+	if (!vivante_format_valid(vivante, vDst->pict_format))
+		return FALSE;
+
+	/* Include the destination drawable's position on the pixmap */
+	xDst += pDst->pDrawable->x;
+	yDst += pDst->pDrawable->y;
+
+	/*
+	 * The picture's pCompositeClip includes the destination drawable
+	 * position, so we must adjust the picture position for that prior
+	 * to miComputeCompositeRegion().
+	 */
+	if (pSrc->pDrawable) {
+		xSrc += pSrc->pDrawable->x;
+		ySrc += pSrc->pDrawable->y;
+	}
+	if (pMask && pMask->pDrawable) {
+		xMask += pMask->pDrawable->x;
+		yMask += pMask->pDrawable->y;
+	}
+
+	memset(&region, 0, sizeof(region));
+	if (!miComputeCompositeRegion(&region, pSrc, pMask, pDst,
+				      xSrc, ySrc, xMask, yMask,
+				      xDst, yDst, width, height))
+		return TRUE;
+
+	src_topleft.x = xDst + dst_offset.x;
+	src_topleft.y = yDst + dst_offset.y;
+
+	rc = vivante_accel_final_blend(vivante,
+				       &vivante_composite_op[PictOpClear],
+				       dst_offset, &region,
+				       pDst, vDst, xDst, yDst,
+				       pSrc, vDst, src_topleft);
+	RegionUninit(&region);
+
+	return rc ? TRUE : FALSE;
+}
+
 int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	PicturePtr pDst, INT16 xSrc, INT16 ySrc, INT16 xMask, INT16 yMask,
 	INT16 xDst, INT16 yDst, CARD16 width, CARD16 height)
@@ -1328,12 +1386,21 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	xPoint src_topleft, dst_offset;
 	int rc;
 
+	/* If the destination has an alpha map, fallback */
+	if (pDst->alphaMap)
+		return FALSE;
+
+	/* Short-circuit for PictOpClear */
+	if (op == PictOpClear)
+		return vivante_Composite_Clear(pSrc, pMask, pDst,
+					       xSrc, ySrc, xMask, yMask,
+					       xDst, yDst, width, height);
+
 	/* If we can't do the op, there's no point going any further */
 	if (op >= ARRAY_SIZE(vivante_composite_op))
 		return FALSE;
 
-	/* If there are alpha maps, fallback for now */
-	if (pDst->alphaMap || pSrc->alphaMap || (pMask && pMask->alphaMap))
+	if (pSrc->alphaMap || (pMask && pMask->alphaMap))
 		return FALSE;
 
 	/* If the source has no drawable, and is not solid, fallback */
@@ -1515,29 +1582,21 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	 * vSrc->pict_format describes its format, including whether the
 	 * alpha channel is valid.
 	 */
-	if (op == PictOpClear) {
-		if (!vivante_fill_single(vivante, vTemp, &clipTemp, 0))
-			goto failed;
-		vSrc = vTemp;
-		src_topleft.x = 0;
-		src_topleft.y = 0;
-	} else {
-		vSrc = vivante_acquire_src(vivante, pSrc, xSrc, ySrc,
-					   width, height, &clipTemp,
-					   pPixTemp, vTemp, &src_topleft);
-		if (!vSrc)
-			goto failed;
+	vSrc = vivante_acquire_src(vivante, pSrc, xSrc, ySrc,
+				   width, height, &clipTemp,
+				   pPixTemp, vTemp, &src_topleft);
+	if (!vSrc)
+		goto failed;
 
-		/*
-		 * Apply the same work-around for a non-alpha source as for
-		 * a non-alpha destination.
-		 */
-		if (!pMask && vSrc != vTemp &&
-		    final_op.src_global_alpha == gcvSURF_GLOBAL_ALPHA_OFF &&
-		    vivante_workaround_nonalpha(vSrc)) {
-			final_op.src_global_alpha = gcvSURF_GLOBAL_ALPHA_ON;
-			final_op.src_alpha = 255;
-		}
+	/*
+	 * Apply the same work-around for a non-alpha source as for
+	 * a non-alpha destination.
+	 */
+	if (!pMask && vSrc != vTemp &&
+	    final_op.src_global_alpha == gcvSURF_GLOBAL_ALPHA_OFF &&
+	    vivante_workaround_nonalpha(vSrc)) {
+		final_op.src_global_alpha = gcvSURF_GLOBAL_ALPHA_ON;
+		final_op.src_alpha = 255;
 	}
 
 //dump_vPix(buf, vivante, vSrc, 1, "A-ISRC%02.2x-%p", op, pSrc);
