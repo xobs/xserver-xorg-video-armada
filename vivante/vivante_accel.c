@@ -1625,10 +1625,11 @@ if (pMask && pMask->pDrawable)
 				       pDst, vDst, xDst, yDst,
 				       pSrc, vSrc, src_topleft);
 	RegionUninit(&region);
-	if (!rc)
-		goto failed;
-
-	goto done;
+	if (pPixTemp) {
+		ScreenPtr pScreen = pPixTemp->drawable.pScreen;
+		pScreen->DestroyPixmap(pPixTemp);
+	}
+	return !!rc;
 
  fallback:
 #if 0
@@ -1643,19 +1644,11 @@ fprintf(stderr, "%s: op 0x%02x src=%p[%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux%u]x%d
 
  failed:
 	RegionUninit(&region);
-
 	if (pPixTemp) {
 		ScreenPtr pScreen = pPixTemp->drawable.pScreen;
 		pScreen->DestroyPixmap(pPixTemp);
 	}
 	return FALSE;
-
- done:
-	if (pPixTemp) {
-		ScreenPtr pScreen = pPixTemp->drawable.pScreen;
-		pScreen->DestroyPixmap(pPixTemp);
-	}
-	return TRUE;
 }
 #endif
 
