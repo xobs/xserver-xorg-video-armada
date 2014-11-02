@@ -342,16 +342,29 @@ static void vivante_load_dst(struct vivante *vivante,
 }
 
 static void vivante_load_src(struct vivante *vivante,
-	struct vivante_pixmap *vPix, gceSURF_FORMAT fmt)
+	struct vivante_pixmap *vPix, gceSURF_FORMAT fmt, const xPoint *offset)
 {
 	gceSTATUS err;
 
 	vivante_batch_add(vivante, vPix);
 	err = gco2D_SetColorSourceAdvanced(vivante->e2d, vPix->handle,
 				  vPix->pitch, fmt, gcvSURF_0_DEGREE,
-				  vPix->width, vPix->height, gcvFALSE);
+				  vPix->width, vPix->height, !!offset);
 	if (err != gcvSTATUS_OK)
 		vivante_error(vivante, "gco2D_SetColourSourceAdvanced", err);
+
+	if (offset) {
+		gcsRECT src_rect = {
+			.left = offset->x,
+			.top = offset->y,
+			.right = offset->x + 1,
+			.bottom = offset->y + 1,
+		};
+
+		err = gco2D_SetSource(vivante->e2d, &src_rect);
+		if (err != gcvSTATUS_OK)
+			vivante_error(vivante, "gco2D_SetSource", err);
+	}
 }
 
 void vivante_commit(struct vivante *vivante, Bool stall)
@@ -529,31 +542,31 @@ static const gctUINT8 vivante_copy_rop[] = {
 
 static gceSTATUS
 vivante_blit_copy(struct vivante *vivante, GCPtr pGC, const BoxRec *total,
-	const BoxRec *pbox, int nbox, xPoint src_offset, xPoint dst_offset,
+	const BoxRec *pbox, int nbox, xPoint dst_offset,
 	struct vivante_pixmap *vDst)
 {
 	gctUINT8 rop = vivante_copy_rop[pGC ? pGC->alu : GXcopy];
 	gceSTATUS err = gcvSTATUS_OK;
+	gcsRECT dst;
 
 	vivante_load_dst(vivante, vDst);
 	vivante_set_blend(vivante, NULL);
 
+	RectBox(&dst, total, dst_offset.x, dst_offset.y);
+	err = gco2D_SetClipping(vivante->e2d, &dst);
+	if (err != gcvSTATUS_OK)
+		return err;
+
 	for (; nbox; nbox--, pbox++) {
 		BoxRec clipped;
-		gcsRECT src, dst;
 
 		if (__box_intersect(&clipped, total, pbox))
 			continue;
 
-		RectBox(&src, &clipped, src_offset.x, src_offset.y);
 		RectBox(&dst, &clipped, dst_offset.x, dst_offset.y);
 
-		err = gco2D_SetClipping(vivante->e2d, &dst);
-		if (err != gcvSTATUS_OK)
-			break;
-
-		err = gco2D_BatchBlit(vivante->e2d, 1, &src, &dst, rop, rop,
-				      vDst->format);
+		err = gco2D_Blit(vivante->e2d, 1, &dst, rop, rop,
+				 vDst->format);
 		if (err != gcvSTATUS_OK)
 			break;
 	}
@@ -673,8 +686,8 @@ void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 		goto fallback;
 
 	/* Include the copy delta on the source */
-	src_offset.x += dx;
-	src_offset.y += dy;
+	src_offset.x += dx - dst_offset.x;
+	src_offset.y += dy - dst_offset.y;
 
 	/* Calculate the overall extent */
 	extent.x1 = max_t(short, pDst->x, pSrc->x - dx);
@@ -692,13 +705,13 @@ void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 	if (!gal_prepare_gpu(vivante, vDst) || !gal_prepare_gpu(vivante, vSrc))
 		goto fallback;
 
-	vivante_load_src(vivante, vSrc, vSrc->format);
+	vivante_load_src(vivante, vSrc, vSrc->format, &src_offset);
 
 	/* No need to load the brush here - the blit copy doesn't use it. */
 
 	/* Submit the blit operations */
 	err = vivante_blit_copy(vivante, pGC, &extent, pBox, nBox,
-				src_offset, dst_offset, vDst);
+				dst_offset, vDst);
 	if (err != gcvSTATUS_OK)
 		vivante_error(vivante, "Blit", err);
 
@@ -868,7 +881,7 @@ Bool vivante_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 			goto fallback;
 
 		vivante_load_dst(vivante, vPix);
-		vivante_load_src(vivante, vTile, vTile->format);
+		vivante_load_src(vivante, vTile, vTile->format, NULL);
 		vivante_set_blend(vivante, NULL);
 
 		err = gco2D_LoadSolidBrush(vivante->e2d, vPix->format, 0, 0, ~0ULL);
@@ -1049,14 +1062,17 @@ static Bool vivante_blend(struct vivante *vivante, const BoxRec *clip,
 	const BoxRec *pBox, unsigned nBox, xPoint src_offset,
 	xPoint dst_offset)
 {
-	gcsRECT src, dst;
+	gcsRECT dst;
 	gceSTATUS err;
 
 	if (!gal_prepare_gpu(vivante, vDst) || !gal_prepare_gpu(vivante, vSrc))
 		return FALSE;
 
+	src_offset.x -= dst_offset.x;
+	src_offset.y -= dst_offset.y;
+
 	vivante_load_dst(vivante, vDst);
-	vivante_load_src(vivante, vSrc, vSrc->pict_format);
+	vivante_load_src(vivante, vSrc, vSrc->pict_format, &src_offset);
 	vivante_set_blend(vivante, blend);
 
 	RectBox(&dst, clip, dst_offset.x, dst_offset.y);
@@ -1067,13 +1083,12 @@ static Bool vivante_blend(struct vivante *vivante, const BoxRec *clip,
 	}
 
 	while (nBox--) {
-		RectBox(&src, pBox, src_offset.x, src_offset.y);
 		RectBox(&dst, pBox, dst_offset.x, dst_offset.y);
 
 		pBox++;
 
-		err = gco2D_BatchBlit(vivante->e2d, 1, &src, &dst, 0xcc, 0xcc,
-				      vDst->pict_format);
+		err = gco2D_Blit(vivante->e2d, 1, &dst, 0xcc, 0xcc,
+				 vDst->pict_format);
 		if (err != gcvSTATUS_OK) {
 			vivante_error(vivante, "gco2D_BatchBlit", err);
 			return FALSE;
