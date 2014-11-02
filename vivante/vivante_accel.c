@@ -597,98 +597,37 @@ Bool vivante_accel_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int n,
 Bool vivante_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 	int x, int y, int w, int h, int leftPad, int format, char *bits)
 {
-	struct vivante *vivante = vivante_get_screen_priv(pDrawable->pScreen);
-	struct vivante_pixmap *vPix;
-	RegionPtr pClip = fbGetCompositeClip(pGC);
-	BoxRec total;
-	xPoint src_offset, dst_offset;
-	unsigned pitch, size;
-	int off;
-	gctPOINTER info;
-	gctUINT32 addr;
-	gceSTATUS err;
-	char *buf = bits;
+	ScreenPtr pScreen = pDrawable->pScreen;
+	PixmapPtr pPix, pTemp;
+	GCPtr gc;
 
 	if (format != ZPixmap)
 		return FALSE;
 
-	vPix = vivante_drawable_offset(pDrawable, &dst_offset);
-	pitch = PixmapBytePad(w, depth);
-
-	/*
-	 * If the image is not appropriately aligned on each scanline, align
-	 * it - it's cheaper to align it here, than to fall back and copy it
-	 * manually to the scanout buffer.  It is unfortunate that we can't
-	 * tell the X server/clients about this restriction.
-	 */
-	if (pitch & 15) {
-		unsigned i, new_pitch = (pitch + 15) & ~15;
-
-		buf = malloc(new_pitch * h);
-		if (!buf)
-			return FALSE;
-
-		for (i = 0; i < h; i++) {
-			memcpy(buf + new_pitch * i, bits + pitch * i, pitch);
-			memset(buf + new_pitch * i + pitch, 0, new_pitch - pitch);
-		}
-
-		pitch = new_pitch;
-	}
-
-	size = pitch * h;
-
-	err = gcoOS_MapUserMemory(vivante->os, buf, size, &info, &addr);
-	if (err)
-		return FALSE;
-
-	/* Get the 'X' offset required to align the supplied data */
-	off = addr & VIVANTE_ALIGN_MASK;
-
-	if (!gal_prepare_gpu(vivante, vPix))
-		goto unmap;
-
-	err = gco2D_SetColorSourceAdvanced(vivante->e2d, addr - off, pitch,
-			  vPix->format, gcvSURF_0_DEGREE, w, h, gcvFALSE);
-	if (err != gcvSTATUS_OK) {
-		vivante_error(vivante, "SetColorSourceAdvanced", err);
-		goto unmap;
-	}
+	pPix = drawable_pixmap(pDrawable);
 
 	x += pDrawable->x;
 	y += pDrawable->y;
 
-	total.x1 = x;
-	total.y1 = y;
-	total.x2 = x + w;
-	total.y2 = y + h;
-	src_offset.x = -x + off * 8 / BitsPerPixel(depth);
-	src_offset.y = -y;
+	pTemp = pScreen->CreatePixmap(pScreen, w, h, pPix->drawable.depth, 0);
+	if (!pTemp)
+		return FALSE;
 
-	err = vivante_blit_copy(vivante, pGC, &total, RegionRects(pClip),
-				RegionNumRects(pClip), src_offset,
-				dst_offset, vPix);
-	if (err != gcvSTATUS_OK)
-		vivante_error(vivante, "Blit", err);
+	gc = GetScratchGC(pTemp->drawable.depth, pScreen);
+	if (!gc) {
+		pScreen->DestroyPixmap(pTemp);
+		return FALSE;
+	}
 
-	/* Ask for the memory to be unmapped upon completion */
-	gcoHAL_ScheduleUnmapUserMemory(vivante->hal, info, size, addr, buf);
+	ValidateGC(&pTemp->drawable, gc);
+	unaccel_PutImage(&pTemp->drawable, gc, depth, 0, 0, w, h, leftPad,
+			 format, bits);
+	FreeScratchGC(gc);
 
-	/* We have to wait for this blit to finish... */
-	vivante_batch_wait_commit(vivante, vPix);
-
-	/* And free the buffer we may have allocated */
-	if (buf != bits)
-		free(buf);
-
+	pGC->ops->CopyArea(&pTemp->drawable, &pPix->drawable, pGC,
+			   0, 0, w, h, x, y);
+	pScreen->DestroyPixmap(pTemp);
 	return TRUE;
-
- unmap:
-	gcoOS_UnmapUserMemory(vivante->os, buf, size, info, addr);
-	if (buf != bits)
-		free(buf);
-
-	return FALSE;
 }
 
 void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
