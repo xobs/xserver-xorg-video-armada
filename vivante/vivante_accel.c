@@ -564,8 +564,6 @@ Bool vivante_accel_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int n,
 	Bool ret, overlap;
 
 	vPix = vivante_drawable_offset(pDrawable, &dst_offset);
-	if (!vPix)
-		return FALSE;
 
 	pBox = malloc(n * sizeof *pBox);
 	if (!pBox)
@@ -616,9 +614,6 @@ Bool vivante_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 		return FALSE;
 
 	vPix = vivante_drawable_offset(pDrawable, &dst_offset);
-	if (!vPix)
-		return FALSE;
-
 	pitch = PixmapBytePad(w, depth);
 
 	/*
@@ -772,8 +767,6 @@ Bool vivante_accel_PolyPoint(DrawablePtr pDrawable, GCPtr pGC, int mode,
 	Bool ret, overlap;
 
 	vPix = vivante_drawable_offset(pDrawable, &dst_offset);
-	if (!vPix)
-		return FALSE;
 
 	pBox = malloc(npt * sizeof *pBox);
 	if (!pBox)
@@ -831,8 +824,6 @@ Bool vivante_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 	Bool ret = TRUE;
 
 	vPix = vivante_drawable_offset(pDrawable, &dst_offset);
-	if (!vPix)
-		return FALSE;
 
 	clip = fbGetCompositeClip(pGC);
 	clipBox = *RegionExtents(clip);
@@ -884,7 +875,7 @@ Bool vivante_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 
 	vPix = vivante_drawable_offset(pDrawable, &dst_offset);
 	vTile = vivante_get_pixmap_priv(pTile);
-	if (!vPix || !vTile)
+	if (!vTile)
 		return FALSE;
 
 	/* Convert the rectangles to a region */

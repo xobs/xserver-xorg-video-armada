@@ -80,9 +80,12 @@ static struct vivante_pixmap *vivante_alloc_pixmap(PixmapPtr pixmap,
 	return vpix;
 }
 
-/* Determine whether this GC can be accelerated */
+/* Determine whether this GC and target Drawable can be accelerated */
 static Bool vivante_GC_can_accel(GCPtr pGC, DrawablePtr pDrawable)
 {
+	if (!vivante_get_pixmap_priv(drawable_pixmap(pDrawable)))
+		return FALSE;
+
 	/* Must be full-planes */
 	return !pGC || fb_full_planemask(pDrawable, pGC->planemask);
 }
