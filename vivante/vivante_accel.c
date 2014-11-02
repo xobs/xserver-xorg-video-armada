@@ -1058,9 +1058,6 @@ static Bool vivante_blend(struct vivante *vivante, const BoxRec *clip,
 	if (!gal_prepare_gpu(vivante, vDst) || !gal_prepare_gpu(vivante, vSrc))
 		return FALSE;
 
-	src_offset.x -= dst_offset.x;
-	src_offset.y -= dst_offset.y;
-
 	vivante_load_dst(vivante, vDst);
 	vivante_load_src(vivante, vSrc, vSrc->pict_format, &src_offset);
 	vivante_set_blend(vivante, blend);
@@ -1212,14 +1209,10 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 static int vivante_accel_final_blend(struct vivante *vivante,
 	const struct vivante_blend_op *blend,
 	xPoint dst_offset, RegionPtr region,
-	PicturePtr pDst, struct vivante_pixmap *vDst, int xDst, int yDst,
+	PicturePtr pDst, struct vivante_pixmap *vDst,
 	PicturePtr pSrc, struct vivante_pixmap *vSrc, xPoint src_offset)
 {
 	int rc;
-
-	/* The correction needed to map the region boxes to the source */
-	src_offset.x -= xDst;
-	src_offset.y -= yDst;
 
 #if 0
 	fprintf(stderr, "%s: dst %d,%d,%d,%d %d,%d %u (%x) bo %p\n",
@@ -1349,13 +1342,13 @@ static Bool vivante_Composite_Clear(PicturePtr pSrc, PicturePtr pMask,
 				      xDst, yDst, width, height))
 		return TRUE;
 
-	src_topleft.x = xDst + dst_offset.x;
-	src_topleft.y = yDst + dst_offset.y;
+	src_topleft.x = 0;
+	src_topleft.y = 0;
 
 	rc = vivante_accel_final_blend(vivante,
 				       &vivante_composite_op[PictOpClear],
 				       dst_offset, &region,
-				       pDst, vDst, xDst, yDst,
+				       pDst, vDst,
 				       pSrc, vDst, src_topleft);
 	RegionUninit(&region);
 
@@ -1664,9 +1657,12 @@ if (pMask && pMask->pDrawable)
 		src_topleft = temp_offset;
 	}
 
+	src_topleft.x -= xDst + dst_offset.x;
+	src_topleft.y -= yDst + dst_offset.y;
+
 	rc = vivante_accel_final_blend(vivante, &final_op,
 				       dst_offset, &region,
-				       pDst, vDst, xDst, yDst,
+				       pDst, vDst,
 				       pSrc, vSrc, src_topleft);
 	RegionUninit(&region);
 	if (pPixTemp) {
