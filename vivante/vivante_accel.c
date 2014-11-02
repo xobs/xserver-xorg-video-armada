@@ -429,7 +429,7 @@ static uint32_t vivante_fg_col(GCPtr pGC)
  */
 static Bool vivante_fill(struct vivante *vivante, struct vivante_pixmap *vPix,
 	GCPtr pGC, const BoxRec *clipBox, const BoxRec *pBox, unsigned nBox,
-	int dx, int dy)
+	xPoint dst_offset)
 {
 	const BoxRec *b;
 	unsigned chunk;
@@ -456,7 +456,7 @@ static Bool vivante_fill(struct vivante *vivante, struct vivante_pixmap *vPix,
 
 	vivante_disable_alpha_blend(vivante);
 
-	RectBox(&clip, clipBox, dx, dy);
+	RectBox(&clip, clipBox, dst_offset.x, dst_offset.y);
 	err = gco2D_SetClipping(vivante->e2d, &clip);
 	if (err) {
 		vivante_error(vivante, "gco2D_SetClipping", err);
@@ -481,7 +481,7 @@ static Bool vivante_fill(struct vivante *vivante, struct vivante_pixmap *vPix,
 			chunk = nBox;
 
 		for (i = 0, r = rects; i < chunk; i++, r++, b++)
-			RectBox(r, b, dx, dy);
+			RectBox(r, b, dst_offset.x, dst_offset.y);
 
 		err = gco2D_Blit(vivante->e2d, chunk, rects, rop, rop, vPix->format);
 		if (err)
@@ -522,8 +522,7 @@ static const gctUINT8 vivante_copy_rop[] = {
 
 static gceSTATUS
 vivante_blit_copy(struct vivante *vivante, GCPtr pGC, const BoxRec *total,
-	const BoxRec *pbox, int nbox,
-	int src_off_x, int src_off_y, int dst_off_x, int dst_off_y,
+	const BoxRec *pbox, int nbox, xPoint src_offset, xPoint dst_offset,
 	gceSURF_FORMAT format)
 {
 	gctUINT8 rop = vivante_copy_rop[pGC ? pGC->alu : GXcopy];
@@ -536,8 +535,8 @@ vivante_blit_copy(struct vivante *vivante, GCPtr pGC, const BoxRec *total,
 		if (__box_intersect(&clipped, total, pbox))
 			continue;
 
-		RectBox(&src, &clipped, src_off_x, src_off_y);
-		RectBox(&dst, &clipped, dst_off_x, dst_off_y);
+		RectBox(&src, &clipped, src_offset.x, src_offset.y);
+		RectBox(&dst, &clipped, dst_offset.x, dst_offset.y);
 
 		err = gco2D_SetClipping(vivante->e2d, &dst);
 		if (err != gcvSTATUS_OK)
@@ -561,10 +560,11 @@ Bool vivante_accel_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int n,
 	PixmapPtr pPix;
 	BoxPtr pBox, p;
 	RegionRec region;
-	int i, off_x, off_y;
+	xPoint dst_offset;
+	int i;
 	Bool ret, overlap;
 
-	pPix = drawable_pixmap_deltas(pDrawable, &off_x, &off_y);
+	pPix = drawable_pixmap_offset(pDrawable, &dst_offset);
 	vPix = vivante_get_pixmap_priv(pPix);
 	if (!vPix)
 		return FALSE;
@@ -592,7 +592,7 @@ Bool vivante_accel_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int n,
 
 	ret = vivante_fill(vivante, vPix, pGC, RegionExtents(&region),
 			   RegionRects(&region), RegionNumRects(&region),
-			   off_x, off_y);
+			   dst_offset);
 
 	RegionUninit(&region);
 
@@ -607,8 +607,9 @@ Bool vivante_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 	RegionPtr pClip = fbGetCompositeClip(pGC);
 	PixmapPtr pPix;
 	BoxRec total;
+	xPoint src_offset, dst_offset;
 	unsigned pitch, size;
-	int dst_off_x, dst_off_y, off, src_off_x, src_off_y;
+	int off;
 	gctPOINTER info;
 	gctUINT32 addr;
 	gceSTATUS err;
@@ -617,7 +618,7 @@ Bool vivante_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 	if (format != ZPixmap)
 		return FALSE;
 
-	pPix = drawable_pixmap_deltas(pDrawable, &dst_off_x, &dst_off_y);
+	pPix = drawable_pixmap_offset(pDrawable, &dst_offset);
 	vPix = vivante_get_pixmap_priv(pPix);
 	if (!vPix)
 		return FALSE;
@@ -673,12 +674,12 @@ Bool vivante_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 	total.y1 = y;
 	total.x2 = x + w;
 	total.y2 = y + h;
-	src_off_x = -x + off * 8 / BitsPerPixel(depth);
-	src_off_y = -y;
+	src_offset.x = -x + off * 8 / BitsPerPixel(depth);
+	src_offset.y = -y;
 
 	err = vivante_blit_copy(vivante, pGC, &total, REGION_RECTS(pClip),
-				REGION_NUM_RECTS(pClip), src_off_x, src_off_y,
-				dst_off_x, dst_off_y, vPix->format);
+				REGION_NUM_RECTS(pClip), src_offset,
+				dst_offset, vPix->format);
 	if (err != gcvSTATUS_OK)
 		vivante_error(vivante, "Blit", err);
 
@@ -711,7 +712,7 @@ void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 	struct vivante *vivante = vivante_get_screen_priv(pDst->pScreen);
 	struct vivante_pixmap *vSrc, *vDst;
 	PixmapPtr pixSrc, pixDst;
-	int dst_off_x, dst_off_y, src_off_x, src_off_y;
+	xPoint src_offset, dst_offset;
 	BoxRec limits;
 	gceSTATUS err;
 
@@ -719,8 +720,8 @@ void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 		goto fallback;
 
 	/* Get the source and destination pixmaps and offsets */
-	pixSrc = drawable_pixmap_deltas(pSrc, &src_off_x, &src_off_y);
-	pixDst = drawable_pixmap_deltas(pDst, &dst_off_x, &dst_off_y);
+	pixSrc = drawable_pixmap_offset(pSrc, &src_offset);
+	pixDst = drawable_pixmap_offset(pDst, &dst_offset);
 
 	vSrc = vivante_get_pixmap_priv(pixSrc);
 	vDst = vivante_get_pixmap_priv(pixDst);
@@ -728,14 +729,14 @@ void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 		goto fallback;
 
 	/* Include the copy delta on the source */
-	src_off_x += dx;
-	src_off_y += dy;
+	src_offset.x += dx;
+	src_offset.y += dy;
 
 	/* Calculate the overall limits */
-	limits.x1 = -min(src_off_x, dst_off_x);
-	limits.y1 = -min(src_off_y, dst_off_y);
-	limits.x2 = min(pixSrc->drawable.width - src_off_x, pixDst->drawable.width - dst_off_x);
-	limits.y2 = min(pixSrc->drawable.height - src_off_y, pixDst->drawable.height - dst_off_y);
+	limits.x1 = -min(src_offset.x, dst_offset.x);
+	limits.y1 = -min(src_offset.y, dst_offset.y);
+	limits.x2 = min(pixSrc->drawable.width - src_offset.x, pixDst->drawable.width - dst_offset.x);
+	limits.y2 = min(pixSrc->drawable.height - src_offset.y, pixDst->drawable.height - dst_offset.y);
 
 	/* Right, we're all good to go */
 	if (!gal_prepare_gpu(vivante, vDst, GPU2D_Target) ||
@@ -748,8 +749,7 @@ void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 
 	/* Submit the blit operations */
 	err = vivante_blit_copy(vivante, pGC, &limits, pBox, nBox,
-				src_off_x, src_off_y,
-				dst_off_x, dst_off_y, vDst->format);
+				src_offset, dst_offset, vDst->format);
 	if (err != gcvSTATUS_OK)
 		vivante_error(vivante, "Blit", err);
 
@@ -772,10 +772,11 @@ Bool vivante_accel_PolyPoint(DrawablePtr pDrawable, GCPtr pGC, int mode,
 	PixmapPtr pPix;
 	BoxPtr pBox;
 	RegionRec region;
-	int i, off_x, off_y;
+	xPoint dst_offset;
+	int i;
 	Bool ret, overlap;
 
-	pPix = drawable_pixmap_deltas(pDrawable, &off_x, &off_y);
+	pPix = drawable_pixmap_offset(pDrawable, &dst_offset);
 	vPix = vivante_get_pixmap_priv(pPix);
 	if (!vPix)
 		return FALSE;
@@ -816,7 +817,7 @@ Bool vivante_accel_PolyPoint(DrawablePtr pDrawable, GCPtr pGC, int mode,
 
 	ret = vivante_fill(vivante, vPix, pGC, RegionExtents(&region),
 			   RegionRects(&region), RegionNumRects(&region),
-			   off_x, off_y);
+			   dst_offset);
 
 	RegionUninit(&region);
 
@@ -832,10 +833,11 @@ Bool vivante_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 	RegionPtr clip;
 	BoxPtr box;
 	BoxRec boxes[255], clipBox;
-	int off_x, off_y, nclip, nb;
+	xPoint dst_offset;
+	int nclip, nb;
 	Bool ret = TRUE;
 
-	pPix = drawable_pixmap_deltas(pDrawable, &off_x, &off_y);
+	pPix = drawable_pixmap_offset(pDrawable, &dst_offset);
 	vPix = vivante_get_pixmap_priv(pPix);
 	if (!vPix)
 		return FALSE;
@@ -861,7 +863,7 @@ Bool vivante_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 
 			if (++nb > 254) {
 				ret = vivante_fill(vivante, vPix, pGC, &clipBox,
-						   boxes, nb, off_x, off_y);
+						   boxes, nb, dst_offset);
 				nb = 0;
 				if (!ret)
 					break;
@@ -872,7 +874,7 @@ Bool vivante_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 	}
 	if (nb)
 		ret = vivante_fill(vivante, vPix, pGC, &clipBox,
-				   boxes, nb, off_x, off_y);
+				   boxes, nb, dst_offset);
 
 	return ret;
 }
@@ -884,10 +886,11 @@ Bool vivante_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 	struct vivante_pixmap *vPix, *vTile;
 	PixmapPtr pPix, pTile = pGC->tile.pixmap;
 	RegionPtr rects;
-	int off_x, off_y, nbox;
+	xPoint dst_offset;
+	int nbox;
 	Bool ret;
 
-	pPix = drawable_pixmap_deltas(pDrawable, &off_x, &off_y);
+	pPix = drawable_pixmap_offset(pDrawable, &dst_offset);
 	vPix = vivante_get_pixmap_priv(pPix);
 	vTile = vivante_get_pixmap_priv(pTile);
 	if (!vPix || !vTile)
@@ -909,7 +912,7 @@ Bool vivante_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 		gceSTATUS err = gcvSTATUS_OK;
 
 		/* Translate them for the drawable offset */
-		RegionTranslate(rects, off_x, off_y);
+		RegionTranslate(rects, dst_offset.x, dst_offset.y);
 
 		ret = FALSE;
 
@@ -927,8 +930,8 @@ Bool vivante_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 		}
 
 		/* Calculate the tile offset from the rect coords */
-		off_x += pDrawable->x + pGC->patOrg.x;
-		off_y += pDrawable->y + pGC->patOrg.y;
+		dst_offset.x += pDrawable->x + pGC->patOrg.x;
+		dst_offset.y += pDrawable->y + pGC->patOrg.y;
 
 		tile_w = pTile->drawable.width;
 		tile_h = pTile->drawable.height;
@@ -949,14 +952,14 @@ Bool vivante_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 
 			dst_y = pBox->y1;
 			height = pBox->y2 - dst_y;
-			modulus(dst_y - off_y, tile_h, tile_y);
+			modulus(dst_y - dst_offset.y, tile_h, tile_y);
 
 			while (height > 0) {
 				int dst_x, width, tile_x, h;
 
 				dst_x = pBox->x1;
 				width = pBox->x2 - dst_x;
-				modulus(dst_x - off_x, tile_w, tile_x);
+				modulus(dst_x - dst_offset.x, tile_w, tile_x);
 
 				h = tile_h - tile_y;
 				if (h > height)
@@ -1225,18 +1228,18 @@ static Bool vivante_pict_solid_argb(PicturePtr pict, uint32_t *col)
  */
 static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 	PicturePtr pict, int x, int y, int w, int h, gcsRECT_PTR clip,
-	PixmapPtr pix, struct vivante_pixmap *vTemp,
-	INT16 *xout, INT16 *yout)
+	PixmapPtr pix, struct vivante_pixmap *vTemp, xPoint *src_topleft)
 {
 	PixmapPtr pPixmap;
 	struct vivante_pixmap *vSrc;
 	DrawablePtr drawable = pict->pDrawable;
 	uint32_t colour;
-	int tx, ty, ox, oy;
+	xPoint src_offset;
+	int tx, ty;
 
 	if (vivante_pict_solid_argb(pict, &colour)) {
-		*xout = 0;
-		*yout = 0;
+		src_topleft->x = 0;
+		src_topleft->y = 0;
 		if (!vivante_fill_single(vivante, vTemp, clip, colour))
 			return NULL;
 		vivante_flush(vivante);
@@ -1244,7 +1247,7 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 		return vTemp;
 	}
 
-	pPixmap = drawable_pixmap_deltas(pict->pDrawable, &ox, &oy);
+	pPixmap = drawable_pixmap_offset(pict->pDrawable, &src_offset);
 	vSrc = vivante_get_pixmap_priv(pPixmap);
 	if (!vSrc)
 		return NULL;
@@ -1253,8 +1256,8 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 	if (pict->repeat == RepeatNone &&
 	    transform_is_integer_translation(pict->transform, &tx, &ty) &&
 	    vivante_format_valid(vivante, vSrc->pict_format)) {
-		*xout = ox + x + tx + drawable->x;
-		*yout = ox + y + ty + drawable->y;
+		src_topleft->x = src_offset.x + x + tx + drawable->x;
+		src_topleft->y = src_offset.y + y + ty + drawable->y;
 	} else {
 		PictFormatPtr f;
 		PicturePtr dest;
@@ -1271,8 +1274,8 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 
 		unaccel_Composite(PictOpSrc, pict, NULL, dest, x, y, 0, 0, 0, 0, w, h);
 		FreePicture(dest, 0);
-		*xout = 0;
-		*yout = 0;
+		src_topleft->x = 0;
+		src_topleft->y = 0;
 		vSrc = vTemp;
 	}
 
@@ -1281,15 +1284,15 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 
 static int vivante_accel_final_blend(struct vivante *vivante,
 	const struct vivante_blend_op *blend,
-	int oDst_x, int oDst_y, RegionPtr region,
+	xPoint dst_offset, RegionPtr region,
 	PicturePtr pDst, struct vivante_pixmap *vDst, int xDst, int yDst,
-	PicturePtr pSrc, struct vivante_pixmap *vSrc, int xSrc, int ySrc)
+	PicturePtr pSrc, struct vivante_pixmap *vSrc, xPoint src_offset)
 {
 	gcsRECT *rects, *rsrc, *rdst;
 	gcsRECT clip;
 	int i, nrects, rc;
 
-	RectBox(&clip, RegionExtents(region), oDst_x, oDst_y);
+	RectBox(&clip, RegionExtents(region), dst_offset.x, dst_offset.y);
 
 #if 0
 	fprintf(stderr, "%s: dst %d,%d,%d,%d %d,%d %u (%x) bo %p\n",
@@ -1307,14 +1310,14 @@ static int vivante_accel_final_blend(struct vivante *vivante,
 		return FALSE;
 	}
 
-	xSrc -= xDst;
-	ySrc -= yDst;
+	src_offset.x -= xDst;
+	src_offset.y -= yDst;
 
 	for (i = 0, rsrc = rects, rdst = rsrc + nrects;
 	     i < nrects;
 	     i++, rsrc++, rdst++) {
-		RectBox(rsrc, REGION_RECTS(region) + i, xSrc, ySrc);
-		RectBox(rdst, REGION_RECTS(region) + i, oDst_x, oDst_y);
+		RectBox(rsrc, REGION_RECTS(region) + i, src_offset.x, src_offset.y);
+		RectBox(rdst, REGION_RECTS(region) + i, dst_offset.x, dst_offset.y);
 	}
 
 	rsrc = rects;
@@ -1407,7 +1410,8 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	PixmapPtr pPixmap, pPixTemp = NULL;
 	RegionRec region;
 	gcsRECT clipTemp;
-	int oDst_x, oDst_y, rc;
+	xPoint src_topleft, dst_offset;
+	int rc;
 
 	/* If we can't do the op, there's no point going any further */
 	if (op >= ARRAY_SIZE(vivante_composite_op))
@@ -1422,7 +1426,7 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 		return FALSE;
 
 	/* The destination pixmap must have a bo */
-	pPixmap = drawable_pixmap_deltas(pDst->pDrawable, &oDst_x, &oDst_y);
+	pPixmap = drawable_pixmap_offset(pDst->pDrawable, &dst_offset);
 	vDst = vivante_get_pixmap_priv(pPixmap);
 	if (!vDst)
 		return FALSE;
@@ -1602,13 +1606,12 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 			goto failed;
 		vivante_flush(vivante);
 		vSrc = vTemp;
-		xSrc = 0;
-		ySrc = 0;
+		src_topleft.x = 0;
+		src_topleft.y = 0;
 	} else {
 		vSrc = vivante_acquire_src(vivante, pSrc, xSrc, ySrc,
-					   width, height,
-					   &clipTemp, pPixTemp, vTemp,
-					   &xSrc, &ySrc);
+					   width, height, &clipTemp,
+					   pPixTemp, vTemp, &src_topleft);
 		if (!vSrc)
 			goto failed;
 
@@ -1630,7 +1633,7 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 #define C(p,e) ((p) ? (p)->e : 0)
 fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux%u]x%dy%d dst=%p[%p]x%dy%d %ux%u\n",
 	__FUNCTION__, op,
-	pSrc, pSrc->transform, pSrc->pDrawable, pSrc->repeat, C(pSrc->pDrawable, width), C(pSrc->pDrawable, height), xSrc, ySrc,
+	pSrc, pSrc->transform, pSrc->pDrawable, pSrc->repeat, C(pSrc->pDrawable, width), C(pSrc->pDrawable, height), src_topleft.x, src_topleft.y,
 	pMask, C(pMask, pDrawable), C(pMask, repeat), C(C(pMask, pDrawable), width), C(C(pMask, pDrawable), height), xMask, yMask,
 	pDst, pDst->pDrawable, xDst, yDst,
 	width, height);
@@ -1652,17 +1655,17 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 	if (pMask) {
 		PixmapPtr pPixMask;
 		gcsRECT rsrc, rdst;
-		int oMask_x, oMask_y;
+		xPoint mask_offset;
 
-		pPixMask = drawable_pixmap_deltas(pMask->pDrawable, &oMask_x, &oMask_y);
+		pPixMask = drawable_pixmap_offset(pMask->pDrawable, &mask_offset);
 		vMask = vivante_get_pixmap_priv(pPixMask);
 		if (!vMask)
 			goto failed;
 
 		vMask->pict_format = vivante_pict_format(pMask->format, FALSE);
 
-		oMask_x += xMask;
-		oMask_y += yMask;
+		mask_offset.x += xMask;
+		mask_offset.y += yMask;
 //dump_vPix(buf, vivante, vMask, 1, "A-MASK%02.2x-%p", op, pMask);
 		rdst.left = 0;
 		rdst.top = 0;
@@ -1671,10 +1674,10 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 
 		if (vTemp != vSrc) {
 			/* Copy Source to Temp */
-			rsrc.left = xSrc;
-			rsrc.top = ySrc;
-			rsrc.right = xSrc + width;
-			rsrc.bottom = ySrc + height;
+			rsrc.left = src_topleft.x;
+			rsrc.top = src_topleft.y;
+			rsrc.right = src_topleft.x + width;
+			rsrc.bottom = src_topleft.y + height;
 
 			/*
 			 * The source may not have alpha, but we need the
@@ -1689,10 +1692,10 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 //dump_vPix(buf, vivante, vTemp, 1, "A-TMSK%02.2x-%p", op, pMask);
 		}
 
-		rsrc.left = oMask_x;
-		rsrc.top = oMask_y;
-		rsrc.right = oMask_x + width;
-		rsrc.bottom = oMask_y + height;
+		rsrc.left = mask_offset.x;
+		rsrc.top = mask_offset.y;
+		rsrc.right = mask_offset.x + width;
+		rsrc.bottom = mask_offset.y + height;
 
 #if 0
 if (pMask && pMask->pDrawable)
@@ -1710,14 +1713,14 @@ if (pMask && pMask->pDrawable)
 			goto failed;
 
 		vSrc = vTemp;
-		xSrc = 0;
-		ySrc = 0;
+		src_topleft.x = 0;
+		src_topleft.y = 0;
 	}
 
 	rc = vivante_accel_final_blend(vivante, &final_op,
-				       oDst_x, oDst_y, &region,
+				       dst_offset, &region,
 				       pDst, vDst, xDst, yDst,
-				       pSrc, vSrc, xSrc, ySrc);
+				       pSrc, vSrc, src_topleft);
 	RegionUninit(&region);
 	if (!rc)
 		goto failed;
