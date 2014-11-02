@@ -638,8 +638,11 @@ void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 	struct vivante_pixmap *vSrc, *vDst;
 	PixmapPtr pixSrc, pixDst;
 	xPoint src_offset, dst_offset;
-	BoxRec limits;
+	BoxRec extent;
 	gceSTATUS err;
+
+	if (!nBox)
+		return;
 
 	if (vivante->force_fallback)
 		goto fallback;
@@ -657,11 +660,17 @@ void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 	src_offset.x += dx;
 	src_offset.y += dy;
 
-	/* Calculate the overall limits */
-	limits.x1 = -min(src_offset.x, dst_offset.x);
-	limits.y1 = -min(src_offset.y, dst_offset.y);
-	limits.x2 = min(pixSrc->drawable.width - src_offset.x, pixDst->drawable.width - dst_offset.x);
-	limits.y2 = min(pixSrc->drawable.height - src_offset.y, pixDst->drawable.height - dst_offset.y);
+	/* Calculate the overall extent */
+	extent.x1 = max_t(short, pDst->x, pSrc->x - dx);
+	extent.y1 = max_t(short, pDst->y, pSrc->y - dy);
+	extent.x2 = min_t(short, pDst->x + pDst->width,
+				 pSrc->x + pSrc->width - dx);
+	extent.y2 = min_t(short, pDst->y + pDst->height,
+				 pSrc->y + pSrc->height - dy);
+	if (extent.x1 < 0)
+		extent.x1 = 0;
+	if (extent.y1 < 0)
+		extent.y1 = 0;
 
 	/* Right, we're all good to go */
 	if (!gal_prepare_gpu(vivante, vDst) || !gal_prepare_gpu(vivante, vSrc))
@@ -672,7 +681,7 @@ void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 	/* No need to load the brush here - the blit copy doesn't use it. */
 
 	/* Submit the blit operations */
-	err = vivante_blit_copy(vivante, pGC, &limits, pBox, nBox,
+	err = vivante_blit_copy(vivante, pGC, &extent, pBox, nBox,
 				src_offset, dst_offset, vDst);
 	if (err != gcvSTATUS_OK)
 		vivante_error(vivante, "Blit", err);
