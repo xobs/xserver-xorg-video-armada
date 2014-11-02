@@ -340,6 +340,11 @@ static void vivante_flush(struct vivante *vivante)
 		vivante_error(vivante, "Flush", err);
 }
 
+static void vivante_blit_complete(struct vivante *vivante)
+{
+	vivante_flush(vivante);
+}
+
 void vivante_commit(struct vivante *vivante, Bool stall)
 {
 	gceSTATUS err;
@@ -495,7 +500,6 @@ static Bool vivante_fill(struct vivante *vivante, struct vivante_pixmap *vPix,
 		vivante_error(vivante, "Blit", err);
 
 	vivante_batch_add(vivante, vPix);
-	vivante_flush(vivante);
 
 	return TRUE;
 }
@@ -589,6 +593,7 @@ Bool vivante_accel_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int n,
 	ret = vivante_fill(vivante, vPix, pGC, RegionExtents(&region),
 			   RegionRects(&region), RegionNumRects(&region),
 			   dst_offset);
+	vivante_blit_complete(vivante);
 
 	RegionUninit(&region);
 
@@ -746,7 +751,7 @@ void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 
 	vivante_batch_add(vivante, vSrc);
 	vivante_batch_add(vivante, vDst);
-	vivante_flush(vivante);
+	vivante_blit_complete(vivante);
 
 	return;
 
@@ -805,6 +810,7 @@ Bool vivante_accel_PolyPoint(DrawablePtr pDrawable, GCPtr pGC, int mode,
 	ret = vivante_fill(vivante, vPix, pGC, RegionExtents(&region),
 			   RegionRects(&region), RegionNumRects(&region),
 			   dst_offset);
+	vivante_blit_complete(vivante);
 
 	RegionUninit(&region);
 
@@ -858,6 +864,7 @@ Bool vivante_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 	if (nb)
 		ret = vivante_fill(vivante, vPix, pGC, &clipBox,
 				   boxes, nb, dst_offset);
+	vivante_blit_complete(vivante);
 
 	return ret;
 }
@@ -984,7 +991,7 @@ Bool vivante_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 		}
 		vivante_batch_add(vivante, vTile);
 		vivante_batch_add(vivante, vPix);
-		vivante_flush(vivante);
+		vivante_blit_complete(vivante);
 		ret = err == 0 ? TRUE : FALSE;
 	} else {
 		ret = TRUE;
@@ -1080,6 +1087,7 @@ static Bool vivante_fill_single(struct vivante *vivante,
 	}
 
 	vivante_batch_add(vivante, vPix);
+	vivante_blit_complete(vivante);
 
 	return TRUE;
 }
@@ -1140,7 +1148,7 @@ static Bool vivante_blend(struct vivante *vivante, gcsRECT_PTR clip,
 
 	vivante_batch_add(vivante, vDst);
 	vivante_batch_add(vivante, vSrc);
-	vivante_flush(vivante);
+	vivante_blit_complete(vivante);
 
 	return TRUE;
 }
@@ -1223,7 +1231,6 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 		src_topleft->y = 0;
 		if (!vivante_fill_single(vivante, vTemp, clip, colour))
 			return NULL;
-		vivante_flush(vivante);
 
 		return vTemp;
 	}
@@ -1583,7 +1590,6 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	if (op == PictOpClear) {
 		if (!vivante_fill_single(vivante, vTemp, &clipTemp, 0))
 			goto failed;
-		vivante_flush(vivante);
 		vSrc = vTemp;
 		src_topleft.x = 0;
 		src_topleft.y = 0;
