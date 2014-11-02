@@ -367,6 +367,32 @@ static void vivante_load_src(struct vivante *vivante,
 	}
 }
 
+static gceSTATUS vivante_bitblt_rects(struct vivante *vivante, const BoxRec *b,
+	size_t n, xPoint offset, unsigned int rop, gceSURF_FORMAT fmt)
+{
+	size_t chunk = vivante->max_rect_count;
+	gcsRECT rects[chunk], *r;
+	gceSTATUS err = gcvSTATUS_OK;
+
+	while (n) {
+		size_t i;
+
+		if (n < chunk)
+			chunk = n;
+
+		for (i = 0, r = rects; i < chunk; i++, r++, b++)
+			RectBox(r, b, offset.x, offset.y);
+
+		err = gco2D_Blit(vivante->e2d, chunk, rects, rop, rop, fmt);
+		if (err)
+			break;
+
+		n -= chunk;
+	}
+
+	return err;
+}
+
 void vivante_commit(struct vivante *vivante, Bool stall)
 {
 	gceSTATUS err;
@@ -458,23 +484,9 @@ static Bool vivante_fill(struct vivante *vivante, struct vivante_pixmap *vPix,
 	GCPtr pGC, const BoxRec *clipBox, const BoxRec *pBox, unsigned nBox,
 	xPoint dst_offset)
 {
-	const BoxRec *b;
-	unsigned chunk;
 	gceSTATUS err;
 	gctUINT32 fg;
-	gctUINT8 rop;
-	gcsRECT *rects, *r, clip;
-
-	chunk = vivante->max_rect_count;
-	if (nBox < chunk)
-		chunk = nBox;
-
-	rects = malloc(chunk * sizeof *rects);
-	if (!rects) {
-		xf86DrvMsg(vivante->scrnIndex, X_ERROR,
-			   "[vivante] %s: %s failed\n", __FUNCTION__, "malloc rects");
-		return FALSE;
-	}
+	gcsRECT clip;
 
 	vivante_load_dst(vivante, vPix);
 	vivante_set_blend(vivante, NULL);
@@ -483,7 +495,6 @@ static Bool vivante_fill(struct vivante *vivante, struct vivante_pixmap *vPix,
 	err = gco2D_SetClipping(vivante->e2d, &clip);
 	if (err) {
 		vivante_error(vivante, "gco2D_SetClipping", err);
-		free(rects);
 		return FALSE;
 	}
 
@@ -491,28 +502,12 @@ static Bool vivante_fill(struct vivante *vivante, struct vivante_pixmap *vPix,
 	err = gco2D_LoadSolidBrush(vivante->e2d, vPix->format, 0, fg, ~0ULL);
 	if (err != gcvSTATUS_OK) {
 		vivante_error(vivante, "gco2D_LoadSolidBrush", err);
-		free(rects);
 		return FALSE;
 	}
 
-	rop = vivante_fill_rop[pGC->alu];
-	b = pBox;
-	while (nBox) {
-		unsigned i;
-
-		if (nBox < chunk)
-			chunk = nBox;
-
-		for (i = 0, r = rects; i < chunk; i++, r++, b++)
-			RectBox(r, b, dst_offset.x, dst_offset.y);
-
-		err = gco2D_Blit(vivante->e2d, chunk, rects, rop, rop, vPix->format);
-		if (err)
-			break;
-
-		nBox -= chunk;
-	}
-	free(rects);
+	err = vivante_bitblt_rects(vivante, pBox, nBox, dst_offset,
+				   vivante_fill_rop[pGC->alu],
+				   vPix->format);
 
 	if (err != gcvSTATUS_OK)
 		vivante_error(vivante, "Blit", err);
@@ -563,10 +558,8 @@ vivante_blit_copy(struct vivante *vivante, GCPtr pGC, const BoxRec *total,
 		if (__box_intersect(&clipped, total, pbox))
 			continue;
 
-		RectBox(&dst, &clipped, dst_offset.x, dst_offset.y);
-
-		err = gco2D_Blit(vivante->e2d, 1, &dst, rop, rop,
-				 vDst->format);
+		err = vivante_bitblt_rects(vivante, &clipped, 1, dst_offset,
+					   rop, vDst->format);
 		if (err != gcvSTATUS_OK)
 			break;
 	}
@@ -1082,20 +1075,13 @@ static Bool vivante_blend(struct vivante *vivante, const BoxRec *clip,
 		return FALSE;
 	}
 
-	while (nBox--) {
-		RectBox(&dst, pBox, dst_offset.x, dst_offset.y);
-
-		pBox++;
-
-		err = gco2D_Blit(vivante->e2d, 1, &dst, 0xcc, 0xcc,
-				 vDst->pict_format);
-		if (err != gcvSTATUS_OK) {
-			vivante_error(vivante, "gco2D_BatchBlit", err);
-			return FALSE;
-		}
-	}
-
+	err = vivante_bitblt_rects(vivante, pBox, nBox, dst_offset, 0xcc,
+				   vDst->pict_format);
 	vivante_blit_complete(vivante);
+	if (err != gcvSTATUS_OK) {
+		vivante_error(vivante, "gco2D_Blit", err);
+		return FALSE;
+	}
 
 	return TRUE;
 }
