@@ -262,18 +262,9 @@ vivante_batch_add(struct vivante *vivante, struct vivante_pixmap *vPix)
 #endif
 
 
-enum gpuid {
-	GPU2D_Source,
-	GPU2D_SourceBlend,
-	GPU2D_Target,
-};
-
 static Bool
-gal_prepare_gpu(struct vivante *vivante, struct vivante_pixmap *vPix,
-	enum gpuid id)
+gal_prepare_gpu(struct vivante *vivante, struct vivante_pixmap *vPix)
 {
-	gceSTATUS err;
-
 #ifdef DEBUG_CHECK_DRAWABLE_USE
 	if (vPix->in_use) {
 		fprintf(stderr, "Trying to accelerate: %p %p %u\n",
@@ -306,29 +297,6 @@ gal_prepare_gpu(struct vivante *vivante, struct vivante_pixmap *vPix,
 	 */
 	assert(vPix->handle != 0 && vPix->handle != -1);
 
-	switch (id) {
-	case GPU2D_Target:
-		err = gco2D_SetTarget(vivante->e2d, vPix->handle, vPix->pitch,
-				      gcvSURF_0_DEGREE, 0);
-		if (err != gcvSTATUS_OK) {
-			vivante_error(vivante, "gco2D_SetTarget", err);
-			return FALSE;
-		}
-		break;
-
-	case GPU2D_Source:
-		err = gco2D_SetColorSourceAdvanced(vivante->e2d, vPix->handle,
-				  vPix->pitch, vPix->format, gcvSURF_0_DEGREE,
-				  vPix->width, vPix->height, gcvFALSE);
-		if (err != gcvSTATUS_OK) {
-			vivante_error(vivante, "gco2D_SetColourSourceAdvanced", err);
-			return FALSE;
-		}
-		break;
-
-	case GPU2D_SourceBlend:
-		break;
-	}
 	return TRUE;
 }
 
@@ -343,6 +311,29 @@ static void vivante_flush(struct vivante *vivante)
 static void vivante_blit_complete(struct vivante *vivante)
 {
 	vivante_flush(vivante);
+}
+
+static void vivante_load_dst(struct vivante *vivante,
+	struct vivante_pixmap *vPix)
+{
+	gceSTATUS err;
+
+	err = gco2D_SetTarget(vivante->e2d, vPix->handle, vPix->pitch,
+			      gcvSURF_0_DEGREE, 0);
+	if (err != gcvSTATUS_OK)
+		vivante_error(vivante, "gco2D_SetTarget", err);
+}
+
+static void vivante_load_src(struct vivante *vivante,
+	struct vivante_pixmap *vPix, gceSURF_FORMAT fmt)
+{
+	gceSTATUS err;
+
+	err = gco2D_SetColorSourceAdvanced(vivante->e2d, vPix->handle,
+				  vPix->pitch, fmt, gcvSURF_0_DEGREE,
+				  vPix->width, vPix->height, gcvFALSE);
+	if (err != gcvSTATUS_OK)
+		vivante_error(vivante, "gco2D_SetColourSourceAdvanced", err);
 }
 
 void vivante_commit(struct vivante *vivante, Bool stall)
@@ -454,11 +445,12 @@ static Bool vivante_fill(struct vivante *vivante, struct vivante_pixmap *vPix,
 		return FALSE;
 	}
 
-	if (!gal_prepare_gpu(vivante, vPix, GPU2D_Target)) {
+	if (!gal_prepare_gpu(vivante, vPix)) {
 		free(rects);
 		return FALSE;
 	}
 
+	vivante_load_dst(vivante, vPix);
 	vivante_disable_alpha_blend(vivante);
 
 	RectBox(&clip, clipBox, dst_offset.x, dst_offset.y);
@@ -651,9 +643,10 @@ Bool vivante_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 	/* Get the 'X' offset required to align the supplied data */
 	off = addr & VIVANTE_ALIGN_MASK;
 
-	if (!gal_prepare_gpu(vivante, vPix, GPU2D_Target))
+	if (!gal_prepare_gpu(vivante, vPix))
 		goto unmap;
 
+	vivante_load_dst(vivante, vPix);
 	vivante_disable_alpha_blend(vivante);
 
 	err = gco2D_SetColorSourceAdvanced(vivante->e2d, addr - off, pitch,
@@ -735,10 +728,11 @@ void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 	limits.y2 = min(pixSrc->drawable.height - src_offset.y, pixDst->drawable.height - dst_offset.y);
 
 	/* Right, we're all good to go */
-	if (!gal_prepare_gpu(vivante, vDst, GPU2D_Target) ||
-	    !gal_prepare_gpu(vivante, vSrc, GPU2D_Source))
+	if (!gal_prepare_gpu(vivante, vDst) || !gal_prepare_gpu(vivante, vSrc))
 		goto fallback;
 
+	vivante_load_dst(vivante, vDst);
+	vivante_load_src(vivante, vSrc, vSrc->format);
 	vivante_disable_alpha_blend(vivante);
 
 	/* No need to load the brush here - the blit copy doesn't use it. */
@@ -906,10 +900,12 @@ Bool vivante_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 		ret = FALSE;
 
 		/* Right, we're all good to go */
-		if (!gal_prepare_gpu(vivante, vPix, GPU2D_Target) ||
-		    !gal_prepare_gpu(vivante, vTile, GPU2D_Source))
+		if (!gal_prepare_gpu(vivante, vPix) ||
+		    !gal_prepare_gpu(vivante, vTile))
 			goto fallback;
 
+		vivante_load_dst(vivante, vPix);
+		vivante_load_src(vivante, vTile, vTile->format);
 		vivante_disable_alpha_blend(vivante);
 
 		err = gco2D_LoadSolidBrush(vivante->e2d, vPix->format, 0, 0, ~0ULL);
@@ -1063,9 +1059,10 @@ static Bool vivante_fill_single(struct vivante *vivante,
 {
 	gceSTATUS err;
 
-	if (!gal_prepare_gpu(vivante, vPix, GPU2D_Target))
+	if (!gal_prepare_gpu(vivante, vPix))
 		return FALSE;
 
+	vivante_load_dst(vivante, vPix);
 	vivante_disable_alpha_blend(vivante);
 
 	err = gco2D_LoadSolidBrush(vivante->e2d, vPix->pict_format, 0, colour, ~0ULL);
@@ -1100,10 +1097,11 @@ static Bool vivante_blend(struct vivante *vivante, gcsRECT_PTR clip,
 {
 	gceSTATUS err;
 
-	if (!gal_prepare_gpu(vivante, vDst, GPU2D_Target) ||
-	    !gal_prepare_gpu(vivante, vSrc, GPU2D_SourceBlend))
+	if (!gal_prepare_gpu(vivante, vDst) || !gal_prepare_gpu(vivante, vSrc))
 		return FALSE;
 
+	vivante_load_dst(vivante, vDst);
+	vivante_load_src(vivante, vSrc, vSrc->pict_format);
 	if (!blend) {
 		vivante_disable_alpha_blend(vivante);
 	} else {
@@ -1123,14 +1121,6 @@ static Bool vivante_blend(struct vivante *vivante, gcsRECT_PTR clip,
 			return FALSE;
 		}
 		vivante->alpha_blend_enabled = TRUE;
-	}
-
-	err = gco2D_SetColorSourceAdvanced(vivante->e2d, vSrc->handle,
-			  vSrc->pitch, vSrc->pict_format, gcvSURF_0_DEGREE,
-			  vSrc->width, vSrc->height, gcvFALSE);
-	if (err != gcvSTATUS_OK) {
-		vivante_error(vivante, "gco2D_SetColorSourceAdvanced", err);
-		return FALSE;
 	}
 
 	err = gco2D_SetClipping(vivante->e2d, clip);
