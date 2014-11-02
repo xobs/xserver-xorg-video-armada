@@ -749,8 +749,8 @@ Bool vivante_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 	struct vivante *vivante = vivante_get_screen_priv(pDrawable->pScreen);
 	struct vivante_pixmap *vPix;
 	RegionPtr clip;
-	BoxPtr box;
-	BoxRec boxes[255], clipBox;
+	BoxPtr box, extents;
+	BoxRec boxes[255];
 	xPoint dst_offset;
 	int nclip, nb;
 	Bool ret = TRUE;
@@ -761,7 +761,7 @@ Bool vivante_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 		return FALSE;
 
 	clip = fbGetCompositeClip(pGC);
-	clipBox = *RegionExtents(clip);
+	extents = RegionExtents(clip);
 
 	nb = 0;
 	while (n--) {
@@ -780,7 +780,7 @@ Bool vivante_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 				continue;
 
 			if (++nb > 254) {
-				ret = vivante_fill(vivante, vPix, pGC, &clipBox,
+				ret = vivante_fill(vivante, vPix, pGC, extents,
 						   boxes, nb, dst_offset);
 				nb = 0;
 				if (!ret)
@@ -791,7 +791,7 @@ Bool vivante_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 			break;
 	}
 	if (nb)
-		ret = vivante_fill(vivante, vPix, pGC, &clipBox,
+		ret = vivante_fill(vivante, vPix, pGC, extents,
 				   boxes, nb, dst_offset);
 	vivante_blit_complete(vivante);
 
