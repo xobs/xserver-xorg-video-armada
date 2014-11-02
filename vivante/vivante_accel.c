@@ -318,6 +318,7 @@ static void vivante_load_dst(struct vivante *vivante,
 {
 	gceSTATUS err;
 
+	vivante_batch_add(vivante, vPix);
 	err = gco2D_SetTarget(vivante->e2d, vPix->handle, vPix->pitch,
 			      gcvSURF_0_DEGREE, 0);
 	if (err != gcvSTATUS_OK)
@@ -329,6 +330,7 @@ static void vivante_load_src(struct vivante *vivante,
 {
 	gceSTATUS err;
 
+	vivante_batch_add(vivante, vPix);
 	err = gco2D_SetColorSourceAdvanced(vivante->e2d, vPix->handle,
 				  vPix->pitch, fmt, gcvSURF_0_DEGREE,
 				  vPix->width, vPix->height, gcvFALSE);
@@ -490,8 +492,6 @@ static Bool vivante_fill(struct vivante *vivante, struct vivante_pixmap *vPix,
 
 	if (err != gcvSTATUS_OK)
 		vivante_error(vivante, "Blit", err);
-
-	vivante_batch_add(vivante, vPix);
 
 	return TRUE;
 }
@@ -672,8 +672,6 @@ Bool vivante_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 	if (err != gcvSTATUS_OK)
 		vivante_error(vivante, "Blit", err);
 
-	vivante_batch_add(vivante, vPix);
-
 	/* Ask for the memory to be unmapped upon completion */
 	gcoHAL_ScheduleUnmapUserMemory(vivante->hal, info, size, addr, buf);
 
@@ -743,8 +741,6 @@ void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 	if (err != gcvSTATUS_OK)
 		vivante_error(vivante, "Blit", err);
 
-	vivante_batch_add(vivante, vSrc);
-	vivante_batch_add(vivante, vDst);
 	vivante_blit_complete(vivante);
 
 	return;
@@ -985,8 +981,6 @@ Bool vivante_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 				break;
 			pBox++;
 		}
-		vivante_batch_add(vivante, vTile);
-		vivante_batch_add(vivante, vPix);
 		vivante_blit_complete(vivante);
 		ret = err == 0 ? TRUE : FALSE;
 	} else {
@@ -1083,7 +1077,6 @@ static Bool vivante_fill_single(struct vivante *vivante,
 		return FALSE;
 	}
 
-	vivante_batch_add(vivante, vPix);
 	vivante_blit_complete(vivante);
 
 	return TRUE;
@@ -1136,8 +1129,6 @@ static Bool vivante_blend(struct vivante *vivante, gcsRECT_PTR clip,
 		return FALSE;
 	}
 
-	vivante_batch_add(vivante, vDst);
-	vivante_batch_add(vivante, vSrc);
 	vivante_blit_complete(vivante);
 
 	return TRUE;
