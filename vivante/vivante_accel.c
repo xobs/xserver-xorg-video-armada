@@ -519,10 +519,13 @@ static const gctUINT8 vivante_copy_rop[] = {
 static gceSTATUS
 vivante_blit_copy(struct vivante *vivante, GCPtr pGC, const BoxRec *total,
 	const BoxRec *pbox, int nbox, xPoint src_offset, xPoint dst_offset,
-	gceSURF_FORMAT format)
+	struct vivante_pixmap *vDst)
 {
 	gctUINT8 rop = vivante_copy_rop[pGC ? pGC->alu : GXcopy];
 	gceSTATUS err = gcvSTATUS_OK;
+
+	vivante_load_dst(vivante, vDst);
+	vivante_disable_alpha_blend(vivante);
 
 	for (; nbox; nbox--, pbox++) {
 		BoxRec clipped;
@@ -538,7 +541,8 @@ vivante_blit_copy(struct vivante *vivante, GCPtr pGC, const BoxRec *total,
 		if (err != gcvSTATUS_OK)
 			break;
 
-		err = gco2D_BatchBlit(vivante->e2d, 1, &src, &dst, rop, rop, format);
+		err = gco2D_BatchBlit(vivante->e2d, 1, &src, &dst, rop, rop,
+				      vDst->format);
 		if (err != gcvSTATUS_OK)
 			break;
 	}
@@ -646,9 +650,6 @@ Bool vivante_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 	if (!gal_prepare_gpu(vivante, vPix))
 		goto unmap;
 
-	vivante_load_dst(vivante, vPix);
-	vivante_disable_alpha_blend(vivante);
-
 	err = gco2D_SetColorSourceAdvanced(vivante->e2d, addr - off, pitch,
 			  vPix->format, gcvSURF_0_DEGREE, w, h, gcvFALSE);
 	if (err != gcvSTATUS_OK) {
@@ -666,9 +667,9 @@ Bool vivante_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 	src_offset.x = -x + off * 8 / BitsPerPixel(depth);
 	src_offset.y = -y;
 
-	err = vivante_blit_copy(vivante, pGC, &total, REGION_RECTS(pClip),
-				REGION_NUM_RECTS(pClip), src_offset,
-				dst_offset, vPix->format);
+	err = vivante_blit_copy(vivante, pGC, &total, RegionRects(pClip),
+				RegionNumRects(pClip), src_offset,
+				dst_offset, vPix);
 	if (err != gcvSTATUS_OK)
 		vivante_error(vivante, "Blit", err);
 
@@ -729,15 +730,13 @@ void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 	if (!gal_prepare_gpu(vivante, vDst) || !gal_prepare_gpu(vivante, vSrc))
 		goto fallback;
 
-	vivante_load_dst(vivante, vDst);
 	vivante_load_src(vivante, vSrc, vSrc->format);
-	vivante_disable_alpha_blend(vivante);
 
 	/* No need to load the brush here - the blit copy doesn't use it. */
 
 	/* Submit the blit operations */
 	err = vivante_blit_copy(vivante, pGC, &limits, pBox, nBox,
-				src_offset, dst_offset, vDst->format);
+				src_offset, dst_offset, vDst);
 	if (err != gcvSTATUS_OK)
 		vivante_error(vivante, "Blit", err);
 
