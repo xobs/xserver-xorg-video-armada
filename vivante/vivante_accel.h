@@ -120,6 +120,15 @@ struct vivante_pixmap {
 	struct drm_armada_bo *bo;
 };
 
+struct vivante_blend_op {
+	gceSURF_BLEND_FACTOR_MODE src_blend;
+	gceSURF_BLEND_FACTOR_MODE dst_blend;
+	gceSURF_GLOBAL_ALPHA_MODE src_global_alpha;
+	gceSURF_GLOBAL_ALPHA_MODE dst_global_alpha;
+	uint8_t src_alpha;
+	uint8_t dst_alpha;
+};
+
 /* Addresses must be aligned */
 #define VIVANTE_ALIGN_MASK 63
 

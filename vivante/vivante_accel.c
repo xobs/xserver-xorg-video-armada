@@ -44,13 +44,29 @@ static inline uint32_t scale16(uint32_t val, int bits)
 	return val >> 8;
 }
 
-static void vivante_disable_alpha_blend(struct vivante *vivante)
+static void vivante_set_blend(struct vivante *vivante,
+	const struct vivante_blend_op *blend)
 {
 #ifdef RENDER
-	/* If alpha blending was enabled, disable it now */
-	if (vivante->alpha_blend_enabled) {
-		gceSTATUS err;
+	gceSTATUS err;
 
+	if (blend) {
+		err = gco2D_EnableAlphaBlend(vivante->e2d,
+			blend->src_alpha,
+			blend->dst_alpha,
+			gcvSURF_PIXEL_ALPHA_STRAIGHT,
+			gcvSURF_PIXEL_ALPHA_STRAIGHT,
+			blend->src_global_alpha,
+			blend->dst_global_alpha,
+			blend->src_blend,
+			blend->dst_blend,
+			gcvSURF_COLOR_STRAIGHT,
+			gcvSURF_COLOR_STRAIGHT);
+		if (err != gcvSTATUS_OK)
+			vivante_error(vivante, "gco2D_EnableAlphaBlend", err);
+
+		vivante->alpha_blend_enabled = TRUE;
+	} else if (vivante->alpha_blend_enabled) {
 		vivante->alpha_blend_enabled = FALSE;
 
 		err = gco2D_DisableAlphaBlend(vivante->e2d);
@@ -216,7 +232,7 @@ static void vivante_batch_commit(struct vivante *vivante)
 	    rect.left, rect.top, rect.right, rect.bottom);
 #endif
 
-	vivante_disable_alpha_blend(vivante);
+	vivante_set_blend(vivante, NULL);
 
 	err = gco2D_LoadSolidBrush(vivante->e2d, gcvSURF_A8R8G8B8, 0, col, ~0ULL);
 	if (err != gcvSTATUS_OK)
@@ -448,7 +464,7 @@ static Bool vivante_fill(struct vivante *vivante, struct vivante_pixmap *vPix,
 	}
 
 	vivante_load_dst(vivante, vPix);
-	vivante_disable_alpha_blend(vivante);
+	vivante_set_blend(vivante, NULL);
 
 	RectBox(&clip, clipBox, dst_offset.x, dst_offset.y);
 	err = gco2D_SetClipping(vivante->e2d, &clip);
@@ -520,7 +536,7 @@ vivante_blit_copy(struct vivante *vivante, GCPtr pGC, const BoxRec *total,
 	gceSTATUS err = gcvSTATUS_OK;
 
 	vivante_load_dst(vivante, vDst);
-	vivante_disable_alpha_blend(vivante);
+	vivante_set_blend(vivante, NULL);
 
 	for (; nbox; nbox--, pbox++) {
 		BoxRec clipped;
@@ -853,7 +869,7 @@ Bool vivante_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 
 		vivante_load_dst(vivante, vPix);
 		vivante_load_src(vivante, vTile, vTile->format);
-		vivante_disable_alpha_blend(vivante);
+		vivante_set_blend(vivante, NULL);
 
 		err = gco2D_LoadSolidBrush(vivante->e2d, vPix->format, 0, 0, ~0ULL);
 		if (err != gcvSTATUS_OK) {
@@ -965,15 +981,6 @@ static void adjust_repeat(PicturePtr pPict, int x, int y, unsigned w, unsigned h
 	}
 }
 
-struct vivante_blend_op {
-	gceSURF_BLEND_FACTOR_MODE src_blend;
-	gceSURF_BLEND_FACTOR_MODE dst_blend;
-	gceSURF_GLOBAL_ALPHA_MODE src_global_alpha;
-	gceSURF_GLOBAL_ALPHA_MODE dst_global_alpha;
-	uint8_t src_alpha;
-	uint8_t dst_alpha;
-};
-
 static const struct vivante_blend_op vivante_composite_op[] = {
 #define OP(op,s,d) \
 	[PictOp##op] = { \
@@ -1008,7 +1015,7 @@ static Bool vivante_fill_single(struct vivante *vivante,
 		return FALSE;
 
 	vivante_load_dst(vivante, vPix);
-	vivante_disable_alpha_blend(vivante);
+	vivante_set_blend(vivante, NULL);
 
 	err = gco2D_LoadSolidBrush(vivante->e2d, vPix->pict_format, 0, colour, ~0ULL);
 	if (err != gcvSTATUS_OK) {
@@ -1046,26 +1053,7 @@ static Bool vivante_blend(struct vivante *vivante, gcsRECT_PTR clip,
 
 	vivante_load_dst(vivante, vDst);
 	vivante_load_src(vivante, vSrc, vSrc->pict_format);
-	if (!blend) {
-		vivante_disable_alpha_blend(vivante);
-	} else {
-		err = gco2D_EnableAlphaBlend(vivante->e2d,
-			blend->src_alpha,
-			blend->dst_alpha,
-			gcvSURF_PIXEL_ALPHA_STRAIGHT,
-			gcvSURF_PIXEL_ALPHA_STRAIGHT,
-			blend->src_global_alpha,
-			blend->dst_global_alpha,
-			blend->src_blend,
-			blend->dst_blend,
-			gcvSURF_COLOR_STRAIGHT,
-			gcvSURF_COLOR_STRAIGHT);
-		if (err != gcvSTATUS_OK) {
-			vivante_error(vivante, "gco2D_EnableAlphaBlend", err);
-			return FALSE;
-		}
-		vivante->alpha_blend_enabled = TRUE;
-	}
+	vivante_set_blend(vivante, blend);
 
 	err = gco2D_SetClipping(vivante->e2d, clip);
 	if (err != gcvSTATUS_OK) {
