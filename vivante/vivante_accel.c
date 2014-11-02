@@ -447,11 +447,6 @@ static Bool vivante_fill(struct vivante *vivante, struct vivante_pixmap *vPix,
 		return FALSE;
 	}
 
-	if (!gal_prepare_gpu(vivante, vPix)) {
-		free(rects);
-		return FALSE;
-	}
-
 	vivante_load_dst(vivante, vPix);
 	vivante_disable_alpha_blend(vivante);
 
@@ -564,6 +559,9 @@ Bool vivante_accel_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int n,
 	Bool ret, overlap;
 
 	vPix = vivante_drawable_offset(pDrawable, &dst_offset);
+
+	if (!gal_prepare_gpu(vivante, vPix))
+		return FALSE;
 
 	pBox = malloc(n * sizeof *pBox);
 	if (!pBox)
@@ -762,6 +760,9 @@ Bool vivante_accel_PolyPoint(DrawablePtr pDrawable, GCPtr pGC, int mode,
 
 	vPix = vivante_drawable_offset(pDrawable, &dst_offset);
 
+	if (!gal_prepare_gpu(vivante, vPix))
+		return FALSE;
+
 	pBox = malloc(npt * sizeof *pBox);
 	if (!pBox)
 		return FALSE;
@@ -819,6 +820,9 @@ Bool vivante_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 	Bool ret = TRUE;
 
 	vPix = vivante_drawable_offset(pDrawable, &dst_offset);
+
+	if (!gal_prepare_gpu(vivante, vPix))
+		return FALSE;
 
 	clip = fbGetCompositeClip(pGC);
 	clipBox = *RegionExtents(clip);
