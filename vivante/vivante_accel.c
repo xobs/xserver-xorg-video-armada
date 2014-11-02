@@ -1004,9 +1004,12 @@ static const struct vivante_blend_op vivante_composite_op[] = {
 };
 
 static Bool vivante_fill_single(struct vivante *vivante,
-	struct vivante_pixmap *vPix, gcsRECT_PTR rect, uint32_t colour)
+	struct vivante_pixmap *vPix, const BoxRec *clip, uint32_t colour)
 {
 	gceSTATUS err;
+	gcsRECT dst;
+
+	RectBox(&dst, clip, 0, 0);
 
 	if (!gal_prepare_gpu(vivante, vPix))
 		return FALSE;
@@ -1020,13 +1023,13 @@ static Bool vivante_fill_single(struct vivante *vivante,
 		return FALSE;
 	}
 
-	err = gco2D_SetClipping(vivante->e2d, rect);
+	err = gco2D_SetClipping(vivante->e2d, &dst);
 	if (err != gcvSTATUS_OK) {
 		vivante_error(vivante, "gco2D_SetClipping", err);
 		return FALSE;
 	}
 
-	err = gco2D_Blit(vivante->e2d, 1, rect, 0xf0, 0xf0, vPix->pict_format);
+	err = gco2D_Blit(vivante->e2d, 1, &dst, 0xf0, 0xf0, vPix->pict_format);
 	if (err != gcvSTATUS_OK) {
 		vivante_error(vivante, "gco2D_Blit", err);
 		return FALSE;
@@ -1037,12 +1040,13 @@ static Bool vivante_fill_single(struct vivante *vivante,
 	return TRUE;
 }
 
-static Bool vivante_blend(struct vivante *vivante, gcsRECT_PTR clip,
+static Bool vivante_blend(struct vivante *vivante, const BoxRec *clip,
 	const struct vivante_blend_op *blend,
-	struct vivante_pixmap *vDst, gcsRECT_PTR rDst,
-	struct vivante_pixmap *vSrc, gcsRECT_PTR rSrc,
-	unsigned nRect)
+	struct vivante_pixmap *vDst, struct vivante_pixmap *vSrc,
+	const BoxRec *pBox, unsigned nBox, xPoint src_offset,
+	xPoint dst_offset)
 {
+	gcsRECT src, dst;
 	gceSTATUS err;
 
 	if (!gal_prepare_gpu(vivante, vDst) || !gal_prepare_gpu(vivante, vSrc))
@@ -1052,17 +1056,25 @@ static Bool vivante_blend(struct vivante *vivante, gcsRECT_PTR clip,
 	vivante_load_src(vivante, vSrc, vSrc->pict_format);
 	vivante_set_blend(vivante, blend);
 
-	err = gco2D_SetClipping(vivante->e2d, clip);
+	RectBox(&dst, clip, dst_offset.x, dst_offset.y);
+	err = gco2D_SetClipping(vivante->e2d, &dst);
 	if (err != gcvSTATUS_OK) {
 		vivante_error(vivante, "gco2D_SetClipping", err);
 		return FALSE;
 	}
 
-	err = gco2D_BatchBlit(vivante->e2d, nRect, rSrc, rDst, 0xcc, 0xcc,
-			vDst->pict_format);
-	if (err != gcvSTATUS_OK) {
-		vivante_error(vivante, "gco2D_BatchBlit", err);
-		return FALSE;
+	while (nBox--) {
+		RectBox(&src, pBox, src_offset.x, src_offset.y);
+		RectBox(&dst, pBox, dst_offset.x, dst_offset.y);
+
+		pBox++;
+
+		err = gco2D_BatchBlit(vivante->e2d, 1, &src, &dst, 0xcc, 0xcc,
+				      vDst->pict_format);
+		if (err != gcvSTATUS_OK) {
+			vivante_error(vivante, "gco2D_BatchBlit", err);
+			return FALSE;
+		}
 	}
 
 	vivante_blit_complete(vivante);
@@ -1139,7 +1151,7 @@ static Bool vivante_pict_solid_argb(PicturePtr pict, uint32_t *col)
  * with or without alpha, and convert later when copying.
  */
 static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
-	PicturePtr pict, int x, int y, int w, int h, gcsRECT_PTR clip,
+	PicturePtr pict, const BoxRec *clip,
 	PixmapPtr pix, struct vivante_pixmap *vTemp, xPoint *src_topleft)
 {
 	struct vivante_pixmap *vSrc;
@@ -1165,12 +1177,16 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 	if (!pict->repeat &&
 	    transform_is_integer_translation(pict->transform, &tx, &ty) &&
 	    vivante_format_valid(vivante, vSrc->pict_format)) {
-		src_topleft->x = src_offset.x + x + tx + drawable->x;
-		src_topleft->y = src_offset.y + y + ty + drawable->y;
+		src_topleft->x += src_offset.x + tx;
+		src_topleft->y += src_offset.y + ty;
 	} else {
 		PictFormatPtr f;
 		PicturePtr dest;
 		int err;
+		int x = src_topleft->x - drawable->x;
+		int y = src_topleft->y - drawable->y;
+		int w = clip->x2;
+		int h = clip->y2;
 
 		f = PictureMatchFormat(drawable->pScreen, 32, PICT_a8r8g8b8);
 		if (!f)
@@ -1181,7 +1197,8 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 			return NULL;
 		ValidatePicture(dest);
 
-		unaccel_Composite(PictOpSrc, pict, NULL, dest, x, y, 0, 0, 0, 0, w, h);
+		unaccel_Composite(PictOpSrc, pict, NULL, dest,
+				  x, y, 0, 0, 0, 0, w, h);
 		FreePicture(dest, 0);
 		src_topleft->x = 0;
 		src_topleft->y = 0;
@@ -1197,11 +1214,11 @@ static int vivante_accel_final_blend(struct vivante *vivante,
 	PicturePtr pDst, struct vivante_pixmap *vDst, int xDst, int yDst,
 	PicturePtr pSrc, struct vivante_pixmap *vSrc, xPoint src_offset)
 {
-	gcsRECT *rects, *rsrc, *rdst;
-	gcsRECT clip;
-	int i, nrects, rc;
+	int rc;
 
-	RectBox(&clip, RegionExtents(region), dst_offset.x, dst_offset.y);
+	/* The correction needed to map the region boxes to the source */
+	src_offset.x -= xDst;
+	src_offset.y -= yDst;
 
 #if 0
 	fprintf(stderr, "%s: dst %d,%d,%d,%d %d,%d %u (%x) bo %p\n",
@@ -1211,36 +1228,14 @@ static int vivante_accel_final_blend(struct vivante *vivante,
 		xDst, yDst, vDst->pict_format, pDst->format, vDst->bo);
 #endif
 
-	nrects = REGION_NUM_RECTS(region);
-	rects = malloc(sizeof(*rects) * nrects * 2);
-	if (!rects) {
-		xf86DrvMsg(vivante->scrnIndex, X_ERROR,
-			   "%s: malloc failed\n", __FUNCTION__);
-		return FALSE;
-	}
-
-	src_offset.x -= xDst;
-	src_offset.y -= yDst;
-
-	for (i = 0, rsrc = rects, rdst = rsrc + nrects;
-	     i < nrects;
-	     i++, rsrc++, rdst++) {
-		RectBox(rsrc, REGION_RECTS(region) + i, src_offset.x, src_offset.y);
-		RectBox(rdst, REGION_RECTS(region) + i, dst_offset.x, dst_offset.y);
-	}
-
-	rsrc = rects;
-	rdst = rects + nrects;
-
 #if 0
 	dump_vPix(buf, vivante, vSrc, 1, "A-FSRC%02.2x-%p", op, pSrc);
 	dump_vPix(buf, vivante, vDst, 1, "A-FDST%02.2x-%p", op, pDst);
 #endif
 
-	rc = vivante_blend(vivante, &clip, blend,
-			   vDst, rdst, vSrc, rsrc, nrects);
-
-	free(rects);
+	rc = vivante_blend(vivante, RegionExtents(region), blend, vDst, vSrc,
+			   RegionRects(region), RegionNumRects(region),
+			   src_offset, dst_offset);
 
 #if 0
 	dump_vPix(buf, vivante, vDst, PICT_FORMAT_A(pDst->format) != 0,
@@ -1376,7 +1371,7 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	struct vivante_blend_op final_op;
 	PixmapPtr pPixTemp = NULL;
 	RegionRec region;
-	gcsRECT clipTemp;
+	BoxRec clip_temp;
 	xPoint src_topleft, dst_offset;
 	int rc;
 
@@ -1412,17 +1407,6 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 
 	final_op = vivante_composite_op[op];
 
-	/*
-	 * There is a bug in the GPU hardware with destinations lacking
-	 * alpha and swizzles BGRA/RGBA.  Rather than the GPU treating
-	 * bits 7:0 as alpha, it continues to treat bits 31:24 as alpha.
-	 * This results in it replacing the B or R bits on input to the
-	 * blend operation with 1.0.  However, it continues to accept the
-	 * non-existent source alpha from bits 31:24.
-	 *
-	 * Work around this by switching to the equivalent alpha format,
-	 * and use global alpha to replace the alpha channel.
-	 */
 	if (vivante_workaround_nonalpha(vDst)) {
 		final_op.dst_global_alpha = gcvSURF_GLOBAL_ALPHA_ON;
 		final_op.dst_alpha = 255;
@@ -1525,6 +1509,14 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	xDst += pDst->pDrawable->x;
 	yDst += pDst->pDrawable->y;
 
+	if (pSrc->pDrawable) {
+		xSrc += pSrc->pDrawable->x;
+		ySrc += pSrc->pDrawable->y;
+	}
+
+	src_topleft.x = xSrc;
+	src_topleft.y = ySrc;
+
 	/*
 	 * Compute the regions to be composited.  This provides us with the
 	 * rectangles which need to be composited at each stage, where the
@@ -1554,13 +1546,19 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	 * Compute the temporary image clipping box, which is the
 	 * clipping region extents without the destination offset.
 	 */
-	RectBox(&clipTemp, RegionExtents(&region), -xDst, -yDst);
+	clip_temp = *RegionExtents(&region);
+	clip_temp.x1 -= xDst;
+	clip_temp.y1 -= yDst;
+	clip_temp.x2 -= xDst;
+	clip_temp.y2 -= yDst;
 
 	/*
-	 * Get a temporary pixmap.  We don't really know yet whether we're
-	 * going to use it or not.
+	 * Get a temporary pixmap.  We don't know whether we will need
+	 * this at this stage.  Its size is the size of the temporary clip
+	 * box.
 	 */
-	pPixTemp = pScreen->CreatePixmap(pScreen, width, height, 32, 0);
+	pPixTemp = pScreen->CreatePixmap(pScreen, clip_temp.x2, clip_temp.y2,
+					 32, 0);
 	if (!pPixTemp)
 		goto failed;
 
@@ -1572,12 +1570,11 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 
 	/*
 	 * Get the source.  The source image will be described by vSrc with
-	 * offset xSrc/ySrc.  This may or may not be the temporary image, and
-	 * vSrc->pict_format describes its format, including whether the
+	 * origin src_topleft.  This may or may not be the temporary image,
+	 * and vSrc->pict_format describes its format, including whether the
 	 * alpha channel is valid.
 	 */
-	vSrc = vivante_acquire_src(vivante, pSrc, xSrc, ySrc,
-				   width, height, &clipTemp,
+	vSrc = vivante_acquire_src(vivante, pSrc, &clip_temp,
 				   pPixTemp, vTemp, &src_topleft);
 	if (!vSrc)
 		goto failed;
@@ -1619,8 +1616,7 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 	 *  vSrc = vTemp
 	 */
 	if (pMask) {
-		gcsRECT rsrc, rdst;
-		xPoint mask_offset;
+		xPoint mask_offset, temp_offset;
 
 		vMask = vivante_drawable_offset(pMask->pDrawable, &mask_offset);
 		if (!vMask)
@@ -1630,36 +1626,24 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 
 		mask_offset.x += xMask;
 		mask_offset.y += yMask;
+		temp_offset.x = 0;
+		temp_offset.y = 0;
 //dump_vPix(buf, vivante, vMask, 1, "A-MASK%02.2x-%p", op, pMask);
-		rdst.left = 0;
-		rdst.top = 0;
-		rdst.right = width;
-		rdst.bottom = height;
 
 		if (vTemp != vSrc) {
-			/* Copy Source to Temp */
-			rsrc.left = src_topleft.x;
-			rsrc.top = src_topleft.y;
-			rsrc.right = src_topleft.x + width;
-			rsrc.bottom = src_topleft.y + height;
-
 			/*
+			 * Copy Source to Temp.
 			 * The source may not have alpha, but we need the
 			 * temporary pixmap to have alpha.  Try to convert
 			 * while copying.  (If this doesn't work, use OR
 			 * in the brush with maximum alpha value.)
 			 */
-			if (!vivante_blend(vivante, &clipTemp, NULL,
-					   vTemp, &rdst,
-					   vSrc, &rsrc, 1))
+			if (!vivante_blend(vivante, &clip_temp, NULL,
+					   vTemp, vSrc, &clip_temp, 1,
+					   src_topleft, temp_offset))
 				goto failed;
 //dump_vPix(buf, vivante, vTemp, 1, "A-TMSK%02.2x-%p", op, pMask);
 		}
-
-		rsrc.left = mask_offset.x;
-		rsrc.top = mask_offset.y;
-		rsrc.right = mask_offset.x + width;
-		rsrc.bottom = mask_offset.y + height;
 
 #if 0
 if (pMask && pMask->pDrawable)
@@ -1669,16 +1653,14 @@ if (pMask && pMask->pDrawable)
   xMask, yMask, vMask->pict_format, pMask->format);
 #endif
 
-		if (!vivante_blend(vivante, &clipTemp,
+		if (!vivante_blend(vivante, &clip_temp,
 				   &vivante_composite_op[PictOpInReverse],
-				   vTemp, &rdst,
-				   vMask, &rsrc,
-				   1))
+				   vTemp, vMask, &clip_temp, 1,
+				   mask_offset, temp_offset))
 			goto failed;
 
 		vSrc = vTemp;
-		src_topleft.x = 0;
-		src_topleft.y = 0;
+		src_topleft = temp_offset;
 	}
 
 	rc = vivante_accel_final_blend(vivante, &final_op,
