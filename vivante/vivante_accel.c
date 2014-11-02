@@ -557,15 +557,13 @@ Bool vivante_accel_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int n,
 {
 	struct vivante *vivante = vivante_get_screen_priv(pDrawable->pScreen);
 	struct vivante_pixmap *vPix;
-	PixmapPtr pPix;
 	BoxPtr pBox, p;
 	RegionRec region;
 	xPoint dst_offset;
 	int i;
 	Bool ret, overlap;
 
-	pPix = drawable_pixmap_offset(pDrawable, &dst_offset);
-	vPix = vivante_get_pixmap_priv(pPix);
+	vPix = vivante_drawable_offset(pDrawable, &dst_offset);
 	if (!vPix)
 		return FALSE;
 
@@ -605,7 +603,6 @@ Bool vivante_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 	struct vivante *vivante = vivante_get_screen_priv(pDrawable->pScreen);
 	struct vivante_pixmap *vPix;
 	RegionPtr pClip = fbGetCompositeClip(pGC);
-	PixmapPtr pPix;
 	BoxRec total;
 	xPoint src_offset, dst_offset;
 	unsigned pitch, size;
@@ -618,8 +615,7 @@ Bool vivante_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 	if (format != ZPixmap)
 		return FALSE;
 
-	pPix = drawable_pixmap_offset(pDrawable, &dst_offset);
-	vPix = vivante_get_pixmap_priv(pPix);
+	vPix = vivante_drawable_offset(pDrawable, &dst_offset);
 	if (!vPix)
 		return FALSE;
 
@@ -769,15 +765,13 @@ Bool vivante_accel_PolyPoint(DrawablePtr pDrawable, GCPtr pGC, int mode,
 {
 	struct vivante *vivante = vivante_get_screen_priv(pDrawable->pScreen);
 	struct vivante_pixmap *vPix;
-	PixmapPtr pPix;
 	BoxPtr pBox;
 	RegionRec region;
 	xPoint dst_offset;
 	int i;
 	Bool ret, overlap;
 
-	pPix = drawable_pixmap_offset(pDrawable, &dst_offset);
-	vPix = vivante_get_pixmap_priv(pPix);
+	vPix = vivante_drawable_offset(pDrawable, &dst_offset);
 	if (!vPix)
 		return FALSE;
 
@@ -829,7 +823,6 @@ Bool vivante_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 {
 	struct vivante *vivante = vivante_get_screen_priv(pDrawable->pScreen);
 	struct vivante_pixmap *vPix;
-	PixmapPtr pPix;
 	RegionPtr clip;
 	BoxPtr box;
 	BoxRec boxes[255], clipBox;
@@ -837,8 +830,7 @@ Bool vivante_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 	int nclip, nb;
 	Bool ret = TRUE;
 
-	pPix = drawable_pixmap_offset(pDrawable, &dst_offset);
-	vPix = vivante_get_pixmap_priv(pPix);
+	vPix = vivante_drawable_offset(pDrawable, &dst_offset);
 	if (!vPix)
 		return FALSE;
 
@@ -884,14 +876,13 @@ Bool vivante_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 {
 	struct vivante *vivante = vivante_get_screen_priv(pDrawable->pScreen);
 	struct vivante_pixmap *vPix, *vTile;
-	PixmapPtr pPix, pTile = pGC->tile.pixmap;
+	PixmapPtr pTile = pGC->tile.pixmap;
 	RegionPtr rects;
 	xPoint dst_offset;
 	int nbox;
 	Bool ret;
 
-	pPix = drawable_pixmap_offset(pDrawable, &dst_offset);
-	vPix = vivante_get_pixmap_priv(pPix);
+	vPix = vivante_drawable_offset(pDrawable, &dst_offset);
 	vTile = vivante_get_pixmap_priv(pTile);
 	if (!vPix || !vTile)
 		return FALSE;
@@ -1230,7 +1221,6 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 	PicturePtr pict, int x, int y, int w, int h, gcsRECT_PTR clip,
 	PixmapPtr pix, struct vivante_pixmap *vTemp, xPoint *src_topleft)
 {
-	PixmapPtr pPixmap;
 	struct vivante_pixmap *vSrc;
 	DrawablePtr drawable = pict->pDrawable;
 	uint32_t colour;
@@ -1247,8 +1237,7 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 		return vTemp;
 	}
 
-	pPixmap = drawable_pixmap_offset(pict->pDrawable, &src_offset);
-	vSrc = vivante_get_pixmap_priv(pPixmap);
+	vSrc = vivante_drawable_offset(pict->pDrawable, &src_offset);
 	if (!vSrc)
 		return NULL;
 
@@ -1407,7 +1396,7 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	struct vivante *vivante = vivante_get_screen_priv(pScreen);
 	struct vivante_pixmap *vDst, *vSrc, *vMask, *vTemp = NULL;
 	struct vivante_blend_op final_op;
-	PixmapPtr pPixmap, pPixTemp = NULL;
+	PixmapPtr pPixTemp = NULL;
 	RegionRec region;
 	gcsRECT clipTemp;
 	xPoint src_topleft, dst_offset;
@@ -1426,8 +1415,7 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 		return FALSE;
 
 	/* The destination pixmap must have a bo */
-	pPixmap = drawable_pixmap_offset(pDst->pDrawable, &dst_offset);
-	vDst = vivante_get_pixmap_priv(pPixmap);
+	vDst = vivante_drawable_offset(pDst->pDrawable, &dst_offset);
 	if (!vDst)
 		return FALSE;
 
@@ -1653,12 +1641,10 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 	 *  vSrc = vTemp
 	 */
 	if (pMask) {
-		PixmapPtr pPixMask;
 		gcsRECT rsrc, rdst;
 		xPoint mask_offset;
 
-		pPixMask = drawable_pixmap_offset(pMask->pDrawable, &mask_offset);
-		vMask = vivante_get_pixmap_priv(pPixMask);
+		vMask = vivante_drawable_offset(pMask->pDrawable, &mask_offset);
 		if (!vMask)
 			goto failed;
 

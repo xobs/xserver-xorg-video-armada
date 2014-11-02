@@ -372,9 +372,8 @@ static void dump_pix(struct vivante *vivante, struct vivante_pixmap *vPix,
 void dump_Drawable(DrawablePtr pDraw, const char *fmt, ...)
 {
 	struct vivante *vivante = vivante_get_screen_priv(pDraw->pScreen);
-	int x, y;
-	PixmapPtr pPix = drawable_pixmap_deltas(pDraw, &x, &y);
-	struct vivante_pixmap *vPix = vivante_get_pixmap_priv(pPix);
+	xPoint offset;
+	struct vivante_pixmap *vPix = vivante_drawable_offset(pDraw, &offset);
 	va_list ap;
 
 	if (!vPix)
@@ -382,8 +381,8 @@ void dump_Drawable(DrawablePtr pDraw, const char *fmt, ...)
 
 	va_start(ap, fmt);
 	dump_pix(vivante, vPix, false,
-		 pDraw->x + x, pDraw->y + y, pDraw->width, pDraw->height,
-		 fmt, ap);
+		 pDraw->x + offset.x, pDraw->y + offset.y,
+		 pDraw->width, pDraw->height, fmt, ap);
 	va_end(ap);
 }
 
@@ -392,14 +391,12 @@ void dump_Picture(PicturePtr pDst, const char *fmt, ...)
 	DrawablePtr pDraw = pDst->pDrawable;
 	struct vivante *vivante;
 	struct vivante_pixmap *vPix;
-	PixmapPtr pPix;
+	xPoint offset;
 	bool alpha;
 	va_list ap;
-	int x, y;
 
 	vivante = vivante_get_screen_priv(pDraw->pScreen);
-	pPix = drawable_pixmap_deltas(pDraw, &x, &y);
-	vPix = vivante_get_pixmap_priv(pPix);
+	vPix = vivante_drawable_offset(pDraw, &offset);
 	if (!vPix)
 		return;
 
@@ -407,8 +404,8 @@ void dump_Picture(PicturePtr pDst, const char *fmt, ...)
 
 	va_start(ap, fmt);
 	dump_pix(vivante, vPix, alpha,
-		 pDraw->x + x, pDraw->y + y, pDraw->width, pDraw->height,
-		 fmt, ap);
+		 pDraw->x + offset.x, pDraw->y + offset.y,
+		 pDraw->width, pDraw->height, fmt, ap);
 	va_end(ap);
 }
 

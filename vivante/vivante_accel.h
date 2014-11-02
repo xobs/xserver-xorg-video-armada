@@ -156,6 +156,13 @@ static inline struct vivante_pixmap *vivante_get_pixmap_priv(PixmapPtr pixmap)
 	return vivante_GetKeyPriv(&pixmap->devPrivates, &vivante_pixmap_index);
 }
 
+static inline struct vivante_pixmap *vivante_drawable_offset(
+       DrawablePtr pDrawable, xPoint *offset)
+{
+	PixmapPtr pix = drawable_pixmap_offset(pDrawable, offset);
+	return vivante_get_pixmap_priv(pix);
+}
+
 static inline struct vivante *vivante_get_screen_priv(ScreenPtr pScreen)
 {
 	extern vivante_Key vivante_screen_index;
