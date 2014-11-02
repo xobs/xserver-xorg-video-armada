@@ -1076,6 +1076,11 @@ static Bool vivante_blend(struct vivante *vivante, gcsRECT_PTR clip,
 	return TRUE;
 }
 
+static void vivante_set_format(struct vivante_pixmap *vpix, PicturePtr pict)
+{
+	vpix->pict_format = vivante_pict_format(pict->format, FALSE);
+}
+
 static Bool vivante_pict_solid_argb(PicturePtr pict, uint32_t *col)
 {
 	unsigned r, g, b, a, rbits, gbits, bbits, abits;
@@ -1162,7 +1167,7 @@ static struct vivante_pixmap *vivante_acquire_src(struct vivante *vivante,
 	if (!vSrc)
 		return NULL;
 
-	vSrc->pict_format = vivante_pict_format(pict->format, FALSE);
+	vivante_set_format(vSrc, pict);
 	if (!pict->repeat &&
 	    transform_is_integer_translation(pict->transform, &tx, &ty) &&
 	    vivante_format_valid(vivante, vSrc->pict_format)) {
@@ -1340,7 +1345,7 @@ int vivante_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	if (!vDst)
 		return FALSE;
 
-	vDst->pict_format = vivante_pict_format(pDst->format, FALSE);
+	vivante_set_format(vDst, pDst);
 	if (!vivante_format_valid(vivante, vDst->pict_format))
 		return FALSE;
 
@@ -1568,7 +1573,7 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 		if (!vMask)
 			goto failed;
 
-		vMask->pict_format = vivante_pict_format(pMask->format, FALSE);
+		vivante_set_format(vMask, pMask);
 
 		mask_offset.x += xMask;
 		mask_offset.y += yMask;
