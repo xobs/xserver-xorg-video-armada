@@ -24,6 +24,7 @@
 
 #include "boxutil.h"
 #include "pixmaputil.h"
+#include "prefetch.h"
 #include "unaccel.h"
 
 #include "vivante_accel.h"
@@ -367,12 +368,15 @@ static void vivante_load_src(struct vivante *vivante,
 	}
 }
 
-static gceSTATUS vivante_bitblt_rects(struct vivante *vivante, const BoxRec *b,
-	size_t n, xPoint offset, unsigned int rop, gceSURF_FORMAT fmt)
+static gceSTATUS vivante_bitblt_rects(struct vivante *vivante,
+	const struct vivante_de_op *op, const BoxRec *b, size_t n)
 {
 	size_t chunk = vivante->max_rect_count;
 	gcsRECT rects[chunk], *r;
 	gceSTATUS err = gcvSTATUS_OK;
+	xPoint offset = op->dst.offset;
+	unsigned int rop = op->rop;
+	gceSURF_FORMAT fmt = op->dst.format;
 
 	while (n) {
 		size_t i;
@@ -391,6 +395,169 @@ static gceSTATUS vivante_bitblt_rects(struct vivante *vivante, const BoxRec *b,
 	}
 
 	return err;
+}
+
+static gceSTATUS vivante_blit_start(struct vivante *vivante,
+	const struct vivante_de_op *op)
+{
+	gceSTATUS err;
+
+	if (op->src.pixmap) {
+		vivante_batch_add(vivante, op->src.pixmap);
+		vivante_load_src(vivante, op->src.pixmap,
+				 op->src.format, &op->src.offset);
+	}
+
+	vivante_batch_add(vivante, op->dst.pixmap);
+	vivante_load_dst(vivante, op->dst.pixmap);
+	vivante_set_blend(vivante, op->blend_op);
+
+	if (op->clip) {
+		gcsRECT dst;
+
+		RectBox(&dst, op->clip, op->dst.offset.x, op->dst.offset.y);
+		err = gco2D_SetClipping(vivante->e2d, &dst);
+		if (err != gcvSTATUS_OK) {
+			vivante_error(vivante, "gco2D_SetClipping", err);
+			return err;
+		}
+	}
+
+	if (op->brush) {
+		err = gco2D_LoadSolidBrush(vivante->e2d, op->dst.format,
+					   0, op->fg_colour, ~0ULL);
+		if (err != gcvSTATUS_OK) {
+			vivante_error(vivante, "gco2D_LoadSolidBrush", err);
+			return err;
+		}
+	}
+
+	return gcvSTATUS_OK;
+}
+
+static gceSTATUS vivante_blit(struct vivante *vivante,
+	const struct vivante_de_op *op, const BoxRec *pBox, size_t nBox)
+{
+	size_t chunk = vivante->max_rect_count;
+	gceSTATUS err = gcvSTATUS_OK;
+
+	while (nBox) {
+		size_t n = nBox;
+
+		if (n > chunk)
+			n = chunk;
+
+		err = vivante_bitblt_rects(vivante, op, pBox, n);
+		if (err != gcvSTATUS_OK)
+			break;
+
+		pBox += n;
+		nBox -= n;
+	}
+
+	return err;
+}
+
+static gceSTATUS vivante_blit_clipped(struct vivante *vivante,
+	struct vivante_de_op *op, const BoxRec *pbox, size_t nbox)
+{
+	const BoxRec *clip = op->clip;
+	size_t n, chunk = vivante->max_rect_count;
+	BoxRec boxes[chunk];
+	gceSTATUS err = gcvSTATUS_OK;
+
+	for (n = 0; nbox; nbox--, pbox++) {
+		if (__box_intersect(&boxes[n], clip, pbox))
+			continue;
+
+		if (++n >= chunk) {
+			err = vivante_bitblt_rects(vivante, op, boxes, n);
+			n = 0;
+			if (err != gcvSTATUS_OK)
+				break;
+		}
+	}
+
+	if (n)
+		err = vivante_bitblt_rects(vivante, op, boxes, n);
+
+	return err;
+}
+
+static gceSTATUS vivante_blit_srcdst(struct vivante *vivante,
+	struct vivante_de_op *op,
+	int src_x, int src_y, int dst_x, int dst_y, int width, int height)
+{
+	gceSTATUS err;
+	BoxRec box;
+
+	op->src.offset.x = src_x - (dst_x + op->dst.offset.x);
+	op->src.offset.y = src_y - (dst_y + op->dst.offset.y);
+
+	box.x1 = dst_x;
+	box.y1 = dst_y;
+	box.x2 = dst_x + width;
+	box.y2 = dst_y + height;
+
+	err = vivante_blit_start(vivante, op);
+	if (err == gcvSTATUS_OK) {
+		err = vivante_blit(vivante, op, &box, 1);
+		vivante_blit_complete(vivante);
+	}
+	return err;
+}
+
+static Bool vivante_init_dst_drawable(struct vivante *vivante,
+	struct vivante_de_op *op, DrawablePtr pDrawable)
+{
+	op->dst.pixmap = vivante_drawable_offset(pDrawable, &op->dst.offset);
+	if (!op->dst.pixmap)
+		return FALSE;
+
+	if (!gal_prepare_gpu(vivante, op->dst.pixmap))
+		return FALSE;
+
+	op->dst.pitch = op->dst.pixmap->pitch;
+	op->dst.format = op->dst.pixmap->format;
+
+	return TRUE;
+}
+
+static Bool vivante_init_dstsrc_drawable(struct vivante *vivante,
+	struct vivante_de_op *op, DrawablePtr pDst, DrawablePtr pSrc)
+{
+	op->dst.pixmap = vivante_drawable_offset(pDst, &op->dst.offset);
+	op->src.pixmap = vivante_drawable_offset(pSrc, &op->src.offset);
+	if (!op->dst.pixmap || !op->src.pixmap)
+		return FALSE;
+
+	if (!gal_prepare_gpu(vivante, op->dst.pixmap) ||
+	    !gal_prepare_gpu(vivante, op->src.pixmap))
+		return FALSE;
+
+	op->dst.pitch = op->dst.pixmap->pitch;
+	op->dst.format = op->dst.pixmap->format;
+	op->src.pitch = op->src.pixmap->pitch;
+	op->src.format = op->src.pixmap->format;
+
+	return TRUE;
+}
+
+static Bool vivante_init_src_pixmap(struct vivante *vivante,
+        struct vivante_de_op *op, PixmapPtr pix)
+{
+        op->src.pixmap = vivante_get_pixmap_priv(pix);
+        if (!op->src.pixmap)
+                return FALSE;
+
+        if (!gal_prepare_gpu(vivante, op->src.pixmap))
+                return FALSE;
+
+        op->src.pitch = op->src.pixmap->pitch;
+        op->src.format = op->src.pixmap->format;
+        op->src.offset = ZERO_OFFSET;
+
+        return TRUE;
 }
 
 void vivante_commit(struct vivante *vivante, Bool stall)
@@ -480,41 +647,14 @@ static uint32_t vivante_fg_col(GCPtr pGC)
  * Generic solid-like blit fill - takes a set of boxes, and fills them
  * according to the clips in the GC.
  */
-static Bool vivante_fill(struct vivante *vivante, struct vivante_pixmap *vPix,
-	GCPtr pGC, const BoxRec *clipBox, const BoxRec *pBox, unsigned nBox,
-	xPoint dst_offset)
+static void vivante_init_fill(struct vivante_de_op *op, GCPtr pGC)
 {
-	gceSTATUS err;
-	gctUINT32 fg;
-	gcsRECT clip;
-
-	vivante_load_dst(vivante, vPix);
-	vivante_set_blend(vivante, NULL);
-
-	RectBox(&clip, clipBox, dst_offset.x, dst_offset.y);
-	err = gco2D_SetClipping(vivante->e2d, &clip);
-	if (err) {
-		vivante_error(vivante, "gco2D_SetClipping", err);
-		return FALSE;
-	}
-
-	fg = vivante_fg_col(pGC);
-	err = gco2D_LoadSolidBrush(vivante->e2d, vPix->format, 0, fg, ~0ULL);
-	if (err != gcvSTATUS_OK) {
-		vivante_error(vivante, "gco2D_LoadSolidBrush", err);
-		return FALSE;
-	}
-
-	err = vivante_bitblt_rects(vivante, pBox, nBox, dst_offset,
-				   vivante_fill_rop[pGC->alu],
-				   vPix->format);
-
-	if (err != gcvSTATUS_OK)
-		vivante_error(vivante, "Blit", err);
-
-	return TRUE;
+	op->src = INIT_BLIT_NULL;
+	op->blend_op = NULL;
+	op->rop = vivante_fill_rop[pGC->alu];
+	op->brush = TRUE;
+	op->fg_colour = vivante_fg_col(pGC);
 }
-
 
 static const gctUINT8 vivante_copy_rop[] = {
 	/* GXclear        */  0x00,		// ROP_BLACK,
@@ -535,85 +675,94 @@ static const gctUINT8 vivante_copy_rop[] = {
 	/* GXset          */  0xff		// ROP_WHITE
 };
 
-static gceSTATUS
-vivante_blit_copy(struct vivante *vivante, GCPtr pGC, const BoxRec *total,
-	const BoxRec *pbox, int nbox, xPoint dst_offset,
-	struct vivante_pixmap *vDst)
-{
-	gctUINT8 rop = vivante_copy_rop[pGC ? pGC->alu : GXcopy];
-	gceSTATUS err = gcvSTATUS_OK;
-	gcsRECT dst;
-
-	vivante_load_dst(vivante, vDst);
-	vivante_set_blend(vivante, NULL);
-
-	RectBox(&dst, total, dst_offset.x, dst_offset.y);
-	err = gco2D_SetClipping(vivante->e2d, &dst);
-	if (err != gcvSTATUS_OK)
-		return err;
-
-	for (; nbox; nbox--, pbox++) {
-		BoxRec clipped;
-
-		if (__box_intersect(&clipped, total, pbox))
-			continue;
-
-		err = vivante_bitblt_rects(vivante, &clipped, 1, dst_offset,
-					   rop, vDst->format);
-		if (err != gcvSTATUS_OK)
-			break;
-	}
-
-	return err;
-}
-
-
-
 Bool vivante_accel_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int n,
 	DDXPointPtr ppt, int *pwidth, int fSorted)
 {
 	struct vivante *vivante = vivante_get_screen_priv(pDrawable->pScreen);
-	struct vivante_pixmap *vPix;
-	BoxPtr pBox, p;
-	RegionRec region;
-	xPoint dst_offset;
-	int i;
-	Bool ret, overlap;
+	struct vivante_de_op op;
+	RegionPtr clip;
+	BoxRec *boxes, *b;
+	gceSTATUS err;
+	int nclip;
+	size_t sz;
 
-	vPix = vivante_drawable_offset(pDrawable, &dst_offset);
+	assert(pGC->miTranslate);
 
-	if (!gal_prepare_gpu(vivante, vPix))
+	if (!vivante_init_dst_drawable(vivante, &op, pDrawable))
 		return FALSE;
 
-	pBox = malloc(n * sizeof *pBox);
-	if (!pBox)
+	clip = fbGetCompositeClip(pGC);
+	nclip = RegionNumRects(clip);
+	if (nclip == 0)
+		return TRUE;
+
+	vivante_init_fill(&op, pGC);
+	op.clip = RegionExtents(clip);
+
+	sz = sizeof(BoxRec) * n * nclip;
+
+	/* If we overflow, fallback.  We could do better here. */
+	if (sz / nclip != sizeof(BoxRec) * n)
 		return FALSE;
 
-	for (i = n, p = pBox; i; i--, p++, ppt++, pwidth++) {
-		p->x1 = ppt->x;
-		p->x2 = p->x1 + *pwidth;
-		p->y1 = ppt->y;
-		p->y2 = p->y1 + 1;
+	boxes = malloc(sz);
+	if (!boxes)
+		return FALSE;
+
+	prefetch(ppt);
+	prefetch(ppt + 8);
+	prefetch(pwidth);
+	prefetch(pwidth + 8);
+
+	b = boxes;
+
+	while (n--) {
+		BoxPtr pBox;
+		int nBox, x, y, w;
+
+		prefetch(ppt + 16);
+		prefetch(pwidth + 16);
+
+		nBox = nclip;
+		pBox = RegionRects(clip);
+
+		y = ppt->y;
+		x = ppt->x;
+		w = *pwidth++;
+
+		do {
+			if (pBox->y1 <= y && pBox->y2 > y) {
+				int l, r;
+
+				l = x;
+				if (l < pBox->x1)
+					l = pBox->x1;
+				r = x + w;
+				if (r > pBox->x2)
+					r = pBox->x2;
+
+				if (l < r) {
+					b->x1 = l;
+					b->y1 = y;
+					b->x2 = r;
+					b->y2 = y + 1;
+					b++;
+				}
+			}
+			pBox++;
+		} while (--nBox);
+		ppt++;
 	}
 
-	/* Convert the boxes to a region */
-	RegionInitBoxes(&region, pBox, n);
-	free(pBox);
+	err = vivante_blit_start(vivante, &op);
+	if (err == gcvSTATUS_OK) {
+		err = vivante_blit(vivante, &op, boxes, b - boxes);
+		vivante_blit_complete(vivante);
+	}
 
-	if (!fSorted)
-		RegionValidate(&region, &overlap);
+	free(boxes);
 
-	/* Intersect them with the clipping region */
-	RegionIntersect(&region, &region, fbGetCompositeClip(pGC));
-
-	ret = vivante_fill(vivante, vPix, pGC, RegionExtents(&region),
-			   RegionRects(&region), RegionNumRects(&region),
-			   dst_offset);
-	vivante_blit_complete(vivante);
-
-	RegionUninit(&region);
-
-	return ret;
+	return err != gcvSTATUS_OK ? FALSE : TRUE;
 }
 
 Bool vivante_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
@@ -657,9 +806,7 @@ void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 	Bool upsidedown, Pixel bitPlane, void *closure)
 {
 	struct vivante *vivante = vivante_get_screen_priv(pDst->pScreen);
-	struct vivante_pixmap *vSrc, *vDst;
-	PixmapPtr pixSrc, pixDst;
-	xPoint src_offset, dst_offset;
+	struct vivante_de_op op;
 	BoxRec extent;
 	gceSTATUS err;
 
@@ -669,18 +816,12 @@ void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 	if (vivante->force_fallback)
 		goto fallback;
 
-	/* Get the source and destination pixmaps and offsets */
-	pixSrc = drawable_pixmap_offset(pSrc, &src_offset);
-	pixDst = drawable_pixmap_offset(pDst, &dst_offset);
-
-	vSrc = vivante_get_pixmap_priv(pixSrc);
-	vDst = vivante_get_pixmap_priv(pixDst);
-	if (!vSrc || !vDst)
+	if (!vivante_init_dstsrc_drawable(vivante, &op, pDst, pSrc))
 		goto fallback;
 
 	/* Include the copy delta on the source */
-	src_offset.x += dx - dst_offset.x;
-	src_offset.y += dy - dst_offset.y;
+	op.src.offset.x += dx - op.dst.offset.x;
+	op.src.offset.y += dy - op.dst.offset.y;
 
 	/* Calculate the overall extent */
 	extent.x1 = max_t(short, pDst->x, pSrc->x - dx);
@@ -689,26 +830,24 @@ void vivante_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 				 pSrc->x + pSrc->width - dx);
 	extent.y2 = min_t(short, pDst->y + pDst->height,
 				 pSrc->y + pSrc->height - dy);
+
 	if (extent.x1 < 0)
 		extent.x1 = 0;
 	if (extent.y1 < 0)
 		extent.y1 = 0;
 
-	/* Right, we're all good to go */
-	if (!gal_prepare_gpu(vivante, vDst) || !gal_prepare_gpu(vivante, vSrc))
-		goto fallback;
+	op.blend_op = NULL;
+	op.clip = &extent;
+	op.rop = vivante_copy_rop[pGC ? pGC->alu : GXcopy];
+	op.brush = FALSE;
 
-	vivante_load_src(vivante, vSrc, vSrc->format, &src_offset);
-
-	/* No need to load the brush here - the blit copy doesn't use it. */
-
-	/* Submit the blit operations */
-	err = vivante_blit_copy(vivante, pGC, &extent, pBox, nBox,
-				dst_offset, vDst);
+	err = vivante_blit_start(vivante, &op);
+	if (err == gcvSTATUS_OK) {
+		err = vivante_blit_clipped(vivante, &op, pBox, nBox);
+		vivante_blit_complete(vivante);
+	}
 	if (err != gcvSTATUS_OK)
 		vivante_error(vivante, "Blit", err);
-
-	vivante_blit_complete(vivante);
 
 	return;
 
@@ -721,17 +860,17 @@ Bool vivante_accel_PolyPoint(DrawablePtr pDrawable, GCPtr pGC, int mode,
 	int npt, DDXPointPtr ppt)
 {
 	struct vivante *vivante = vivante_get_screen_priv(pDrawable->pScreen);
-	struct vivante_pixmap *vPix;
+	struct vivante_de_op op;
+	gceSTATUS err;
 	BoxPtr pBox;
 	RegionRec region;
-	xPoint dst_offset;
 	int i;
-	Bool ret, overlap;
+	Bool overlap;
 
-	vPix = vivante_drawable_offset(pDrawable, &dst_offset);
-
-	if (!gal_prepare_gpu(vivante, vPix))
+	if (!vivante_init_dst_drawable(vivante, &op, pDrawable))
 		return FALSE;
+
+	vivante_init_fill(&op, pGC);
 
 	pBox = malloc(npt * sizeof *pBox);
 	if (!pBox)
@@ -767,36 +906,44 @@ Bool vivante_accel_PolyPoint(DrawablePtr pDrawable, GCPtr pGC, int mode,
 	/* Intersect them with the clipping region */
 	RegionIntersect(&region, &region, fbGetCompositeClip(pGC));
 
-	ret = vivante_fill(vivante, vPix, pGC, RegionExtents(&region),
-			   RegionRects(&region), RegionNumRects(&region),
-			   dst_offset);
-	vivante_blit_complete(vivante);
+	op.clip = RegionExtents(&region);
+
+	err = vivante_blit_start(vivante, &op);
+	if (err == gcvSTATUS_OK) {
+		err = vivante_blit(vivante, &op, RegionRects(&region),
+				   RegionNumRects(&region));
+		vivante_blit_complete(vivante);
+	}
 
 	RegionUninit(&region);
 
-	return ret;
+	return err != gcvSTATUS_OK ? FALSE : TRUE;
 }
 
 Bool vivante_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 	xRectangle * prect)
 {
 	struct vivante *vivante = vivante_get_screen_priv(pDrawable->pScreen);
-	struct vivante_pixmap *vPix;
+	struct vivante_de_op op;
+	gceSTATUS err = gcvSTATUS_OK;
 	RegionPtr clip;
-	BoxPtr box, extents;
+	BoxPtr box;
 	BoxRec boxes[255];
-	xPoint dst_offset;
-	int nclip, nb;
-	Bool ret = TRUE;
+	int nclip, nb, chunk;
 
-	vPix = vivante_drawable_offset(pDrawable, &dst_offset);
-
-	if (!gal_prepare_gpu(vivante, vPix))
+	if (!vivante_init_dst_drawable(vivante, &op, pDrawable))
 		return FALSE;
 
 	clip = fbGetCompositeClip(pGC);
-	extents = RegionExtents(clip);
 
+	vivante_init_fill(&op, pGC);
+	op.clip = RegionExtents(clip);
+
+	err = vivante_blit_start(vivante, &op);
+	if (err == gcvSTATUS_OK)
+		return FALSE;
+
+	chunk = vivante->max_rect_count;
 	nb = 0;
 	while (n--) {
 		BoxRec full_rect;
@@ -813,40 +960,40 @@ Bool vivante_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 			if (__box_intersect(&boxes[nb], &full_rect, box))
 				continue;
 
-			if (++nb > 254) {
-				ret = vivante_fill(vivante, vPix, pGC, extents,
-						   boxes, nb, dst_offset);
+			if (++nb >= chunk) {
+				err = vivante_blit(vivante, &op, boxes, nb);
 				nb = 0;
-				if (!ret)
+				if (err != gcvSTATUS_OK)
 					break;
 			}
 		}
-		if (!ret)
+		if (err != gcvSTATUS_OK)
 			break;
 	}
 	if (nb)
-		ret = vivante_fill(vivante, vPix, pGC, extents,
-				   boxes, nb, dst_offset);
+		err = vivante_blit(vivante, &op, boxes, nb);
 	vivante_blit_complete(vivante);
 
-	return ret;
+	return err != gcvSTATUS_OK ? FALSE : TRUE;
 }
 
 Bool vivante_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 	xRectangle * prect)
 {
 	struct vivante *vivante = vivante_get_screen_priv(pDrawable->pScreen);
-	struct vivante_pixmap *vPix, *vTile;
+	struct vivante_de_op op;
 	PixmapPtr pTile = pGC->tile.pixmap;
 	RegionPtr rects;
-	xPoint dst_offset;
 	int nbox;
 	Bool ret;
 
-	vPix = vivante_drawable_offset(pDrawable, &dst_offset);
-	vTile = vivante_get_pixmap_priv(pTile);
-	if (!vTile)
+	if (!vivante_init_dst_drawable(vivante, &op, pDrawable) ||
+	    !vivante_init_src_pixmap(vivante, &op, pTile))
 		return FALSE;
+
+	op.blend_op = NULL;
+	op.rop = vivante_copy_rop[pGC ? pGC->alu : GXcopy];
+	op.brush = FALSE;
 
 	/* Convert the rectangles to a region */
 	rects = RegionFromRects(n, prect, CT_UNSORTED);
@@ -859,33 +1006,15 @@ Bool vivante_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 
 	nbox = RegionNumRects(rects);
 	if (nbox) {
-		int tile_w, tile_h;
+		int tile_w, tile_h, tile_off_x, tile_off_y;
 		BoxPtr pBox;
 		gceSTATUS err = gcvSTATUS_OK;
 
-		/* Translate them for the drawable offset */
-		RegionTranslate(rects, dst_offset.x, dst_offset.y);
-
 		ret = FALSE;
 
-		/* Right, we're all good to go */
-		if (!gal_prepare_gpu(vivante, vPix) ||
-		    !gal_prepare_gpu(vivante, vTile))
-			goto fallback;
-
-		vivante_load_dst(vivante, vPix);
-		vivante_load_src(vivante, vTile, vTile->format, NULL);
-		vivante_set_blend(vivante, NULL);
-
-		err = gco2D_LoadSolidBrush(vivante->e2d, vPix->format, 0, 0, ~0ULL);
-		if (err != gcvSTATUS_OK) {
-			vivante_error(vivante, "LoadSolidBrush", err);
-			goto fallback;
-		}
-
 		/* Calculate the tile offset from the rect coords */
-		dst_offset.x += pDrawable->x + pGC->patOrg.x;
-		dst_offset.y += pDrawable->y + pGC->patOrg.y;
+		tile_off_x = op.dst.offset.x + pDrawable->x + pGC->patOrg.x;
+		tile_off_y = op.dst.offset.y + pDrawable->y + pGC->patOrg.y;
 
 		tile_w = pTile->drawable.width;
 		tile_h = pTile->drawable.height;
@@ -893,27 +1022,19 @@ Bool vivante_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 		pBox = RegionRects(rects);
 		while (nbox--) {
 			int dst_y, height, tile_y;
-			gcsRECT clip;
-			gctUINT8 rop = vivante_copy_rop[pGC ? pGC->alu : GXcopy];
 
-			RectBox(&clip, pBox, 0, 0);
-
-			err = gco2D_SetClipping(vivante->e2d, &clip);
-			if (err != gcvSTATUS_OK) {
-				vivante_error(vivante, "SetClipping", err);
-				break;
-			}
+			op.clip = pBox;
 
 			dst_y = pBox->y1;
 			height = pBox->y2 - dst_y;
-			modulus(dst_y - dst_offset.y, tile_h, tile_y);
+			modulus(dst_y - tile_off_y, tile_h, tile_y);
 
 			while (height > 0) {
 				int dst_x, width, tile_x, h;
 
 				dst_x = pBox->x1;
 				width = pBox->x2 - dst_x;
-				modulus(dst_x - dst_offset.x, tile_w, tile_x);
+				modulus(dst_x - tile_off_x, tile_w, tile_x);
 
 				h = tile_h - tile_y;
 				if (h > height)
@@ -921,7 +1042,6 @@ Bool vivante_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 				height -= h;
 
 				while (width > 0) {
-					gcsRECT dst, src;
 					int w;
 
 					w = tile_w - tile_x;
@@ -929,16 +1049,10 @@ Bool vivante_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 						w = width;
 					width -= w;
 
-					src.left = tile_x;
-					src.top = tile_y;
-					src.right = tile_x + w;
-					src.bottom = tile_y + h;
-					dst.left = dst_x;
-					dst.top = dst_y;
-					dst.right = dst_x + w;
-					dst.bottom = dst_y + h;
-
-					err = gco2D_BatchBlit(vivante->e2d, 1, &src, &dst, rop, rop, vPix->format);
+					err = vivante_blit_srcdst(vivante, &op,
+								  tile_x, tile_y,
+								  dst_x, dst_y,
+								  w, h);
 					if (err)
 						break;
 
@@ -954,13 +1068,11 @@ Bool vivante_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 				break;
 			pBox++;
 		}
-		vivante_blit_complete(vivante);
 		ret = err == 0 ? TRUE : FALSE;
 	} else {
 		ret = TRUE;
 	}
 
- fallback:
 	RegionUninit(rects);
 	RegionDestroy(rects);
 
@@ -1016,37 +1128,25 @@ static Bool vivante_fill_single(struct vivante *vivante,
 	struct vivante_pixmap *vPix, const BoxRec *clip, uint32_t colour)
 {
 	gceSTATUS err;
-	gcsRECT dst;
-
-	RectBox(&dst, clip, 0, 0);
+	struct vivante_de_op op = {
+		.clip = clip,
+		.rop = 0xf0,
+		.brush = TRUE,
+		.fg_colour = colour,
+	};
 
 	if (!gal_prepare_gpu(vivante, vPix))
 		return FALSE;
 
-	vivante_load_dst(vivante, vPix);
-	vivante_set_blend(vivante, NULL);
+	op.dst = INIT_BLIT_PIX(vPix, vPix->pict_format, ZERO_OFFSET);
 
-	err = gco2D_LoadSolidBrush(vivante->e2d, vPix->pict_format, 0, colour, ~0ULL);
-	if (err != gcvSTATUS_OK) {
-		vivante_error(vivante, "gco2D_LoadSolidBrush", err);
-		return FALSE;
+	err = vivante_blit_start(vivante, &op);
+	if (err == gcvSTATUS_OK) {
+		err = vivante_blit(vivante, &op, clip, 1);
+		vivante_blit_complete(vivante);
 	}
 
-	err = gco2D_SetClipping(vivante->e2d, &dst);
-	if (err != gcvSTATUS_OK) {
-		vivante_error(vivante, "gco2D_SetClipping", err);
-		return FALSE;
-	}
-
-	err = gco2D_Blit(vivante->e2d, 1, &dst, 0xf0, 0xf0, vPix->pict_format);
-	if (err != gcvSTATUS_OK) {
-		vivante_error(vivante, "gco2D_Blit", err);
-		return FALSE;
-	}
-
-	vivante_blit_complete(vivante);
-
-	return TRUE;
+	return err != gcvSTATUS_OK ? FALSE : TRUE;
 }
 
 static Bool vivante_blend(struct vivante *vivante, const BoxRec *clip,
@@ -1055,26 +1155,25 @@ static Bool vivante_blend(struct vivante *vivante, const BoxRec *clip,
 	const BoxRec *pBox, unsigned nBox, xPoint src_offset,
 	xPoint dst_offset)
 {
-	gcsRECT dst;
 	gceSTATUS err;
+	struct vivante_de_op op = {
+		.blend_op = blend,
+		.clip = clip,
+		.rop = 0xcc,
+		.brush = FALSE,
+	};
 
 	if (!gal_prepare_gpu(vivante, vDst) || !gal_prepare_gpu(vivante, vSrc))
 		return FALSE;
 
-	vivante_load_dst(vivante, vDst);
-	vivante_load_src(vivante, vSrc, vSrc->pict_format, &src_offset);
-	vivante_set_blend(vivante, blend);
+	op.src = INIT_BLIT_PIX(vSrc, vSrc->pict_format, src_offset);
+	op.dst = INIT_BLIT_PIX(vDst, vDst->pict_format, dst_offset);
 
-	RectBox(&dst, clip, dst_offset.x, dst_offset.y);
-	err = gco2D_SetClipping(vivante->e2d, &dst);
-	if (err != gcvSTATUS_OK) {
-		vivante_error(vivante, "gco2D_SetClipping", err);
-		return FALSE;
+	err = vivante_blit_start(vivante, &op);
+	if (err == gcvSTATUS_OK) {
+		err = vivante_blit(vivante, &op, pBox, nBox);
+		vivante_blit_complete(vivante);
 	}
-
-	err = vivante_bitblt_rects(vivante, pBox, nBox, dst_offset, 0xcc,
-				   vDst->pict_format);
-	vivante_blit_complete(vivante);
 	if (err != gcvSTATUS_OK) {
 		vivante_error(vivante, "gco2D_Blit", err);
 		return FALSE;
