@@ -129,6 +129,39 @@ struct vivante_blend_op {
 	uint8_t dst_alpha;
 };
 
+struct vivante_blit_buf {
+	gceSURF_FORMAT format;
+	struct vivante_pixmap *pixmap;
+	unsigned pitch;
+	xPoint offset;
+};
+
+#define INIT_BLIT_BUF(_fmt,_pix,_pitch,_off)		\
+	((struct vivante_blit_buf){			\
+		.format = _fmt, 			\
+		.pixmap = _pix, 			\
+		.pitch = _pitch,			\
+		.offset = _off, 			\
+	})
+
+#define INIT_BLIT_PIX(_pix, _fmt, _off) \
+	INIT_BLIT_BUF((_fmt), (_pix), (_pix)->pitch, (_off))
+
+#define INIT_BLIT_NULL \
+	INIT_BLIT_BUF(0, NULL, 0, ZERO_OFFSET)
+
+#define ZERO_OFFSET ((xPoint){ 0, 0 })
+
+struct vivante_de_op {
+	struct vivante_blit_buf dst;
+	struct vivante_blit_buf src;
+	const struct vivante_blend_op *blend_op;
+	const BoxRec *clip;
+	unsigned rop;
+	Bool brush;
+	uint32_t fg_colour;
+};
+
 /* Addresses must be aligned */
 #define VIVANTE_ALIGN_MASK 63
 
