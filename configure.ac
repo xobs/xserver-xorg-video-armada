@@ -173,7 +173,7 @@ AS_IF([test x$ACCEL_ETNAVIV != xno],
                 [AC_MSG_ERROR([etnaviv support requires etna_bo_from_usermem_prot()])])
    LDFLAGS="$saved_LDFLAGS"
    CFLAGS="$saved_CFLAGS"
-   AS_IF([test x$PKGCFG_ETNAVIV = xno], [ETNAVIV_LIBS+=" -letnaviv"])
+   AS_IF([test x$PKGCFG_ETNAVIV != xyes], [ETNAVIV_LIBS+=" -letnaviv"])
    AS_IF([test x$ACCEL_ETNAVIV = xyes], [DRIVERS="etnaviv_gpu $DRIVERS"])
 ])
 AC_MSG_CHECKING([whether to build Etnaviv acceleration support])
