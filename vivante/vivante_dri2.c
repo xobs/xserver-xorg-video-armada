@@ -22,6 +22,7 @@
 #include <armada_bufmgr.h>
 
 #include "compat-api.h"
+#include "common_drm.h"
 #include "common_drm_dri2.h"
 #include "common_drm_helper.h"
 #include "pixmaputil.h"
@@ -121,9 +122,41 @@ vivante_dri2_CopyRegion(DrawablePtr drawable, RegionPtr pRegion,
 	FreeScratchGC(gc);
 }
 
-static Bool
-vivante_dri2_ScheduleFlip(DrawablePtr drawable, struct common_dri2_wait *wait)
+static void vivante_dri2_flip_complete(struct common_dri2_wait *wait,
+	DrawablePtr draw, unsigned frame, unsigned tv_sec, unsigned tv_usec)
 {
+	DRI2SwapComplete(wait->client, draw, frame, tv_sec, tv_usec,
+			 DRI2_FLIP_COMPLETE,
+			 wait->client ? wait->swap_func : NULL,
+			 wait->swap_data);
+
+	common_dri2_wait_free(wait);
+}
+
+static Bool vivante_dri2_ScheduleFlip(DrawablePtr drawable,
+	struct common_dri2_wait *wait)
+{
+	ScreenPtr pScreen = drawable->pScreen;
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
+	PixmapPtr front = pScreen->GetScreenPixmap(pScreen);
+	PixmapPtr back = to_common_dri2_buffer(wait->back)->pixmap;
+
+	assert(front == to_common_dri2_buffer(wait->front)->pixmap);
+
+	if (common_drm_flip(pScrn, back, wait, wait->crtc)) {
+		struct vivante_pixmap *f_pix = vivante_get_pixmap_priv(front);
+		struct vivante_pixmap *b_pix = vivante_get_pixmap_priv(back);
+
+		vivante_set_pixmap_priv(front, b_pix);
+		vivante_set_pixmap_priv(back, f_pix);
+
+		common_dri2_flip_buffers(pScreen, wait);
+
+		wait->event_func = vivante_dri2_flip_complete;
+
+		return TRUE;
+	}
+
 	return FALSE;
 }
 
