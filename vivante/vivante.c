@@ -721,9 +721,20 @@ static Bool vivante_import_dmabuf(ScreenPtr pScreen, PixmapPtr pPixmap, int fd)
 	return TRUE;
 }
 
+static void vivante_attach_name(ScreenPtr pScreen, PixmapPtr pPixmap,
+	uint32_t name)
+{
+	struct vivante_pixmap *vPix = vivante_get_pixmap_priv(pPixmap);
+
+	/* If we are using our KMS DRM for buffer management, save its name */
+	if (vPix)
+		vPix->name = name;
+}
+
 static const struct armada_accel_ops accel_ops = {
 	.screen_init	= vivante_ScreenInit,
 	.import_dmabuf	= vivante_import_dmabuf,
+	.attach_name	= vivante_attach_name,
 	.free_pixmap	= vivante_free_pixmap,
 };
 

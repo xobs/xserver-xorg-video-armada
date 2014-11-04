@@ -75,10 +75,10 @@ fprintf(stderr, "%s: %p %u %u\n", __func__, drawable, attachment, format);
 	if (!vpix)
 		goto err;
 
-	if (!vpix->bo || drm_armada_bo_flink(vpix->bo, &name)) {
-		free(buf);
+	if (vpix->name)
+		name = vpix->name;
+	else if (!vpix->bo || drm_armada_bo_flink(vpix->bo, &name))
 		goto err;
-	}
 
 	return common_dri2_setup_buffer(buf, attachment, format,
 					pixmap, name, 0);
