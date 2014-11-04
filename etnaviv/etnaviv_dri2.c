@@ -313,7 +313,6 @@ static int etnaviv_dri2_ScheduleSwap(ClientPtr client, DrawablePtr draw,
 
 static const DRI2InfoRec dri2_info = {
 	.version = 4,
-	.driverName = "etnaviv",
 
 	.CreateBuffer = etnaviv_dri2_CreateBuffer,
 	.DestroyBuffer = common_dri2_DestroyBuffer,
@@ -324,7 +323,7 @@ static const DRI2InfoRec dri2_info = {
 	.ScheduleWaitMSC = common_dri2_ScheduleWaitMSC,
 };
 
-Bool etnaviv_dri2_ScreenInit(ScreenPtr pScreen, int drm_fd)
+Bool etnaviv_dri2_ScreenInit(ScreenPtr pScreen, int drm_fd, const char *name)
 {
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
 	struct etnaviv_dri2_info *dri;
@@ -352,6 +351,7 @@ Bool etnaviv_dri2_ScreenInit(ScreenPtr pScreen, int drm_fd)
 
 	info = dri2_info;
 	info.fd = drm_fd;
+	info.driverName = name;
 	info.deviceName = dri->devname;
 	info.numDrivers = 1;
 	info.driverNames = driverNames;
