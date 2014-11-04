@@ -308,7 +308,8 @@ static int etnaviv_get_fmt_info(const struct xv_image_format *fmt,
 		ret = 0;
 	}
 
-	return ret;
+	/* Align size to page size so buffers can be mapped */
+	return ALIGN(ret, getpagesize());
 }
 
 static Bool etnaviv_realloc_stage1(ScrnInfoPtr pScrn,
