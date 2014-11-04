@@ -118,6 +118,7 @@ struct vivante_pixmap {
 	int in_use;
 #endif
 	struct drm_armada_bo *bo;
+	uint32_t name;
 };
 
 struct vivante_blend_op {
