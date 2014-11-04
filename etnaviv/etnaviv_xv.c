@@ -87,13 +87,6 @@ static const struct etnaviv_format fmt_yuy2 = {
 	.planes = 1,
 };
 
-static const struct etnaviv_format fmt_yuy2_tiled = {
-	.format = DE_FORMAT_YUY2,
-	.swizzle = DE_SWIZZLE_ARGB,
-	.tile = 1,
-	.planes = 1,
-};
-
 static const struct etnaviv_format fmt_yv12 = {
 	.format = DE_FORMAT_YV12,
 	.swizzle = DE_SWIZZLE_ARGB,
@@ -426,8 +419,8 @@ static int etnaviv_configure_format(struct etnaviv_xv_priv *priv,
 		priv->stage1_format.tile = 1;
 		priv->stage1_pitch = etnaviv_tile_pitch(width, bpp);
 	} else if (VIV_FEATURE(etnaviv->conn, chipMinorFeatures0, 2DPE20)) {
-		priv->stage1_format = fmt_yuy2_tiled;
-		priv->stage1_pitch = etnaviv_tile_pitch(width, 16);
+		priv->stage1_format = fmt_yuy2;
+		priv->stage1_pitch = etnaviv_pitch(width, 16);
 	} else {
 		priv->stage1_format = vPix->format;
 		priv->stage1_pitch = etnaviv_pitch(width,
