@@ -218,16 +218,29 @@ vivante_dri2_ScheduleSwap(ClientPtr client, DrawablePtr draw,
 	}
 
 	if (divisor == 0 || cur_msc < *target_msc) {
+		/*
+		 * If we can, schedule the flip directly from here rather
+		 * than waiting for an event from the kernel for the current
+		 * (or a past) MSC.
+		 */
 		if (wait->type == DRI2_FLIP &&
-		    vivante_dri2_ScheduleFlip(draw, wait))
+		    divisor == 0 && cur_msc >= *target_msc &&
+		    vivante_dri2_ScheduleFlip(draw, wait)) {
+			/*
+			 * I think xf86-video-intel misses this: target_msc
+			 * is in the past, we should update it with the new
+			 * msc, otherwise it will remain at the original.
+			 */
+			*target_msc = cur_msc;
 			return TRUE;
+		}
 
 		/*
-		 * If target_msc has been reached or passed, set it to cur_msc
-		 * to ensure we return a reasonable value back to the caller.
+		 * If target_msc has been reached, set it to cur_msc to
+		 * ensure we return a reasonable value back to the caller.
 		 * This makes the swap_interval logic more robust.
 		 */
-		if (cur_msc >= *target_msc)
+		if (cur_msc > *target_msc)
 			*target_msc = cur_msc;
 
 		vbl.request.sequence = *target_msc;
