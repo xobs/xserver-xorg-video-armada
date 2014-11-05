@@ -48,7 +48,6 @@ vivante_dri2_CreateBuffer(DrawablePtr drawable, unsigned int attachment,
 	PixmapPtr pixmap = NULL;
 	uint32_t name;
 
-fprintf(stderr, "%s: %p %u %u\n", __func__, drawable, attachment, format);
 	buf = calloc(1, sizeof *buf);
 	if (!buf)
 		return NULL;
