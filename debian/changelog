@@ -1,3 +1,10 @@
+xf86-video-armada (0.0.1-r4) unstable; urgency=medium
+
+  * Rebase again to latest upstream
+  * This should fix graphical corruption
+
+ -- Sean Cross <xobs@kosagi.com>  Thu, 13 Nov 2014 15:36:52 +0800
+
 xf86-video-armada (0.0.1-r3) unstable; urgency=medium
 
   * Rebase to latest upstream
