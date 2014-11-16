@@ -39,7 +39,7 @@ enum {
 	OPTION_HOTPLUG,
 };
 
-static const OptionInfoRec common_drm_options[] = {
+const OptionInfoRec common_drm_options[] = {
 	{ OPTION_HW_CURSOR,	"HWcursor",	OPTV_BOOLEAN, {0}, FALSE },
 	{ OPTION_HOTPLUG,	"HotPlug",	OPTV_BOOLEAN, {0}, TRUE  },
 	{ -1,			NULL,		OPTV_NONE,    {0}, FALSE }
