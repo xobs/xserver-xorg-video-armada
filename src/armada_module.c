@@ -9,6 +9,9 @@
 #endif
 
 #include "armada_drm.h"
+#include "armada_accel.h"
+#include "common_drm.h"
+#include "utils.h"
 
 #define ARMADA_VERSION		4000
 #define ARMADA_NAME		"armada"
@@ -24,6 +27,11 @@ static SymTabRec armada_chipsets[] = {
 static SymTabRec ipu_chipsets[] = {
 	{  0, "i.MX6" },
 	{ -1, NULL }
+};
+
+static const OptionInfoRec * const options[] = {
+	armada_drm_options,
+	common_drm_options,
 };
 
 static void armada_identify(int flags)
@@ -74,8 +82,19 @@ static Bool armada_probe(DriverPtr drv, int flags)
 
 static const OptionInfoRec *armada_available_options(int chipid, int busid)
 {
-	extern const OptionInfoRec armada_drm_options[];
-	return armada_drm_options;
+	static OptionInfoRec opts[32];
+	int i, j, k;
+
+	for (i = k = 0; i < ARRAY_SIZE(options); i++) {
+		for (j = 0; options[i][j].token != -1; j++) {
+			if (k >= ARRAY_SIZE(opts) - 1)
+				return NULL;
+			opts[k++] = options[i][j];
+		}
+	}
+		
+	opts[k].token = -1;
+	return opts;
 }
 
 static Bool

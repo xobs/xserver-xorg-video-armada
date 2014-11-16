@@ -42,6 +42,8 @@ enum {
 	OPTION_ACCEL_MODULE,
 };
 
+extern const OptionInfoRec armada_drm_options[];
+
 #define GET_ARMADA_DRM_INFO(pScrn) \
 	((struct armada_drm_info *)GET_DRM_INFO(pScrn)->private)
 
