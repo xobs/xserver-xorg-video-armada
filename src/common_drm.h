@@ -55,6 +55,8 @@ struct common_drm_info {
 	void *private;
 };
 
+extern const OptionInfoRec common_drm_options[];
+
 #define GET_DRM_INFO(pScrn)		((struct common_drm_info *)(pScrn)->driverPrivate)
 #define SET_DRM_INFO(pScrn, ptr)	((pScrn)->driverPrivate = (ptr))
 
