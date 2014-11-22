@@ -9,6 +9,7 @@ test -z "$srcdir" && srcdir=.
 ORIGDIR=`pwd`
 cd $srcdir
 
+mkdir -p $srcdir/m4
 autoreconf --install || exit 1
 
 cd $ORIGDIR || exit $?
