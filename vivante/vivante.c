@@ -731,7 +731,7 @@ static void vivante_attach_name(ScreenPtr pScreen, PixmapPtr pPixmap,
 		vPix->name = name;
 }
 
-static const struct armada_accel_ops accel_ops = {
+static const struct armada_accel_ops vivante_ops = {
 	.screen_init	= vivante_ScreenInit,
 	.import_dmabuf	= vivante_import_dmabuf,
 	.attach_name	= vivante_attach_name,
@@ -740,9 +740,37 @@ static const struct armada_accel_ops accel_ops = {
 
 _X_EXPORT Bool accel_module_init(const struct armada_accel_ops **ops)
 {
-	*ops = &accel_ops;
+	*ops = &vivante_ops;
 
 	return TRUE;
+}
+
+static const char *dev_names[] = {
+	"/dev/gal3d",
+	"/dev/galcore",
+	"/dev/graphics/galcore",
+};
+
+static pointer vivante_setup(pointer module, pointer opts, int *errmaj,
+	int *errmin)
+{
+	int i;
+
+	for (i = 0; i < ARRAY_SIZE(dev_names); i++) {
+		/*
+		 * Test for the presence of the special device,
+		 * fail to load if it isn't present.
+		 */
+		if (access(dev_names[i], R_OK|W_OK) == 0)
+			return (pointer) 1;
+
+		if (errno == ENOENT)
+			continue;
+
+		LogMessage(X_ERROR, "access(%s) failed: %s\n",
+			   dev_names[i], strerror(errno));
+	}
+	return NULL;
 }
 
 static XF86ModuleVersionInfo vivante_version = {
@@ -762,4 +790,5 @@ static XF86ModuleVersionInfo vivante_version = {
 
 _X_EXPORT XF86ModuleData vivante_gpuModuleData = {
 	.vers = &vivante_version,
+	.setup = vivante_setup,
 };
