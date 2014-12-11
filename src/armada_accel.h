@@ -28,6 +28,8 @@ struct armada_accel_ops {
 	XF86VideoAdaptorPtr (*xv_init)(ScreenPtr);
 };
 
-extern Bool accel_module_init(const struct armada_accel_ops **);
+Bool accel_module_init(const struct armada_accel_ops **);
+void armada_register_accel(const struct armada_accel_ops *, pointer,
+	const char *name);
 
 #endif
