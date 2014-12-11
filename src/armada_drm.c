@@ -505,51 +505,10 @@ static Bool armada_drm_ScreenInit(SCREEN_INIT_ARGS_DECL)
 	return ret;
 }
 
-static Bool armada_drm_load_accel(ScrnInfoPtr pScrn,
-	struct armada_drm_info *arm, const char *s)
-{
-	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
-
-	if (!s)
-		return FALSE;
-
-	arm->accel_module = xf86LoadSubModule(pScrn, s);
-	if (!arm->accel_module)
-		return FALSE;
-
-	if (!accel_module_init(&arm->accel_ops)) {
-		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
-			   "[drm] accel module %s missing accel_ops\n", s);
-		xf86UnloadSubModule(arm->accel_module);
-		return FALSE;
-	}
-
-	if (arm->accel_ops->pre_init &&
-	    !arm->accel_ops->pre_init(pScrn, drm->fd)) {
-		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
-			   "[drm] accel module %s failed to initialise\n", s);
-		xf86UnloadSubModule(arm->accel_module);
-		return FALSE;
-	}
-
-	return TRUE;
-}
-
-static const char *armada_drm_accelerators[] = {
-#ifdef HAVE_ACCEL_ETNAVIV
-	"etnaviv_gpu",
-#endif
-#ifdef HAVE_ACCEL_GALCORE
-	"vivante_gpu",
-#endif
-	NULL,
-};
-
 static Bool armada_drm_pre_init(ScrnInfoPtr pScrn)
 {
 	struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(pScrn);
 	const char *s;
-	unsigned i;
 
 	xf86CollectOptions(pScrn, NULL);
 	arm->Options = malloc(sizeof(armada_drm_options));
@@ -565,16 +524,22 @@ static Bool armada_drm_pre_init(ScrnInfoPtr pScrn)
 	s = xf86GetOptValString(arm->Options, OPTION_ACCEL_MODULE);
 
 	if (arm->accel) {
-		if (!s) {
-			for (i = 0; armada_drm_accelerators[i]; i++) {
-				if (armada_drm_load_accel(pScrn, arm,
-						armada_drm_accelerators[i]))
-					break;
-			}
-			if (!arm->accel_ops)
-				arm->accel = FALSE;
-		} else if (!armada_drm_load_accel(pScrn, arm, s))
+		struct common_drm_info *drm = GET_DRM_INFO(pScrn);
+
+		if (!armada_load_accelerator(pScrn, s))
+			return FALSE;
+
+		arm->accel_ops = armada_get_accelerator();
+		if (arm->accel_ops) {
+			if (arm->accel_ops->pre_init &&
+			    !arm->accel_ops->pre_init(pScrn, drm->fd)) {
+				xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+					   "[drm] accel module failed to initialise\n");
 				return FALSE;
+			}
+		} else {
+			arm->accel = FALSE;
+		}
 	}
 
 	xf86CrtcConfigInit(pScrn, &armada_drm_config_funcs);
