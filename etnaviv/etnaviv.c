@@ -595,6 +595,8 @@ static Bool etnaviv_alloc_armada_bo(ScreenPtr pScreen, struct etnaviv *etnaviv,
 		size = pitch * h;
 	}
 
+	size = ALIGN(size, 4096);
+
 	bo = drm_armada_bo_create_size(etnaviv->bufmgr, size);
 	if (!bo) {
 		xf86DrvMsg(etnaviv->scrnIndex, X_ERROR,
