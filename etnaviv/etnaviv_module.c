@@ -14,13 +14,6 @@
 #include "armada_accel.h"
 #include "etnaviv_accel.h"
 
-_X_EXPORT Bool accel_module_init(const struct armada_accel_ops **ops)
-{
-	*ops = &etnaviv_ops;
-
-	return TRUE;
-}
-
 static const char *dev_names[] = {
 	"/dev/gal3d",
 	"/dev/galcore",
@@ -37,8 +30,10 @@ static pointer etnaviv_setup(pointer module, pointer opts, int *errmaj,
 		 * Test for the presence of the special device,
 		 * fail to load if it isn't present.
 		 */
-		if (access(dev_names[i], R_OK|W_OK) == 0)
+		if (access(dev_names[i], R_OK|W_OK) == 0) {
+			armada_register_accel(&etnaviv_ops, module, "etnaviv_gpu");
 			return (pointer) 1;
+		}
 
 		if (errno == ENOENT)
 			continue;

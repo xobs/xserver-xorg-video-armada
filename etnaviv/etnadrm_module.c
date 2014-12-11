@@ -15,13 +15,6 @@
 #include "etnaviv_accel.h"
 #include "etnadrm.h"
 
-_X_EXPORT Bool accel_module_init(const struct armada_accel_ops **ops)
-{
-	*ops = &etnaviv_ops;
-
-	return TRUE;
-}
-
 static pointer etnadrm_setup(pointer module, pointer opts, int *errmaj,
 	int *errmin)
 {
@@ -30,6 +23,7 @@ static pointer etnadrm_setup(pointer module, pointer opts, int *errmaj,
 	fd = etnadrm_open_render("etnaviv");
 	if (fd != -1) {
 		close(fd);
+		armada_register_accel(&etnaviv_ops, module, "etnadrm_gpu");
 		return (pointer) 1;
 	}
 

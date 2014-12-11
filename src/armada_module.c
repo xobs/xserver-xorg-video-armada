@@ -34,6 +34,65 @@ static const OptionInfoRec * const options[] = {
 	common_drm_options,
 };
 
+static const char *armada_drm_accelerators[] = {
+#ifdef HAVE_ACCEL_ETNAVIV
+	"etnadrm_gpu",
+	"etnaviv_gpu",
+#endif
+#ifdef HAVE_ACCEL_GALCORE
+	"vivante_gpu",
+#endif
+	NULL,
+};
+
+struct armada_accel_module {
+	const char *name;
+	const struct armada_accel_ops *ops;
+	pointer module;
+};
+
+static struct armada_accel_module *armada_accel_modules;
+static unsigned int armada_num_accel_modules;
+
+Bool armada_load_accelerator(ScrnInfoPtr pScrn, const char *module)
+{
+	unsigned int i;
+
+	if (!module) {
+		for (i = 0; armada_drm_accelerators[i]; i++)
+			if (xf86LoadSubModule(pScrn, armada_drm_accelerators[i]))
+				break;
+	} else {
+		if (!xf86LoadSubModule(pScrn, module))
+			return FALSE;
+
+		if (armada_num_accel_modules == 0)
+			return FALSE;
+	}
+
+	return TRUE;
+}
+
+const struct armada_accel_ops *armada_get_accelerator(void)
+{
+	return armada_accel_modules ? armada_accel_modules[0].ops : NULL;
+}
+
+_X_EXPORT
+void armada_register_accel(const struct armada_accel_ops *ops, pointer module,
+	const char *name)
+{
+	unsigned int n = armada_num_accel_modules++;
+
+	armada_accel_modules = xnfrealloc(armada_accel_modules,
+					  armada_num_accel_modules *
+					  sizeof(*armada_accel_modules));
+
+	armada_accel_modules[n].name = name;
+	armada_accel_modules[n].ops = ops;
+	armada_accel_modules[n].module = module;
+}
+
 static void armada_identify(int flags)
 {
 	xf86PrintChipsets(ARMADA_NAME, "Support for Marvell LCD Controller",
@@ -52,20 +111,20 @@ static Bool armada_probe(DriverPtr drv, int flags)
 		return FALSE;
 
 	numDevSections = xf86MatchDevice(ARMADA_DRIVER_NAME, &devSections);
-	if (numDevSections <= 0) 
+	if (numDevSections <= 0)
 		return FALSE;
-	
+
 	for (i = 0; i < numDevSections; i++) {
 		ScrnInfoPtr pScrn;
 		int entity;
 
-		entity = xf86ClaimFbSlot(drv, 0, devSections[i], TRUE);
+		entity = xf86ClaimNoSlot(drv, 0, devSections[i], TRUE);
 		pScrn = xf86ConfigFbEntity(NULL, 0, entity,
 					   NULL, NULL, NULL, NULL);
 
 		if (pScrn) {
 			foundScreen = TRUE;
-		    
+
 			pScrn->driverVersion = ARMADA_VERSION;
 			pScrn->driverName    = ARMADA_DRIVER_NAME;
 			pScrn->name          = ARMADA_NAME;
