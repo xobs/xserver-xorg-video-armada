@@ -173,7 +173,7 @@ struct etnaviv_pixmap {
 #define EMIT(etp, val)							\
 	do {								\
 		struct etnaviv *_et = etp;				\
-		assert(_et->batch_size < MAX_BATCH_SIZE - 1);		\
+		assert(_et->batch_size < MAX_BATCH_SIZE);		\
 		_et->batch[_et->batch_size++] = val;			\
 	} while (0)
 
