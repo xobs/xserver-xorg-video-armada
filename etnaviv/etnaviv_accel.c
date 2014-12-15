@@ -901,6 +901,8 @@ Bool etnaviv_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 	prefetch(prect + 4);
 
 	clip = fbGetCompositeClip(pGC);
+	if (RegionNumRects(clip) == 0)
+		return TRUE;
 
 	etnaviv_init_fill(etnaviv, &op, pGC);
 	op.clip = RegionExtents(clip);
