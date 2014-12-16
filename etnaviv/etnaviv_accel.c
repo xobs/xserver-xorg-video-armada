@@ -858,10 +858,13 @@ Bool etnaviv_accel_PolySegment(DrawablePtr pDrawable, GCPtr pGC, int nseg,
 			b->y2 = seg.y2;
 			b++;
 
-			if (last) {
+			if (last &&
+			    seg.x2 >= box->x1 && seg.x2 < box->x2 &&
+			    seg.y2 >= box->y1 && seg.y2 < box->y2) {
 				/*
 				 * Draw a one pixel long line to light the
-				 * last pixel on the line.
+				 * last pixel on the line, but only if the
+				 * point is not off the edge.
 				 */
 				b->x1 = seg.x2;
 				b->y1 = seg.y2;
