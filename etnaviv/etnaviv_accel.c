@@ -709,12 +709,14 @@ Bool etnaviv_accel_PolyPoint(DrawablePtr pDrawable, GCPtr pGC, int mode,
 	/* Intersect them with the clipping region */
 	RegionIntersect(&region, &region, fbGetCompositeClip(pGC));
 
-	op.clip = RegionExtents(&region);
+	if (RegionNumRects(&region)) {
+		op.clip = RegionExtents(&region);
 
-	etnaviv_blit_start(etnaviv, &op);
-	etnaviv_blit(etnaviv, &op, RegionRects(&region),
-		     RegionNumRects(&region));
-	etnaviv_blit_complete(etnaviv);
+		etnaviv_blit_start(etnaviv, &op);
+		etnaviv_blit(etnaviv, &op, RegionRects(&region),
+			     RegionNumRects(&region));
+		etnaviv_blit_complete(etnaviv);
+	}
 
 	RegionUninit(&region);
 
