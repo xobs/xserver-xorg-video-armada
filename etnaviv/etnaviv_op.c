@@ -210,7 +210,7 @@ void etnaviv_de_op(struct etnaviv *etnaviv, const struct etnaviv_de_op *op,
 	assert(nBox <= VIVANTE_MAX_2D_RECTS);
 
 	if (2 + 2 * nBox + 6 > remaining) {
-		etnaviv_emit(etnaviv);
+		etnaviv_de_end(etnaviv);
 		BATCH_OP_START(etnaviv);
 	}
 
