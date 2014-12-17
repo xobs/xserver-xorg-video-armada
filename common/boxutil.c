@@ -4,11 +4,11 @@
 int box_intersect_line_rough(const BoxRec *b, const xSegment *seg)
 {
 	/*
-	 * First, check whether shadow of the line on the
-	 * x/y axis are outside the box shadow.
+	 * First, check whether shadow of the line on the x/y axis are
+	 * outside the box shadow.  Note that the box x2/y2 are exclusive.
 	 */
-	if (b->x1 > maxt(seg->x1, seg->x2) || b->x2 < mint(seg->x1, seg->x2) ||
-	    b->y1 > maxt(seg->y1, seg->y2) || b->y2 < mint(seg->y1, seg->y2))
+	if (b->x1 > maxt(seg->x1, seg->x2) || b->x2 <= mint(seg->x1, seg->x2) ||
+	    b->y1 > maxt(seg->y1, seg->y2) || b->y2 <= mint(seg->y1, seg->y2))
 		return FALSE;
 
 	return TRUE;
