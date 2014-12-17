@@ -89,6 +89,7 @@ struct etnaviv {
 		unsigned int batch_index;
 		Bool write;
 	} reloc[MAX_RELOC_SIZE];
+	unsigned int reloc_setup_size;
 	unsigned int reloc_size;
 
 	CloseScreenProcPtr CloseScreen;
@@ -162,12 +163,14 @@ struct etnaviv_pixmap {
 	do {								\
 		struct etnaviv *__et = etp;				\
 		__et->batch_setup_size = __et->batch_size;		\
+		__et->reloc_setup_size = __et->reloc_size;		\
 	} while (0)
 
 #define BATCH_OP_START(etp)						\
 	do {								\
 		struct etnaviv *__et = etp;				\
 		__et->batch_size = __et->batch_setup_size;		\
+		__et->reloc_size = __et->reloc_setup_size;		\
 	} while (0)
 
 #define EMIT(etp, val)							\
