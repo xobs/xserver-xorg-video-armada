@@ -11,7 +11,7 @@ System as implemented by X.org, supporting these DRM KMS drivers:
 
 and GPUs:
 
-	Vivnate libGAL (Armada only)
+	Vivante libGAL (Armada only)
 
 Build requirements
 ------------------
