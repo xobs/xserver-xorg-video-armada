@@ -52,6 +52,10 @@ m4_ifndef([XORG_DRIVER_CHECK_EXT],
   Hint: either install from source, git://anongit.freedesktop.org/xorg/xserver or,
   depending on your distribution, try package 'xserver-xorg-dev' or 'xorg-x11-server-devel'])])
 
+# Make sure to not include fallback X.Org strndup if libc provides it
+AC_CHECK_FUNCS([strndup], [HAVE_STRNDUP=yes], [HAVE_STRNDUP=no])
+AM_CONDITIONAL(NEED_STRNDUP, [test x$HAVE_STRNDUP = xno])
+
 # Checks for programs.
 AC_DISABLE_STATIC
 AC_PROG_LIBTOOL
