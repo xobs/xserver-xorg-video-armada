@@ -154,11 +154,20 @@ int viv_open(enum viv_hw_type hw_type, struct viv_conn **out)
 	conn->kernel_driver.build = 0;
 
 	snprintf(conn->kernel_driver.name, sizeof(conn->kernel_driver.name),
-		 "%s DRM kernel driver %u.%u.%u",
+		 "%s DRM kernel driver %u.%u.%u, date %s",
 		 version->name,
 		 version->version_major,
 		 version->version_minor,
-		 version->version_patchlevel);
+		 version->version_patchlevel,
+		 version->date);
+
+	/*
+	 * Check the date code.  We have two differing APIs, and their
+	 * only identifying feature is the date code.  20150302 is
+	 * Pengutronix's version.
+	 */
+	if (strcmp(version->date, ETNAVIV_DATE_STR))
+		goto error;
 
 	conn->base_address = 0;
 
@@ -700,9 +709,8 @@ void etna_emit_reloc(struct etna_ctx *ctx, uint32_t buf_offset,
 	assert(index >= 0);
 
 	r = &buf->relocs[buf->num_relocs - 1];
+	memset(r, 0, sizeof(*r));
 	r->reloc_idx = index;
 	r->reloc_offset = offset;
-	r->or = 0;
-	r->shift = 0;
 	r->submit_offset = buf_offset * 4;
 }

@@ -18,6 +18,10 @@
 #ifndef __ETNAVIV_DRM_H__
 #define __ETNAVIV_DRM_H__
 
+#define ETNAVIV_DATE_RMK		20130625
+#define ETNAVIV_DATE_PENGUTRONIX	20150302
+#define ETNAVIV_DATE			ETNAVIV_DATE_PENGUTRONIX
+
 #include <stddef.h>
 #include "drm.h"
 
@@ -38,7 +42,11 @@
 #define ETNADRM_PIPE_2D      0x01
 #define ETNADRM_PIPE_VG      0x02
 
+#if ETNAVIV_DATE == ETNAVIV_DATE_PENGUTRONIX
+#define ETNA_MAX_PIPES    4
+#else
 #define ETNA_MAX_PIPES    3
+#endif
 
 /* timeouts are specified in clock-monotonic absolute times (to simplify
  * restarting interrupted ioctls).  The following struct is logically the
@@ -86,6 +94,10 @@ struct drm_etnaviv_param {
 #define ETNA_BO_CACHED       0x00010000
 #define ETNA_BO_WC           0x00020000
 #define ETNA_BO_UNCACHED     0x00040000
+#if ETNAVIV_DATE == ETNAVIV_DATE_PENGUTRONIX
+/* map flags */
+#define ETNA_BO_FORCE_MMU    0x00100000
+#endif
 
 struct drm_etnaviv_gem_new {
 	uint64_t size;           /* in */
@@ -130,8 +142,10 @@ struct drm_etnaviv_gem_cpu_fini {
  */
 struct drm_etnaviv_gem_submit_reloc {
 	uint32_t submit_offset;  /* in, offset from submit_bo */
+#if ETNAVIV_DATE != ETNAVIV_DATE_PENGUTRONIX
 	uint32_t or;             /* in, value OR'd with result */
 	int32_t  shift;          /* in, amount of left shift (can be negative) */
+#endif
 	uint32_t reloc_idx;      /* in, index of reloc_bo buffer */
 	uint64_t reloc_offset;   /* in, offset from start of reloc_bo */
 };
@@ -145,8 +159,12 @@ struct drm_etnaviv_gem_submit_reloc {
  *      switch since the last SUBMIT ioctl
  */
 #define ETNA_SUBMIT_CMD_BUF             0x0001
+#if ETNAVIV_DATE == ETNAVIV_DATE_PENGUTRONIX
+#define ETNA_SUBMIT_CMD_CTX_RESTORE_BUF 0x0002
+#else
 #define ETNA_SUBMIT_CMD_IB_TARGET_BUF   0x0002
 #define ETNA_SUBMIT_CMD_CTX_RESTORE_BUF 0x0003
+#endif
 struct drm_etnaviv_gem_submit_cmd {
 	uint32_t type;           /* in, one of ETNA_SUBMIT_CMD_x */
 	uint32_t submit_idx;     /* in, index of submit_bo cmdstream buffer */
@@ -182,9 +200,15 @@ struct drm_etnaviv_gem_submit_bo {
  */
 struct drm_etnaviv_gem_submit {
 	uint32_t pipe;           /* in, ETNA_PIPE_x */
+#if ETNAVIV_DATE == ETNAVIV_DATE_PENGUTRONIX
+	uint32_t exec_state;
+#endif
 	uint32_t fence;          /* out */
 	uint32_t nr_bos;         /* in, number of submit_bo's */
 	uint32_t nr_cmds;        /* in, number of submit_cmd's */
+#if ETNAVIV_DATE == ETNAVIV_DATE_PENGUTRONIX
+	uint32_t pad;
+#endif
 	uint64_t bos;            /* in, ptr to array of submit_bo's */
 	uint64_t cmds;           /* in, ptr to array of submit_cmd's */
 };
@@ -212,9 +236,7 @@ struct drm_etnaviv_gem_userptr {
 };
 
 #define DRM_ETNAVIV_GET_PARAM          0x00
-/* placeholder:
-#define DRM_MSM_SET_PARAM              0x01
- */
+#define DRM_ETNAVIV_SET_PARAM          0x01
 #define DRM_ETNAVIV_GEM_NEW            0x02
 #define DRM_ETNAVIV_GEM_INFO           0x03
 #define DRM_ETNAVIV_GEM_CPU_PREP       0x04
@@ -231,5 +253,9 @@ struct drm_etnaviv_gem_userptr {
 #define DRM_IOCTL_ETNAVIV_GEM_CPU_FINI DRM_IOW (DRM_COMMAND_BASE + DRM_ETNAVIV_GEM_CPU_FINI, struct drm_etnaviv_gem_cpu_fini)
 #define DRM_IOCTL_ETNAVIV_GEM_SUBMIT   DRM_IOWR(DRM_COMMAND_BASE + DRM_ETNAVIV_GEM_SUBMIT, struct drm_etnaviv_gem_submit)
 #define DRM_IOCTL_ETNAVIV_WAIT_FENCE   DRM_IOW (DRM_COMMAND_BASE + DRM_ETNAVIV_WAIT_FENCE, struct drm_etnaviv_wait_fence)
+
+#define __STR(x)			#x
+#define _STR(x)				__STR(x)
+#define ETNAVIV_DATE_STR		_STR(ETNAVIV_DATE)
 
 #endif /* __ETNAVIV_DRM_H__ */
