@@ -134,7 +134,7 @@ static void etnaviv_emit_2d_draw(struct etnaviv *etnaviv, const BoxRec *pbox,
 
 	assert(n);
 
-	EMIT_DRAW_2D(etnaviv, n);
+	EMIT_DRAW_2D(etnaviv, n == 256 ? 0 : n);
 
 	for (i = 0; i < n; i++, pbox++) {
 		EMIT(etnaviv,
