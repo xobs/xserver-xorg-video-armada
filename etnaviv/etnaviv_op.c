@@ -132,8 +132,6 @@ static void etnaviv_emit_2d_draw(struct etnaviv *etnaviv, const BoxRec *pbox,
 {
 	size_t i;
 
-	assert(n);
-
 	EMIT_DRAW_2D(etnaviv, n == 256 ? 0 : n);
 
 	for (i = 0; i < n; i++, pbox++) {
@@ -144,6 +142,11 @@ static void etnaviv_emit_2d_draw(struct etnaviv *etnaviv, const BoxRec *pbox,
 		     VIV_FE_DRAW_2D_BOTTOM_RIGHT_X(offset.x + pbox->x2) |
 		     VIV_FE_DRAW_2D_BOTTOM_RIGHT_Y(offset.y + pbox->y2));
 	}
+}
+
+static size_t etnaviv_size_2d_draw(struct etnaviv *etnaviv, size_t n)
+{
+	return 2 + 2 * n;
 }
 
 void etnaviv_de_start(struct etnaviv *etnaviv, const struct etnaviv_de_op *op)
@@ -202,24 +205,48 @@ void etnaviv_de_end(struct etnaviv *etnaviv)
 void etnaviv_de_op(struct etnaviv *etnaviv, const struct etnaviv_de_op *op,
 	const BoxRec *pBox, size_t nBox)
 {
-	unsigned int remaining = etnaviv->batch_de_high_watermark -
-				 etnaviv->batch_size;
+	unsigned int high_wm = etnaviv->batch_de_high_watermark;
 
 	assert(nBox <= VIVANTE_MAX_2D_RECTS);
+	assert(nBox);
 
-	if (2 + 2 * nBox + 6 > remaining) {
-		etnaviv_de_end(etnaviv);
-		BATCH_OP_START(etnaviv);
+	if (op->cmd == VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT &&
+	    etnaviv_has_bugfix(etnaviv, BUGFIX_SINGLE_BITBLT_DRAW_OP)) {
+		size_t op_size = etnaviv_size_2d_draw(etnaviv, 1) + 6;
+		xPoint offset = op->dst.offset;
+
+		while (nBox--) {
+			if (op_size > high_wm - etnaviv->batch_size) {
+				etnaviv_de_end(etnaviv);
+				BATCH_OP_START(etnaviv);
+			}
+
+			etnaviv_emit_2d_draw(etnaviv, pBox++, 1, offset);
+
+			EMIT_LOADSTATE(etnaviv, 4, 1);
+			EMIT(etnaviv, 0);
+			EMIT_LOADSTATE(etnaviv, 4, 1);
+			EMIT(etnaviv, 0);
+			EMIT_LOADSTATE(etnaviv, 4, 1);
+			EMIT(etnaviv, 0);
+		}		
+	} else {
+		unsigned int remaining = high_wm - etnaviv->batch_size;
+
+		if (etnaviv_size_2d_draw(etnaviv, nBox) + 6 > remaining) {
+			etnaviv_de_end(etnaviv);
+			BATCH_OP_START(etnaviv);
+		}
+
+		etnaviv_emit_2d_draw(etnaviv, pBox, nBox, op->dst.offset);
+
+		EMIT_LOADSTATE(etnaviv, 4, 1);
+		EMIT(etnaviv, 0);
+		EMIT_LOADSTATE(etnaviv, 4, 1);
+		EMIT(etnaviv, 0);
+		EMIT_LOADSTATE(etnaviv, 4, 1);
+		EMIT(etnaviv, 0);
 	}
-
-	etnaviv_emit_2d_draw(etnaviv, pBox, nBox, op->dst.offset);
-
-	EMIT_LOADSTATE(etnaviv, 4, 1);
-	EMIT(etnaviv, 0);
-	EMIT_LOADSTATE(etnaviv, 4, 1);
-	EMIT(etnaviv, 0);
-	EMIT_LOADSTATE(etnaviv, 4, 1);
-	EMIT(etnaviv, 0);
 }
 
 void etnaviv_vr_op(struct etnaviv *etnaviv, struct etnaviv_vr_op *op,

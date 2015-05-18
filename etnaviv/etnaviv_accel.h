@@ -51,6 +51,11 @@ enum {
 	CREATE_PIXMAP_USAGE_GPU = 0x40000000,	/* Must be vpix backed */
 };
 
+/* Workarounds for hardware bugs */
+enum {
+	BUGFIX_SINGLE_BITBLT_DRAW_OP,
+};
+
 /*
  * The maximum size of an operation in the batch buffer.  A 2D draw
  * operation can contain up to 255 rectangles, which equates to 512
@@ -72,6 +77,7 @@ struct etnaviv {
 	uint32_t last_fence;
 	Bool force_fallback;
 	struct drm_armada_bufmgr *bufmgr;
+	uint32_t bugs[1];
 	struct etna_bo *gc320_etna_bo;
 	int scrnIndex;
 #ifdef HAVE_DRI2
@@ -231,6 +237,22 @@ struct etnaviv_pixmap {
 		struct etnaviv *__et = etp;				\
 		__et->batch_size += __et->batch_size & 1;		\
 	} while (0)
+
+static inline void etnaviv_enable_bugfix(struct etnaviv *etnaviv,
+	unsigned int bug)
+{
+	unsigned int index = bug >> 5;
+	uint32_t mask = 1 << (bug & 31);
+	etnaviv->bugs[index] |= mask;
+}
+
+static inline bool etnaviv_has_bugfix(struct etnaviv *etnaviv,
+	unsigned int bug)
+{
+	unsigned int index = bug >> 5;
+	uint32_t mask = 1 << (bug & 31);
+	return !!(etnaviv->bugs[index] & mask);
+}
 
 /* Addresses must be aligned */
 #define VIVANTE_ALIGN_MASK	63
