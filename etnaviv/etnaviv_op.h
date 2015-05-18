@@ -9,7 +9,7 @@
 
 #include "xf86.h"
 
-#define VIVANTE_MAX_2D_RECTS	255
+#define VIVANTE_MAX_2D_RECTS	256
 
 struct etna_bo;
 struct etnaviv;
