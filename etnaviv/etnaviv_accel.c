@@ -1978,6 +1978,8 @@ Bool etnaviv_accel_init(struct etnaviv *etnaviv)
 						     DRM_ETNA_GEM_TYPE_BMP);
 		/* reserve some additional batch space */
 		etnaviv->batch_de_high_watermark -= 22;
+
+		etnaviv_enable_bugfix(etnaviv, BUGFIX_SINGLE_BITBLT_DRAW_OP);
 	}
 
 	return TRUE;
