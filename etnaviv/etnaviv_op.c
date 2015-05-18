@@ -35,19 +35,17 @@ static inline uint32_t etnaviv_src_config(struct etnaviv_format fmt,
 }
 
 static void etnaviv_set_source_bo(struct etnaviv *etnaviv, struct etna_bo *bo,
-	uint32_t pitch, struct etnaviv_format format, const xPoint *offset)
+	uint32_t pitch, struct etnaviv_format format, const xPoint offset)
 {
-	size_t n_src = offset ? 5 : 4;
-	uint32_t src_cfg = etnaviv_src_config(format, offset != NULL);
+	uint32_t src_cfg = etnaviv_src_config(format, true);
 
-	EMIT_LOADSTATE(etnaviv, VIVS_DE_SRC_ADDRESS, n_src);
+	EMIT_LOADSTATE(etnaviv, VIVS_DE_SRC_ADDRESS, 5);
 	EMIT_RELOC(etnaviv, bo, 0, FALSE);
 	EMIT(etnaviv, VIVS_DE_SRC_STRIDE_STRIDE(pitch));
 	EMIT(etnaviv, VIVS_DE_SRC_ROTATION_CONFIG_ROTATION_DISABLE);
 	EMIT(etnaviv, src_cfg);
-	if (offset)
-		EMIT(etnaviv, VIVS_DE_SRC_ORIGIN_X(offset->x) |
-			      VIVS_DE_SRC_ORIGIN_Y(offset->y));
+	EMIT(etnaviv, VIVS_DE_SRC_ORIGIN_X(offset.x) |
+		      VIVS_DE_SRC_ORIGIN_Y(offset.y));
 	EMIT_ALIGN(etnaviv);
 }
 
@@ -154,7 +152,7 @@ void etnaviv_de_start(struct etnaviv *etnaviv, const struct etnaviv_de_op *op)
 
 	if (op->src.bo)
 		etnaviv_set_source_bo(etnaviv, op->src.bo, op->src.pitch,
-				      op->src.format, &op->src.offset);
+				      op->src.format, op->src.offset);
 	etnaviv_set_dest_bo(etnaviv, op->dst.bo, op->dst.pitch, op->dst.format,
 			    op->cmd);
 	etnaviv_set_blend(etnaviv, op->blend_op);
@@ -175,7 +173,7 @@ void etnaviv_de_end(struct etnaviv *etnaviv)
 
 		/* Append the GC320 workaround - 6 + 6 + 2 + 4 + 4 */
 		etnaviv_set_source_bo(etnaviv, etnaviv->gc320_etna_bo, 64,
-				      fmt, &offset);
+				      fmt, offset);
 		etnaviv_set_dest_bo(etnaviv, etnaviv->gc320_etna_bo, 64, fmt,
 				    VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT);
 		etnaviv_set_blend(etnaviv, NULL);
