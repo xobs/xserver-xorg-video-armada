@@ -1040,12 +1040,14 @@ static Bool etnaviv_import_dmabuf(ScreenPtr pScreen, PixmapPtr pPixmap, int fd)
 static void etnaviv_attach_name(ScreenPtr pScreen, PixmapPtr pPixmap,
 	uint32_t name)
 {
+#ifdef HAVE_DRI2
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
 	struct etnaviv_pixmap *vPix = etnaviv_get_pixmap_priv(pPixmap);
 
 	/* If we are using our KMS DRM for buffer management, save its name */
 	if (etnaviv->dri2_armada && vPix)
 		vPix->name = name;
+#endif
 }
 
 static int etnaviv_export_name(ScreenPtr pScreen, uint32_t name)
