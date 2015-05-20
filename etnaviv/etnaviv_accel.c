@@ -977,8 +977,8 @@ Bool etnaviv_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 		ret = FALSE;
 
 		/* Calculate the tile offset from the rect coords */
-		tile_off_x = op.dst.offset.x + pDrawable->x + pGC->patOrg.x;
-		tile_off_y = op.dst.offset.y + pDrawable->y + pGC->patOrg.y;
+		tile_off_x = pDrawable->x + pGC->patOrg.x;
+		tile_off_y = pDrawable->y + pGC->patOrg.y;
 
 		tile_w = pTile->drawable.width;
 		tile_h = pTile->drawable.height;
