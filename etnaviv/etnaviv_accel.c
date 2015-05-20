@@ -540,9 +540,6 @@ Bool etnaviv_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 	if (!(vPix->state & ST_GPU_RW))
 		return FALSE;
 
-	x += pDrawable->x;
-	y += pDrawable->y;
-
 	pTemp = pScreen->CreatePixmap(pScreen, w, h, pPix->drawable.depth,
 				      CREATE_PIXMAP_USAGE_GPU);
 	if (!pTemp)
@@ -559,7 +556,7 @@ Bool etnaviv_accel_PutImage(DrawablePtr pDrawable, GCPtr pGC, int depth,
 			 format, bits);
 	FreeScratchGC(gc);
 
-	pGC->ops->CopyArea(&pTemp->drawable, &pPix->drawable, pGC,
+	pGC->ops->CopyArea(&pTemp->drawable, pDrawable, pGC,
 			   0, 0, w, h, x, y);
 	pScreen->DestroyPixmap(pTemp);
 	return TRUE;
