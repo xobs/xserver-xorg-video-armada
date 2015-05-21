@@ -1864,34 +1864,46 @@ void etnaviv_accel_glyph_upload(ScreenPtr pScreen, PicturePtr pDst,
 	unsigned height = pGlyph->info.height;
 	unsigned old_pitch = src_pix->devKind;
 	unsigned i, pitch = ALIGN(old_pitch, 16);
-	struct etna_bo *usr;
+	struct etna_bo *usr = NULL;
 	BoxRec box;
-	xPoint offset, dst_offset = { 0, };
-	char *buf, *src = src_pix->devPrivate.ptr;
-	size_t size, align = maxt(VIVANTE_ALIGN_MASK, getpagesize());
-	void *b;
+	xPoint src_offset, dst_offset = { 0, };
+	struct etnaviv_pixmap *vpix;
+	void *b = NULL;
 
-	size = pitch * height + align - 1;
-	size &= ~(align - 1);
+	src_offset.x = -x;
+	src_offset.y = -y;
 
-	if (posix_memalign(&b, align, size))
-		return;
+	vpix = etnaviv_get_pixmap_priv(src_pix);
+	if (vpix) {
+		etnaviv_set_format(vpix, pSrc);
+		op.src = INIT_BLIT_PIX(vpix, vpix->pict_format, src_offset);
+	} else {
+		char *buf, *src = src_pix->devPrivate.ptr;
+		size_t size, align = maxt(VIVANTE_ALIGN_MASK, getpagesize());
 
-	buf = b;
-	for (i = 0; i < height; i++)
-		memcpy(buf + pitch * i, src + old_pitch * i, old_pitch);
+		size = pitch * height + align - 1;
+		size &= ~(align - 1);
 
-	usr = etna_bo_from_usermem_prot(etnaviv->conn, buf, size, PROT_READ);
-	if (!usr) {
-		xf86DrvMsg(etnaviv->scrnIndex, X_ERROR,
-			   "etnaviv: %s: etna_bo_from_usermem_prot(ptr=%p, size=%zu) failed: %s\n",
-			   __FUNCTION__, buf, size, strerror(errno));
-		free(buf);
-		return;
+		if (posix_memalign(&b, align, size))
+			return;
+
+		for (i = 0, buf = b; i < height; i++, buf += pitch)
+			memcpy(buf, src + old_pitch * i, old_pitch);
+
+		usr = etna_bo_from_usermem_prot(etnaviv->conn, b, size, PROT_READ);
+		if (!usr) {
+			xf86DrvMsg(etnaviv->scrnIndex, X_ERROR,
+				   "etnaviv: %s: etna_bo_from_usermem_prot(ptr=%p, size=%zu) failed: %s\n",
+				   __FUNCTION__, b, size, strerror(errno));
+			free(b);
+			return;
+		}
+
+		op.src = INIT_BLIT_BO(usr, pitch,
+				      etnaviv_pict_format(pSrc->format, FALSE),
+				      src_offset);
 	}
 
-	offset.x = -x;
-	offset.y = -y;
 	box.x1 = x;
 	box.y1 = y;
 	box.x2 = x + width;
@@ -1902,9 +1914,6 @@ void etnaviv_accel_glyph_upload(ScreenPtr pScreen, PicturePtr pDst,
 	if (!gal_prepare_gpu(etnaviv, vdst, GPU_ACCESS_RW))
 		goto unmap;
 
-	op.src = INIT_BLIT_BO(usr, pitch,
-			      etnaviv_pict_format(pSrc->format, FALSE),
-			      offset);
 	op.dst = INIT_BLIT_PIX(vdst, vdst->pict_format, dst_offset);
 	op.blend_op = NULL;
 	op.clip = &box;
@@ -1918,8 +1927,10 @@ void etnaviv_accel_glyph_upload(ScreenPtr pScreen, PicturePtr pDst,
 	etnaviv_batch_wait_commit(etnaviv, vdst);
 
  unmap:
-	etna_bo_del(etnaviv->conn, usr, NULL);
-	free(buf);
+	if (usr)
+		etna_bo_del(etnaviv->conn, usr, NULL);
+	if (b)
+		free(b);
 }
 #endif
 
