@@ -1,3 +1,10 @@
+xf86-video-armada (0.0.1-r6) unstable; urgency=medium
+
+  * Incorporate more fixes from upstream
+  * Disable glyph cache to prevent segfaults
+
+ -- Sean Cross <xobs@kosagi.com>  Thu, 21 May 2015 12:19:36 +0800
+
 xf86-video-armada (0.0.1-r5) unstable; urgency=medium
 
   * Correct segfault when drawing large numbers of rectangles
