@@ -1886,6 +1886,7 @@ void etnaviv_accel_glyph_upload(ScreenPtr pScreen, PicturePtr pDst,
 		xf86DrvMsg(etnaviv->scrnIndex, X_ERROR,
 			   "etnaviv: %s: etna_bo_from_usermem_prot(ptr=%p, size=%zu) failed: %s\n",
 			   __FUNCTION__, buf, size, strerror(errno));
+		free(buf);
 		return;
 	}
 
