@@ -907,7 +907,7 @@ static Bool etnaviv_CreateScreenResources(ScreenPtr pScreen)
 
 		ret = glyph_cache_init(pScreen, etnaviv_accel_glyph_upload,
 				       glyph_formats, num,
-				       CREATE_PIXMAP_USAGE_TILE |
+				       /* CREATE_PIXMAP_USAGE_TILE | */
 				       CREATE_PIXMAP_USAGE_GPU);
 	}
 	return ret;
