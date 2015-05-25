@@ -1050,8 +1050,6 @@ static Bool etnaviv_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 	etnaviv->AddTraps = ps->AddTraps;
 	ps->AddTraps = unaccel_AddTraps;
 
-#warning "Disabling glyph acceleration"
-	ps->Glyphs = unaccel_Glyphs;
 #endif
 	return TRUE;
 
