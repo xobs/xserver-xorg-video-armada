@@ -1,3 +1,9 @@
+xf86-video-armada (0.0.1-r8) unstable; urgency=medium
+
+  * Add backlight support
+
+ -- Sean Cross <xobs@kosagi.com>  Mon, 25 May 2015 15:56:55 +0800
+
 xf86-video-armada (0.0.1-r7) unstable; urgency=medium
 
   * Fix the glyph cache
