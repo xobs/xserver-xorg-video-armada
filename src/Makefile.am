@@ -26,7 +26,9 @@ armada_drv_ladir = @moduledir@/drivers
 armada_drv_la_SOURCES = armada_module.c \
 			armada_drm.c \
 			armada_drm_xv.c \
-			common_drm.c
+			common_drm.c \
+			backlight.c \
+			fd.c
 if HAVE_DRI2
 armada_drv_la_SOURCES += common_drm_dri2.c
 endif

@@ -18,6 +18,7 @@
 
 #include "boxutil.h"
 
+#include "backlight.h"
 #include "common_drm.h"
 #include "common_drm_dri2.h"
 #include "common_drm_helper.h"
@@ -56,6 +57,8 @@ struct common_conn_info {
 	int drm_fd;
 	int drm_id;
 	int dpms_mode;
+	struct backlight backlight;
+	int backlight_active_level;
 	int nprops;
 	struct common_drm_property *props;
 	drmModeConnectorPtr mode_output;
@@ -85,6 +88,43 @@ void common_drm_set_pixmap_data(PixmapPtr pixmap, uint32_t handle, void *data)
 void *common_drm_get_pixmap_data(PixmapPtr pixmap)
 {
 	return common_drm_pixmap(pixmap)->data;
+}
+
+static void common_drm_conn_backlight_set(xf86OutputPtr output, int level)
+{
+	struct common_conn_info *conn = output->driver_private;
+	if (backlight_set(&conn->backlight, level) < 0) {
+		xf86DrvMsg(output->scrn->scrnIndex, X_ERROR,
+			   "failed to set backlight %s to brightness level %d, "
+			   "disabling\n",
+			   conn->backlight.iface, level);
+		backlight_disable(&conn->backlight);
+	}
+}
+
+
+static int common_drm_conn_backlight_get(xf86OutputPtr output)
+{
+	struct common_conn_info *conn = output->driver_private;
+	return backlight_get(&conn->backlight);
+}
+
+static void common_drm_conn_backlight_init(xf86OutputPtr output)
+{
+	struct common_conn_info *conn = output->driver_private;
+
+	/* Only add the backlight to LVDS */
+	if (strcmp(output->name, "LVDS1"))
+		return;
+
+	conn->backlight_active_level =
+		backlight_open(&conn->backlight, NULL);
+	if (conn->backlight_active_level != -1) {
+		xf86DrvMsg(output->scrn->scrnIndex, X_PROBED,
+			   "found backlight control interface %s\n",
+			   conn->backlight.iface);
+		return;
+	}
 }
 
 static void drmmode_ConvertFromKMode(ScrnInfoPtr pScrn,
@@ -137,6 +177,37 @@ static drmModePropertyPtr common_drm_conn_find_property(
 	return NULL;
 }
 
+static void
+common_drm_conn_create_ranged_atom(xf86OutputPtr output, Atom *atom,
+				   const char *name, INT32 min, INT32 max,
+				   uint64_t value, Bool immutable)
+{
+	int err;
+	INT32 atom_range[2];
+
+	atom_range[0] = min;
+	atom_range[1] = max;
+
+	*atom = MakeAtom(name, strlen(name), TRUE);
+
+	err = RRConfigureOutputProperty(output->randr_output, *atom, FALSE,
+					TRUE, immutable, 2, atom_range);
+	if (err != 0)
+		xf86DrvMsg(output->scrn->scrnIndex, X_ERROR,
+			   "RRConfigureOutputProperty error, %d\n", err);
+
+	err = RRChangeOutputProperty(output->randr_output, *atom, XA_INTEGER,
+				     32, PropModeReplace, 1, &value, FALSE,
+				     FALSE);
+	if (err != 0)
+		xf86DrvMsg(output->scrn->scrnIndex, X_ERROR,
+			   "RRChangeOutputProperty error, %d\n", err);
+}
+
+#define BACKLIGHT_NAME			"Backlight"
+#define BACKLIGHT_DEPRECATED_NAME	"BACKLIGHT"
+static Atom backlight_atom, backlight_deprecated_atom;
+
 static void common_drm_conn_create_resources(xf86OutputPtr output)
 {
 	struct common_conn_info *conn = output->driver_private;
@@ -146,6 +217,8 @@ static void common_drm_conn_create_resources(xf86OutputPtr output)
 	conn->props = calloc(mop->count_props, sizeof *conn->props);
 	if (!conn->props)
 		return;
+
+	common_drm_conn_backlight_init(output);
 
 	for (i = n = 0; i < mop->count_props; i++) {
 		struct common_drm_property *prop = &conn->props[n];
@@ -242,6 +315,45 @@ static void common_drm_conn_create_resources(xf86OutputPtr output)
 		}
 	}
 	conn->nprops = n;
+
+	if (conn->backlight.iface) {
+		/* Set up the backlight property, which takes effect
+		 * immediately and accepts values only within the
+		 * backlight_range.
+		 */
+		common_drm_conn_create_ranged_atom(output, &backlight_atom,
+					BACKLIGHT_NAME, 0,
+					conn->backlight.max,
+					conn->backlight_active_level,
+					FALSE);
+		common_drm_conn_create_ranged_atom(output,
+					&backlight_deprecated_atom,
+					BACKLIGHT_DEPRECATED_NAME, 0,
+					conn->backlight.max,
+					conn->backlight_active_level,
+					FALSE);
+	}
+}
+
+static void
+common_drm_conn_dpms_backlight(xf86OutputPtr output, int oldmode, int mode)
+{
+	struct common_conn_info *conn = output->driver_private;
+
+	if (!conn->backlight.iface)
+		return;
+
+	if (mode == DPMSModeOn) {
+		/* If we're going from off->on we may need to turn on the backlight. */
+		if (oldmode != DPMSModeOn)
+			common_drm_conn_backlight_set(output,
+					   conn->backlight_active_level);
+	} else {
+		/* Only save the current backlight value if we're going from on to off. */
+		if (oldmode == DPMSModeOn)
+			conn->backlight_active_level = common_drm_conn_backlight_get(output);
+		common_drm_conn_backlight_set(output, 0);
+	}
 }
 
 static void common_drm_conn_dpms(xf86OutputPtr output, int mode)
@@ -250,8 +362,20 @@ static void common_drm_conn_dpms(xf86OutputPtr output, int mode)
 	drmModePropertyPtr p = common_drm_conn_find_property(conn, "DPMS", NULL);
 
 	if (p) {
+		/* Make sure to reverse the order between on and off. */
+		if (mode != DPMSModeOn)
+			common_drm_conn_dpms_backlight(output,
+						       conn->dpms_mode,
+						       mode);
+
 		drmModeConnectorSetProperty(conn->drm_fd, conn->drm_id,
 					    p->prop_id, mode);
+
+		if (mode == DPMSModeOn)
+			common_drm_conn_dpms_backlight(output,
+						       conn->dpms_mode,
+						       mode);
+
 		conn->dpms_mode = mode;
 		drmModeFreeProperty(p);
 	}
@@ -329,6 +453,25 @@ static Bool common_drm_conn_set_property(xf86OutputPtr output, Atom property,
 	struct common_conn_info *conn = output->driver_private;
 	int i;
 
+	if (property == backlight_atom || property == backlight_deprecated_atom) {
+		INT32 val;
+
+		if (value->type != XA_INTEGER || value->format != 32 ||
+		    value->size != 1)
+		{
+			return FALSE;
+		}
+
+		val = *(INT32 *)value->data;
+		if (val < 0 || val > conn->backlight.max)
+			return FALSE;
+
+		if (conn->dpms_mode == DPMSModeOn)
+			common_drm_conn_backlight_set(output, val);
+		conn->backlight_active_level = val;
+		return TRUE;
+	}
+
 	for (i = 0; i < conn->nprops; i++) {
 		struct common_drm_property *prop = &conn->props[i];
 		drmModePropertyPtr dprop;
@@ -375,6 +518,35 @@ static Bool common_drm_conn_set_property(xf86OutputPtr output, Atom property,
 #ifdef RANDR_13_INTERFACE
 static Bool common_drm_conn_get_property(xf86OutputPtr output, Atom property)
 {
+	struct common_conn_info *conn = output->driver_private;
+	int err;
+
+	if (property == backlight_atom || property == backlight_deprecated_atom) {
+		INT32 val;
+
+		if (!conn->backlight.iface)
+			return FALSE;
+
+		if (conn->dpms_mode == DPMSModeOn) {
+			val = common_drm_conn_backlight_get(output);
+			if (val < 0)
+				return FALSE;
+		} else {
+			val = conn->backlight_active_level;
+		}
+
+		err = RRChangeOutputProperty(output->randr_output, property,
+					     XA_INTEGER, 32, PropModeReplace, 1, &val,
+					     FALSE, FALSE);
+		if (err != 0) {
+			xf86DrvMsg(output->scrn->scrnIndex, X_ERROR,
+				   "RRChangeOutputProperty error, %d\n", err);
+			return FALSE;
+		}
+
+		return TRUE;
+	}
+
 	return FALSE;
 }
 #endif
