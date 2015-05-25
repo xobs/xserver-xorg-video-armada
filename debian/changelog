@@ -1,3 +1,10 @@
+xf86-video-armada (0.0.1-r7) unstable; urgency=medium
+
+  * Fix the glyph cache
+  * Re-enable the glyph cache
+
+ -- Sean Cross <xobs@kosagi.com>  Mon, 25 May 2015 14:29:19 +0800
+
 xf86-video-armada (0.0.1-r6) unstable; urgency=medium
 
   * Incorporate more fixes from upstream
