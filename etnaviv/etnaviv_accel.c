@@ -1088,6 +1088,13 @@ static Bool etnaviv_op_uses_source_alpha(struct etnaviv_blend_op *op)
 	return TRUE;
 }
 
+static Bool etnaviv_blend_src_alpha_normal(struct etnaviv_blend_op *op)
+{
+	return (op->alpha_mode &
+		VIVS_DE_ALPHA_MODES_GLOBAL_SRC_ALPHA_MODE__MASK) ==
+		VIVS_DE_ALPHA_MODES_GLOBAL_SRC_ALPHA_MODE_NORMAL;
+}
+
 static Bool etnaviv_fill_single(struct etnaviv *etnaviv,
 	struct etnaviv_pixmap *vPix, const BoxRec *clip, uint32_t colour)
 {
@@ -1626,8 +1633,7 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	 * a non-alpha destination.
 	 */
 	if (!pMask && vSrc != vTemp &&
-	    (final_op.alpha_mode & VIVS_DE_ALPHA_MODES_GLOBAL_SRC_ALPHA_MODE__MASK)
-	     == VIVS_DE_ALPHA_MODES_GLOBAL_SRC_ALPHA_MODE_NORMAL &&
+	    etnaviv_blend_src_alpha_normal(&final_op) &&
 	    etnaviv_workaround_nonalpha(vSrc)) {
 		final_op.alpha_mode |= VIVS_DE_ALPHA_MODES_GLOBAL_SRC_ALPHA_MODE_GLOBAL;
 		final_op.src_alpha = 255;
