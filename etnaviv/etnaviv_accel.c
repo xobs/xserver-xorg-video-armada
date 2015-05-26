@@ -1220,7 +1220,7 @@ static struct etnaviv_pixmap *etnaviv_acquire_src(struct etnaviv *etnaviv,
 	PixmapPtr pix, struct etnaviv_pixmap *vTemp, xPoint *src_topleft)
 {
 	struct etnaviv_pixmap *vSrc;
-	DrawablePtr drawable = pict->pDrawable;
+	DrawablePtr drawable;
 	uint32_t colour;
 	xPoint src_offset;
 	int tx, ty;
@@ -1234,7 +1234,8 @@ static struct etnaviv_pixmap *etnaviv_acquire_src(struct etnaviv *etnaviv,
 		return vTemp;
 	}
 
-	vSrc = etnaviv_drawable_offset(pict->pDrawable, &src_offset);
+	drawable = pict->pDrawable;
+	vSrc = etnaviv_drawable_offset(drawable, &src_offset);
 	if (!vSrc)
 		return NULL;
 
@@ -1242,14 +1243,14 @@ static struct etnaviv_pixmap *etnaviv_acquire_src(struct etnaviv *etnaviv,
 	if (!pict->repeat &&
 	    transform_is_integer_translation(pict->transform, &tx, &ty) &&
 	    etnaviv_src_format_valid(etnaviv, vSrc->pict_format)) {
-		src_topleft->x += src_offset.x + tx;
-		src_topleft->y += src_offset.y + ty;
+		src_topleft->x += drawable->x + src_offset.x + tx;
+		src_topleft->y += drawable->y + src_offset.y + ty;
 	} else {
 		PictFormatPtr f;
 		PicturePtr dest;
 		int err;
-		int x = src_topleft->x - drawable->x;
-		int y = src_topleft->y - drawable->y;
+		int x = src_topleft->x;
+		int y = src_topleft->y;
 		int w = clip->x2;
 		int h = clip->y2;
 
@@ -1335,6 +1336,43 @@ static Bool etnaviv_workaround_nonalpha(struct etnaviv_pixmap *vpix)
 	return FALSE;
 }
 
+/*
+ * Compute the regions (in destination pixmap coordinates) which need to
+ * be composited.  Each picture's pCompositeClip includes the drawable
+ * position, so each position must be adjusted for its position on the
+ * backing pixmap.  We also need to apply the translation too.
+ */
+static int etnaviv_compute_composite_region(RegionPtr region,
+	PicturePtr pSrc, PicturePtr pMask, PicturePtr pDst,
+	INT16 xSrc, INT16 ySrc, INT16 xMask, INT16 yMask,
+	INT16 xDst, INT16 yDst, CARD16 width, CARD16 height)
+{
+	int tx, ty;
+
+	if (pSrc->pDrawable) {
+		if (!transform_is_integer_translation(pSrc->transform, &tx, &ty))
+			return -1;
+
+		xSrc += pSrc->pDrawable->x + tx;
+		ySrc += pSrc->pDrawable->y + ty;
+	}
+
+	if (pMask && pMask->pDrawable) {
+		if (!transform_is_integer_translation(pMask->transform, &tx, &ty))
+			return -1;
+
+		xMask += pMask->pDrawable->x + tx;
+		yMask += pMask->pDrawable->y + ty;
+	}
+
+	xDst += pDst->pDrawable->x;
+	yDst += pDst->pDrawable->y;
+
+	return miComputeCompositeRegion(region, pSrc, pMask, pDst,
+					xSrc, ySrc, xMask, yMask,
+					xDst, yDst, width, height);
+}
+
 /* Perform the simple PictOpClear operation. */
 static Bool etnaviv_Composite_Clear(PicturePtr pSrc, PicturePtr pMask,
 	PicturePtr pDst, INT16 xSrc, INT16 ySrc, INT16 xMask, INT16 yMask,
@@ -1356,29 +1394,11 @@ static Bool etnaviv_Composite_Clear(PicturePtr pSrc, PicturePtr pMask,
 	if (!etnaviv_dst_format_valid(etnaviv, vDst->pict_format))
 		return FALSE;
 
-	/* Include the destination drawable's position on the pixmap */
-	xDst += pDst->pDrawable->x;
-	yDst += pDst->pDrawable->y;
-
-	/*
-	 * The picture's pCompositeClip includes the destination drawable
-	 * position, so we must adjust the picture position for that prior
-	 * to miComputeCompositeRegion().
-	 */
-	if (pSrc->pDrawable) {
-		xSrc += pSrc->pDrawable->x;
-		ySrc += pSrc->pDrawable->y;
-	}
-	if (pMask && pMask->pDrawable) {
-		xMask += pMask->pDrawable->x;
-		yMask += pMask->pDrawable->y;
-	}
-
-	memset(&region, 0, sizeof(region));
-	if (!miComputeCompositeRegion(&region, pSrc, pMask, pDst,
-				      xSrc, ySrc, xMask, yMask,
-				      xDst, yDst, width, height))
-		return TRUE;
+	rc = etnaviv_compute_composite_region(&region, pSrc, pMask, pDst,
+					      xSrc, ySrc, xMask, yMask,
+					      xDst, yDst, width, height);
+	if (rc < 1)
+		return rc ? FALSE : TRUE;
 
 	src_topleft.x = 0;
 	src_topleft.y = 0;
@@ -1452,6 +1472,36 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 		    etnaviv_op_uses_source_alpha(&final_op))
 			return FALSE;
 	}
+
+	/* Remove repeat on source or mask if useless */
+	adjust_repeat(pSrc, xSrc, ySrc, width, height);
+
+	src_topleft.x = xSrc;
+	src_topleft.y = ySrc;
+
+	/*
+	 * Compute the regions to be composited.  This provides us with the
+	 * rectangles which need to be composited at each stage, where the
+	 * rectangle coordinates are based on the destination image.
+	 *
+	 * Clips are interesting.  A picture composite clip has the drawable
+	 * position included in it.  A picture client clip does not.
+	 *
+	 * The clip region below is calculated by beginning with the box
+	 * xDst,yDst,xDst+width,yDst+width, and then intersecting that with
+	 * the destination composite clips.  Therefore, xDst,yDst must
+	 * contain the drawable position.
+	 *
+	 * The source and mask pictures are then factored in, intersecting
+	 * their client clips (which doesn't have a drawable position) with
+	 * the current set of clips from the destination, first translating
+	 * them by (xDst - xSrc),(yDst - ySrc).
+	 */
+	rc = etnaviv_compute_composite_region(&region, pSrc, pMask, pDst,
+					      xSrc, ySrc, xMask, yMask,
+					      xDst, yDst, width, height);
+	if (rc < 1)
+		return rc ? FALSE : TRUE;
 
 	if (pMask) {
 		uint32_t colour;
@@ -1535,10 +1585,8 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 			if (pMask->repeat)
 				return FALSE;
 
-			if (!transform_is_integer_translation(pMask->transform, &tx, &ty))
-				return FALSE;
+			transform_is_integer_translation(pMask->transform, &tx, &ty);
 
-			/* FIXME: we should not include the transformation... */
 			xMask += pMask->pDrawable->x + tx;
 			yMask += pMask->pDrawable->y + ty;
 		} else {
@@ -1552,47 +1600,9 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	pDst, xDst, yDst,  width, height);
 #endif
 
-	memset(&region, 0, sizeof(region));
-
-	/* Remove repeat on source or mask if useless */
-	adjust_repeat(pSrc, xSrc, ySrc, width, height);
-
 	/* Include the destination drawable's position on the pixmap */
 	xDst += pDst->pDrawable->x;
 	yDst += pDst->pDrawable->y;
-
-	if (pSrc->pDrawable) {
-		xSrc += pSrc->pDrawable->x;
-		ySrc += pSrc->pDrawable->y;
-	}
-
-	src_topleft.x = xSrc;
-	src_topleft.y = ySrc;
-
-	/*
-	 * Compute the regions to be composited.  This provides us with the
-	 * rectangles which need to be composited at each stage, where the
-	 * rectangle coordinates are based on the destination image.
-	 *
-	 * Clips are interesting.  A picture composite clip has the drawable
-	 * position included in it.  A picture client clip does not.
-	 *
-	 * The clip region below is calculated by beginning with the box
-	 * xDst,yDst,xDst+width,yDst+width, and then intersecting that with
-	 * the destination composite clips.  Therefore, xDst,yDst must
-	 * contain the drawable position.
-	 *
-	 * The source and mask pictures are then factored in, intersecting
-	 * their client clips (which doesn't have a drawable position) with
-	 * the current set of clips from the destination, first translating
-	 * them by (xDst - xSrc),(yDst - ySrc).
-	 *
-	 * However, the X unaccelerated fb layer ignores any clips in the
-	 * source and mask.  So... we ignore them here too.
-	 */
-	if (!miComputeCompositeRegion(&region, pSrc, NULL, pDst, xSrc, ySrc,
-				      0, 0, xDst, yDst, width, height))
-		return TRUE;
 
 	/*
 	 * Compute the temporary image clipping box, which is the
