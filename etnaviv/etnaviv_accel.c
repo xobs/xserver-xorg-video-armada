@@ -1077,12 +1077,12 @@ static const struct etnaviv_blend_op etnaviv_composite_op[] = {
 
 static Bool etnaviv_op_uses_source_alpha(struct etnaviv_blend_op *op)
 {
-	unsigned src_mode;
+	unsigned src;
 
-	src_mode = op->alpha_mode & VIVS_DE_ALPHA_MODES_SRC_BLENDING_MODE__MASK;
-	src_mode >>= VIVS_DE_ALPHA_MODES_SRC_BLENDING_MODE__SHIFT;
+	src = op->alpha_mode & VIVS_DE_ALPHA_MODES_SRC_BLENDING_MODE__MASK;
 
-	if (src_mode == DE_BLENDMODE_ZERO || src_mode == DE_BLENDMODE_ONE)
+	if (src == VIVS_DE_ALPHA_MODES_SRC_BLENDING_MODE(DE_BLENDMODE_ZERO) ||
+	    src == VIVS_DE_ALPHA_MODES_SRC_BLENDING_MODE(DE_BLENDMODE_ONE))
 		return FALSE;
 
 	return TRUE;
