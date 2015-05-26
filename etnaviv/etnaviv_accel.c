@@ -441,25 +441,24 @@ Bool etnaviv_accel_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int n,
 {
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pDrawable->pScreen);
 	struct etnaviv_de_op op;
-	RegionPtr clip;
+	RegionPtr clip = fbGetCompositeClip(pGC);
 	int nclip;
 	BoxRec *boxes, *b;
 	size_t sz;
 
 	assert(pGC->miTranslate);
 
+	if (RegionNumRects(clip) == 0)
+		return TRUE;
+
 	if (!etnaviv_init_dst_drawable(etnaviv, &op, pDrawable))
 		return FALSE;
-
-	clip = fbGetCompositeClip(pGC);
-	nclip = RegionNumRects(clip);
-	if (nclip == 0)
-		return TRUE;
 
 	etnaviv_init_fill(etnaviv, &op, pGC);
 	op.clip = RegionExtents(clip);
 	op.cmd = VIVS_DE_DEST_CONFIG_COMMAND_LINE;
 
+	nclip = RegionNumRects(clip);
 	sz = sizeof(BoxRec) * n * nclip;
 
 	/* If we overflow, fallback.  We could do better here. */
@@ -725,7 +724,7 @@ Bool etnaviv_accel_PolyLines(DrawablePtr pDrawable, GCPtr pGC, int mode,
 {
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pDrawable->pScreen);
 	struct etnaviv_de_op op;
-	RegionPtr clip;
+	RegionPtr clip = fbGetCompositeClip(pGC);
 	const BoxRec *box;
 	int nclip, i;
 	BoxRec *boxes, *b;
@@ -733,13 +732,11 @@ Bool etnaviv_accel_PolyLines(DrawablePtr pDrawable, GCPtr pGC, int mode,
 
 	assert(pGC->miTranslate);
 
+	if (RegionNumRects(clip) == 0)
+		return TRUE;
+
 	if (!etnaviv_init_dst_drawable(etnaviv, &op, pDrawable))
 		return FALSE;
-
-	clip = fbGetCompositeClip(pGC);
-	nclip = RegionNumRects(clip);
-	if (nclip == 0)
-		return TRUE;
 
 	etnaviv_init_fill(etnaviv, &op, pGC);
 	op.cmd = VIVS_DE_DEST_CONFIG_COMMAND_LINE;
@@ -748,6 +745,7 @@ Bool etnaviv_accel_PolyLines(DrawablePtr pDrawable, GCPtr pGC, int mode,
 	if (!boxes)
 		return FALSE;
 
+	nclip = RegionNumRects(clip);
 	for (box = RegionRects(clip); nclip; nclip--, box++) {
 		seg.x1 = ppt[0].x;
 		seg.y1 = ppt[0].y;
@@ -814,7 +812,7 @@ Bool etnaviv_accel_PolySegment(DrawablePtr pDrawable, GCPtr pGC, int nseg,
 {
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pDrawable->pScreen);
 	struct etnaviv_de_op op;
-	RegionPtr clip;
+	RegionPtr clip = fbGetCompositeClip(pGC);
 	const BoxRec *box;
 	int nclip, i;
 	BoxRec *boxes, *b;
@@ -822,13 +820,11 @@ Bool etnaviv_accel_PolySegment(DrawablePtr pDrawable, GCPtr pGC, int nseg,
 
 	assert(pGC->miTranslate);
 
+	if (RegionNumRects(clip) == 0)
+		return TRUE;
+
 	if (!etnaviv_init_dst_drawable(etnaviv, &op, pDrawable))
 		return FALSE;
-
-	clip = fbGetCompositeClip(pGC);
-	nclip = RegionNumRects(clip);
-	if (nclip == 0)
-		return TRUE;
 
 	etnaviv_init_fill(etnaviv, &op, pGC);
 	op.cmd = VIVS_DE_DEST_CONFIG_COMMAND_LINE;
@@ -839,6 +835,7 @@ Bool etnaviv_accel_PolySegment(DrawablePtr pDrawable, GCPtr pGC, int nseg,
 	if (!boxes)
 		return FALSE;
 
+	nclip = RegionNumRects(clip);
 	for (box = RegionRects(clip); nclip; nclip--, box++) {
 		for (b = boxes, i = 0; i < nseg; i++) {
 			xSegment seg = pSeg[i];
@@ -892,19 +889,18 @@ Bool etnaviv_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 {
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pDrawable->pScreen);
 	struct etnaviv_de_op op;
-	RegionPtr clip;
+	RegionPtr clip = fbGetCompositeClip(pGC);
 	BoxRec boxes[VIVANTE_MAX_2D_RECTS], *box;
 	int nclip, nb, chunk;
+
+	if (RegionNumRects(clip) == 0)
+		return TRUE;
 
 	if (!etnaviv_init_dst_drawable(etnaviv, &op, pDrawable))
 		return FALSE;
 
 	prefetch(prect);
 	prefetch(prect + 4);
-
-	clip = fbGetCompositeClip(pGC);
-	if (RegionNumRects(clip) == 0)
-		return TRUE;
 
 	etnaviv_init_fill(etnaviv, &op, pGC);
 	op.clip = RegionExtents(clip);
