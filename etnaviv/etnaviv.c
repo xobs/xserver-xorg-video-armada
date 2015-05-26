@@ -842,20 +842,13 @@ etnaviv_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask, PicturePtr pDst,
 	Bool ret;
 
 	if (!etnaviv->force_fallback) {
-		unsigned src_repeat, mask_repeat;
-
-		src_repeat = pSrc->repeat;
-		if (pMask)
-			mask_repeat = pMask->repeat;
+		unsigned src_repeat = pSrc->repeat;
 
 		ret = etnaviv_accel_Composite(op, pSrc, pMask, pDst,
 					      xSrc, ySrc,
 					      xMask, yMask,
 					      xDst, yDst, width, height);
 		pSrc->repeat = src_repeat;
-		if (pMask)
-			pMask->repeat = mask_repeat;
-
 		if (ret)
 			return;
 	}
