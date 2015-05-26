@@ -948,7 +948,6 @@ Bool etnaviv_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 	PixmapPtr pTile = pGC->tile.pixmap;
 	RegionPtr rects;
 	int nbox;
-	Bool ret;
 
 	if (!etnaviv_init_dst_drawable(etnaviv, &op, pDrawable) ||
 	    !etnaviv_init_src_pixmap(etnaviv, &op, pTile))
@@ -972,8 +971,6 @@ Bool etnaviv_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 	if (nbox) {
 		int tile_w, tile_h, tile_off_x, tile_off_y;
 		BoxPtr pBox;
-
-		ret = FALSE;
 
 		/* Calculate the tile offset from the rect coords */
 		tile_off_x = pDrawable->x + pGC->patOrg.x;
@@ -1025,15 +1022,12 @@ Bool etnaviv_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 			}
 			pBox++;
 		}
-		ret = TRUE;
-	} else {
-		ret = TRUE;
 	}
 
 	RegionUninit(rects);
 	RegionDestroy(rects);
 
-	return ret;
+	return TRUE;
 }
 
 #ifdef RENDER
