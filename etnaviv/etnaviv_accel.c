@@ -1446,13 +1446,8 @@ static Bool etnaviv_Composite_Clear(PicturePtr pSrc, PicturePtr pMask,
 	int rc;
 
 	vDst = etnaviv_drawable_offset(pDst->pDrawable, &dst_offset);
-	if (!vDst)
-		return FALSE;
 
-	etnaviv_set_format(vDst, pDst);
 	etnaviv_workaround_nonalpha(vDst);
-	if (!etnaviv_dst_format_valid(etnaviv, vDst->pict_format))
-		return FALSE;
 
 	rc = etnaviv_compute_composite_region(&region, pSrc, pMask, pDst,
 					      xSrc, ySrc, xMask, yMask,
@@ -1495,14 +1490,7 @@ static int etnaviv_accel_do_Composite(CARD8 op, PicturePtr pSrc,
 	if (!pSrc->pDrawable && !picture_is_solid(pSrc, NULL))
 		return FALSE;
 
-	/* The destination pixmap must have a bo */
 	vDst = etnaviv_drawable_offset(pDst->pDrawable, &dst_offset);
-	if (!vDst)
-		return FALSE;
-
-	etnaviv_set_format(vDst, pDst);
-	if (!etnaviv_dst_format_valid(etnaviv, vDst->pict_format))
-		return FALSE;
 
 	final_op = etnaviv_composite_op[op];
 
@@ -1799,6 +1787,10 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	PicturePtr pDst, INT16 xSrc, INT16 ySrc, INT16 xMask, INT16 yMask,
 	INT16 xDst, INT16 yDst, CARD16 width, CARD16 height)
 {
+	ScreenPtr pScreen = pDst->pDrawable->pScreen;
+	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
+	struct etnaviv_pixmap *vDst;
+	xPoint dst_offset;
 	int rc;
 
 	/* If the destination has an alpha map, fallback */
@@ -1807,6 +1799,17 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 
 	/* If we can't do the op, there's no point going any further */
 	if (op >= ARRAY_SIZE(etnaviv_composite_op))
+		return FALSE;
+
+	/* The destination pixmap must have a bo */
+	vDst = etnaviv_drawable_offset(pDst->pDrawable, &dst_offset);
+	if (!vDst)
+		return FALSE;
+
+	etnaviv_set_format(vDst, pDst);
+
+	/* ... and the destination format must be supported */
+	if (!etnaviv_dst_format_valid(etnaviv, vDst->pict_format))
 		return FALSE;
 
 	if (op == PictOpClear) {
