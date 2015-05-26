@@ -1035,6 +1035,31 @@ Bool etnaviv_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 #include "fbpict.h"
 #include "pictureutil.h"
 
+/*
+ * For a rectangle described by (wxh+x+y) on the picture's drawable,
+ * determine whether the picture repeat flag is meaningful.  The
+ * rectangle must have had the transformation applied.
+ */
+static Bool picture_needs_repeat(PicturePtr pPict, int x, int y,
+	unsigned w, unsigned h)
+{
+	DrawablePtr pDrawable;
+
+	if (!pPict->repeat)
+		return FALSE;
+
+	pDrawable = pPict->pDrawable;
+	if (!pDrawable)
+		return TRUE;
+
+	if (pPict->filter != PictFilterConvolution &&
+	    (pDrawable->width > 1 || pDrawable->height > 1) &&
+	    drawable_contains(pDrawable, x, y, w, h))
+		return FALSE;
+
+	return TRUE;
+}
+
 static void adjust_repeat(PicturePtr pPict, int x, int y, unsigned w, unsigned h)
 {
 	int tx, ty;
@@ -1614,13 +1639,12 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 		} else if (pMask->pDrawable) {
 			int tx, ty;
 
-			adjust_repeat(pMask, xMask, yMask, width, height);
+			transform_is_integer_translation(pMask->transform, &tx, &ty);
 
 			/* We don't handle mask repeats (yet) */
-			if (pMask->repeat)
+			if (picture_needs_repeat(pMask, xMask + tx, yMask + ty,
+						 width, height))
 				return FALSE;
-
-			transform_is_integer_translation(pMask->transform, &tx, &ty);
 
 			xMask += pMask->pDrawable->x + tx;
 			yMask += pMask->pDrawable->y + ty;
