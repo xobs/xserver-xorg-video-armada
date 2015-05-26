@@ -1152,6 +1152,25 @@ static void etnaviv_set_format(struct etnaviv_pixmap *vpix, PicturePtr pict)
 	vpix->pict_format.tile = vpix->format.tile;
 }
 
+static struct etnaviv_pixmap *etnaviv_get_scratch_argb(ScreenPtr pScreen,
+	PixmapPtr *ppPixmap, unsigned int width, unsigned int height)
+{
+	struct etnaviv_pixmap *vpix;
+	PixmapPtr pixmap;
+
+	pixmap = pScreen->CreatePixmap(pScreen, width, height, 32,
+				       CREATE_PIXMAP_USAGE_GPU);
+	if (!pixmap)
+		return NULL;
+
+	vpix = etnaviv_get_pixmap_priv(pixmap);
+	vpix->pict_format = etnaviv_pict_format(PICT_a8r8g8b8, FALSE);
+
+	*ppPixmap = pixmap;
+
+	return vpix;
+}
+
 static Bool etnaviv_pict_solid_argb(PicturePtr pict, uint32_t *col)
 {
 	unsigned r, g, b, a, rbits, gbits, bbits, abits;
@@ -1635,13 +1654,10 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	 * this at this stage.  Its size is the size of the temporary clip
 	 * box.
 	 */
-	pPixTemp = pScreen->CreatePixmap(pScreen, clip_temp.x2, clip_temp.y2,
-					 32, CREATE_PIXMAP_USAGE_GPU);
-	if (!pPixTemp)
+	vTemp = etnaviv_get_scratch_argb(pScreen, &pPixTemp,
+					 clip_temp.x2, clip_temp.y2);
+	if (!vTemp)
 		goto failed;
-
-	vTemp = etnaviv_get_pixmap_priv(pPixTemp);
-	vTemp->pict_format = etnaviv_pict_format(PICT_a8r8g8b8, FALSE);
 
 	/*
 	 * Get the source.  The source image will be described by vSrc with
