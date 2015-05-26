@@ -1209,6 +1209,33 @@ static Bool etnaviv_pict_solid_argb(PicturePtr pict, uint32_t *col)
 	return TRUE;
 }
 
+static Bool etnaviv_composite_to_pixmap(CARD8 op, PicturePtr pSrc,
+	PicturePtr pMask, PixmapPtr pPix, INT16 xSrc, INT16 ySrc,
+	INT16 xMask, INT16 yMask, CARD16 width, CARD16 height)
+{
+	DrawablePtr pDrawable = &pPix->drawable;
+	ScreenPtr pScreen = pPix->drawable.pScreen;
+	PictFormatPtr f;
+	PicturePtr dest;
+	int err;
+
+	f = PictureMatchFormat(pScreen, 32, PICT_a8r8g8b8);
+	if (!f)
+		return FALSE;
+
+	dest = CreatePicture(0, pDrawable, f, 0, 0, serverClient, &err);
+	if (!dest)
+		return FALSE;
+	ValidatePicture(dest);
+
+	unaccel_Composite(op, pSrc, pMask, dest, xSrc, ySrc, xMask, yMask,
+			  0, 0, width, height);
+
+	FreePicture(dest, 0);
+
+	return TRUE;
+}
+
 /*
  *  If we're filling a solid
  * surface, force it to have alpha; it may be used in combination
@@ -1246,26 +1273,15 @@ static struct etnaviv_pixmap *etnaviv_acquire_src(struct etnaviv *etnaviv,
 		src_topleft->x += drawable->x + src_offset.x + tx;
 		src_topleft->y += drawable->y + src_offset.y + ty;
 	} else {
-		PictFormatPtr f;
-		PicturePtr dest;
-		int err;
 		int x = src_topleft->x;
 		int y = src_topleft->y;
 		int w = clip->x2;
 		int h = clip->y2;
 
-		f = PictureMatchFormat(drawable->pScreen, 32, PICT_a8r8g8b8);
-		if (!f)
+		if (!etnaviv_composite_to_pixmap(PictOpSrc, pict, NULL, pix,
+						 x, y, 0, 0, w, h))
 			return NULL;
 
-		dest = CreatePicture(0, &pix->drawable, f, 0, 0, serverClient, &err);
-		if (!dest)
-			return NULL;
-		ValidatePicture(dest);
-
-		unaccel_Composite(PictOpSrc, pict, NULL, dest,
-				  x, y, 0, 0, 0, 0, w, h);
-		FreePicture(dest, 0);
 		src_topleft->x = 0;
 		src_topleft->y = 0;
 		vSrc = vTemp;
