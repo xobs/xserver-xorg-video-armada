@@ -1436,12 +1436,11 @@ static int etnaviv_compute_composite_region(RegionPtr region,
 /* Perform the simple PictOpClear operation. */
 static Bool etnaviv_Composite_Clear(PicturePtr pSrc, PicturePtr pMask,
 	PicturePtr pDst, INT16 xSrc, INT16 ySrc, INT16 xMask, INT16 yMask,
-	INT16 xDst, INT16 yDst, CARD16 width, CARD16 height)
+	INT16 xDst, INT16 yDst, CARD16 width, CARD16 height, RegionPtr region)
 {
 	ScreenPtr pScreen = pDst->pDrawable->pScreen;
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
 	struct etnaviv_pixmap *vDst;
-	RegionRec region;
 	xPoint src_topleft, dst_offset;
 	int rc;
 
@@ -1449,21 +1448,14 @@ static Bool etnaviv_Composite_Clear(PicturePtr pSrc, PicturePtr pMask,
 
 	etnaviv_workaround_nonalpha(vDst);
 
-	rc = etnaviv_compute_composite_region(&region, pSrc, pMask, pDst,
-					      xSrc, ySrc, xMask, yMask,
-					      xDst, yDst, width, height);
-	if (rc < 1)
-		return rc ? FALSE : TRUE;
-
 	src_topleft.x = 0;
 	src_topleft.y = 0;
 
 	rc = etnaviv_accel_final_blend(etnaviv,
 				       &etnaviv_composite_op[PictOpClear],
-				       dst_offset, &region,
+				       dst_offset, region,
 				       pDst, vDst,
 				       pSrc, vDst, src_topleft);
-	RegionUninit(&region);
 
 	return rc ? TRUE : FALSE;
 }
@@ -1471,14 +1463,13 @@ static Bool etnaviv_Composite_Clear(PicturePtr pSrc, PicturePtr pMask,
 static int etnaviv_accel_do_Composite(CARD8 op, PicturePtr pSrc,
 	PicturePtr pMask, PicturePtr pDst, INT16 xSrc, INT16 ySrc,
 	INT16 xMask, INT16 yMask, INT16 xDst, INT16 yDst,
-	CARD16 width, CARD16 height)
+	CARD16 width, CARD16 height, RegionPtr region)
 {
 	ScreenPtr pScreen = pDst->pDrawable->pScreen;
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
 	struct etnaviv_pixmap *vDst, *vSrc, *vMask, *vTemp = NULL;
 	struct etnaviv_blend_op final_op, mask_op;
 	PixmapPtr pPixTemp = NULL;
-	RegionRec region;
 	BoxRec clip_temp;
 	xPoint src_topleft, dst_offset;
 	int rc;
@@ -1513,30 +1504,6 @@ static int etnaviv_accel_do_Composite(CARD8 op, PicturePtr pSrc,
 
 	src_topleft.x = xSrc;
 	src_topleft.y = ySrc;
-
-	/*
-	 * Compute the regions to be composited.  This provides us with the
-	 * rectangles which need to be composited at each stage, where the
-	 * rectangle coordinates are based on the destination image.
-	 *
-	 * Clips are interesting.  A picture composite clip has the drawable
-	 * position included in it.  A picture client clip does not.
-	 *
-	 * The clip region below is calculated by beginning with the box
-	 * xDst,yDst,xDst+width,yDst+width, and then intersecting that with
-	 * the destination composite clips.  Therefore, xDst,yDst must
-	 * contain the drawable position.
-	 *
-	 * The source and mask pictures are then factored in, intersecting
-	 * their client clips (which doesn't have a drawable position) with
-	 * the current set of clips from the destination, first translating
-	 * them by (xDst - xSrc),(yDst - ySrc).
-	 */
-	rc = etnaviv_compute_composite_region(&region, pSrc, pMask, pDst,
-					      xSrc, ySrc, xMask, yMask,
-					      xDst, yDst, width, height);
-	if (rc < 1)
-		return rc ? FALSE : TRUE;
 
 	if (pMask) {
 		uint32_t colour;
@@ -1642,7 +1609,7 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	 * Compute the temporary image clipping box, which is the
 	 * clipping region extents without the destination offset.
 	 */
-	clip_temp = *RegionExtents(&region);
+	clip_temp = *RegionExtents(region);
 	clip_temp.x1 -= xDst;
 	clip_temp.y1 -= yDst;
 	clip_temp.x2 -= xDst;
@@ -1758,10 +1725,9 @@ if (pMask && pMask->pDrawable)
 	src_topleft.y -= yDst + dst_offset.y;
 
 	rc = etnaviv_accel_final_blend(etnaviv, &final_op,
-				       dst_offset, &region,
+				       dst_offset, region,
 				       pDst, vDst,
 				       pSrc, vSrc, src_topleft);
-	RegionUninit(&region);
 	if (pPixTemp) {
 		ScreenPtr pScreen = pPixTemp->drawable.pScreen;
 		pScreen->DestroyPixmap(pPixTemp);
@@ -1769,7 +1735,6 @@ if (pMask && pMask->pDrawable)
 	return !!rc;
 
  failed:
-	RegionUninit(&region);
 	if (pPixTemp) {
 		ScreenPtr pScreen = pPixTemp->drawable.pScreen;
 		pScreen->DestroyPixmap(pPixTemp);
@@ -1790,6 +1755,7 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	ScreenPtr pScreen = pDst->pDrawable->pScreen;
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
 	struct etnaviv_pixmap *vDst;
+	RegionRec region;
 	xPoint dst_offset;
 	int rc;
 
@@ -1812,16 +1778,32 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	if (!etnaviv_dst_format_valid(etnaviv, vDst->pict_format))
 		return FALSE;
 
+	/*
+	 * Compute the composite region from the source, mask and
+	 * destination positions, the source and mask transformation,
+	 * and their clip masks.  Note that we do not support any
+	 * transform other than a linear translation here.
+	 */
+	rc = etnaviv_compute_composite_region(&region, pSrc, pMask, pDst,
+					      xSrc, ySrc, xMask, yMask,
+					      xDst, yDst, width, height);
+	if (rc < 1)
+		return rc ? FALSE : TRUE;
+
 	if (op == PictOpClear) {
 		/* Short-circuit for PictOpClear */
 		rc = etnaviv_Composite_Clear(pSrc, pMask, pDst,
 					     xSrc, ySrc, xMask, yMask,
-					     xDst, yDst, width, height);
+					     xDst, yDst, width, height,
+					     &region);
 	} else {
 		rc = etnaviv_accel_do_Composite(op, pSrc, pMask, pDst,
 						xSrc, ySrc, xMask, yMask,
-						xDst, yDst, width, height);
+						xDst, yDst, width, height,
+						&region);
 	}
+
+	RegionUninit(&region);
 
 	return rc;
 }
