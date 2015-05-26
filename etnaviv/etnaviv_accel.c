@@ -1473,9 +1473,10 @@ static Bool etnaviv_Composite_Clear(PicturePtr pSrc, PicturePtr pMask,
 	return rc ? TRUE : FALSE;
 }
 
-int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
-	PicturePtr pDst, INT16 xSrc, INT16 ySrc, INT16 xMask, INT16 yMask,
-	INT16 xDst, INT16 yDst, CARD16 width, CARD16 height)
+static int etnaviv_accel_do_Composite(CARD8 op, PicturePtr pSrc,
+	PicturePtr pMask, PicturePtr pDst, INT16 xSrc, INT16 ySrc,
+	INT16 xMask, INT16 yMask, INT16 xDst, INT16 yDst,
+	CARD16 width, CARD16 height)
 {
 	ScreenPtr pScreen = pDst->pDrawable->pScreen;
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
@@ -1486,20 +1487,6 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	BoxRec clip_temp;
 	xPoint src_topleft, dst_offset;
 	int rc;
-
-	/* If the destination has an alpha map, fallback */
-	if (pDst->alphaMap)
-		return FALSE;
-
-	/* Short-circuit for PictOpClear */
-	if (op == PictOpClear)
-		return etnaviv_Composite_Clear(pSrc, pMask, pDst,
-					       xSrc, ySrc, xMask, yMask,
-					       xDst, yDst, width, height);
-
-	/* If we can't do the op, there's no point going any further */
-	if (op >= ARRAY_SIZE(etnaviv_composite_op))
-		return FALSE;
 
 	if (pSrc->alphaMap || (pMask && pMask->alphaMap))
 		return FALSE;
@@ -1800,6 +1787,40 @@ if (pMask && pMask->pDrawable)
 		pScreen->DestroyPixmap(pPixTemp);
 	}
 	return FALSE;
+}
+
+/*
+ * A composite operation is: (pSrc IN pMask) OP pDst.  We always try
+ * to perform an on-GPU "OP" where possible, which is handled by the
+ * function below.  The source for this operation is determined by
+ * sub-functions.
+ */
+int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
+	PicturePtr pDst, INT16 xSrc, INT16 ySrc, INT16 xMask, INT16 yMask,
+	INT16 xDst, INT16 yDst, CARD16 width, CARD16 height)
+{
+	int rc;
+
+	/* If the destination has an alpha map, fallback */
+	if (pDst->alphaMap)
+		return FALSE;
+
+	/* If we can't do the op, there's no point going any further */
+	if (op >= ARRAY_SIZE(etnaviv_composite_op))
+		return FALSE;
+
+	if (op == PictOpClear) {
+		/* Short-circuit for PictOpClear */
+		rc = etnaviv_Composite_Clear(pSrc, pMask, pDst,
+					     xSrc, ySrc, xMask, yMask,
+					     xDst, yDst, width, height);
+	} else {
+		rc = etnaviv_accel_do_Composite(op, pSrc, pMask, pDst,
+						xSrc, ySrc, xMask, yMask,
+						xDst, yDst, width, height);
+	}
+
+	return rc;
 }
 
 Bool etnaviv_accel_Glyphs(CARD8 final_op, PicturePtr pSrc, PicturePtr pDst,
