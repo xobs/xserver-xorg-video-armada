@@ -1311,6 +1311,10 @@ static struct etnaviv_pixmap *etnaviv_acquire_src(struct etnaviv *etnaviv,
 		return NULL;
 
 	etnaviv_set_format(vSrc, pict);
+
+	/* Remove repeat on source or mask if useless */
+	adjust_repeat(pict, src_topleft->x, src_topleft->y, clip->x2, clip->y2);
+
 	if (!pict->repeat &&
 	    transform_is_integer_translation(pict->transform, &tx, &ty) &&
 	    etnaviv_src_format_valid(etnaviv, vSrc->pict_format)) {
@@ -1438,9 +1442,6 @@ static int etnaviv_accel_composite_srconly(CARD8 op,
 	if (!pSrc->pDrawable && !picture_is_solid(pSrc, NULL))
 		return FALSE;
 
-	/* Remove repeat on source or mask if useless */
-	adjust_repeat(pSrc, xSrc, ySrc, width, height);
-
 	src_topleft.x = xSrc;
 	src_topleft.y = ySrc;
 
@@ -1541,9 +1542,6 @@ static int etnaviv_accel_composite_masked(CARD8 op, PicturePtr pSrc,
 	/* If the source has no drawable, and is not solid, fallback */
 	if (!pSrc->pDrawable && !picture_is_solid(pSrc, NULL))
 		return FALSE;
-
-	/* Remove repeat on source or mask if useless */
-	adjust_repeat(pSrc, xSrc, ySrc, width, height);
 
 	src_topleft.x = xSrc;
 	src_topleft.y = ySrc;
