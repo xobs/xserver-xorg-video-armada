@@ -1593,7 +1593,7 @@ static int etnaviv_accel_composite_masked(CARD8 op, PicturePtr pSrc,
 
 		/* We don't handle mask repeats (yet) */
 		if (picture_needs_repeat(pMask, mask_offset.x, mask_offset.y,
-					 width, height))
+					 clip_temp.x2, clip_temp.y2))
 			goto fallback;
 
 		mask_offset.x += pMask->pDrawable->x;
