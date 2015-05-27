@@ -1438,8 +1438,6 @@ static int etnaviv_accel_composite_srconly(CARD8 op,
 	if (!pSrc->pDrawable && !picture_is_solid(pSrc, NULL))
 		return FALSE;
 
-	vDst = etnaviv_drawable_offset(pDst->pDrawable, &dst_offset);
-
 	/* Remove repeat on source or mask if useless */
 	adjust_repeat(pSrc, xSrc, ySrc, width, height);
 
@@ -1470,7 +1468,7 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	vTemp = etnaviv_get_scratch_argb(pScreen, ppPixTemp,
 					 clip_temp.x2, clip_temp.y2);
 	if (!vTemp)
-		goto failed;
+		return FALSE;
 
 	/*
 	 * Get the source.  The source image will be described by vSrc with
@@ -1481,7 +1479,7 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	vSrc = etnaviv_acquire_src(etnaviv, pSrc, &clip_temp,
 				   *ppPixTemp, vTemp, &src_topleft);
 	if (!vSrc)
-		goto failed;
+		return FALSE;
 
 	/*
 	 * Apply the same work-around for a non-alpha source as for
@@ -1508,6 +1506,8 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 }
 #endif
 
+	vDst = etnaviv_drawable_offset(pDst->pDrawable, &dst_offset);
+
 	src_topleft.x -= xDst + dst_offset.x;
 	src_topleft.y -= yDst + dst_offset.y;
 
@@ -1519,9 +1519,6 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 	final_op->dst = INIT_BLIT_PIX(vDst, vDst->pict_format, dst_offset);
 
 	return TRUE;
-
- failed:
-	return FALSE;
 }
 
 static int etnaviv_accel_composite_masked(CARD8 op, PicturePtr pSrc,
@@ -1544,8 +1541,6 @@ static int etnaviv_accel_composite_masked(CARD8 op, PicturePtr pSrc,
 	/* If the source has no drawable, and is not solid, fallback */
 	if (!pSrc->pDrawable && !picture_is_solid(pSrc, NULL))
 		return FALSE;
-
-	vDst = etnaviv_drawable_offset(pDst->pDrawable, &dst_offset);
 
 	/* Remove repeat on source or mask if useless */
 	adjust_repeat(pSrc, xSrc, ySrc, width, height);
@@ -1608,7 +1603,7 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	vTemp = etnaviv_get_scratch_argb(pScreen, ppPixTemp,
 					 clip_temp.x2, clip_temp.y2);
 	if (!vTemp)
-		goto failed;
+		return FALSE;
 
 	/*
 	 * Get the source.  The source image will be described by vSrc with
@@ -1619,7 +1614,7 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	vSrc = etnaviv_acquire_src(etnaviv, pSrc, &clip_temp,
 				   *ppPixTemp, vTemp, &src_topleft);
 	if (!vSrc)
-		goto failed;
+		return FALSE;
 
 //etnaviv_batch_wait_commit(etnaviv, vSrc);
 //dump_vPix(buf, etnaviv, vSrc, 1, "A-ISRC%02.2x-%p", op, pSrc);
@@ -1649,7 +1644,7 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 	 */
 	vMask = etnaviv_drawable_offset(pMask->pDrawable, &mask_offset);
 	if (!vMask)
-		goto failed;
+		return FALSE;
 
 	etnaviv_set_format(vMask, pMask);
 
@@ -1667,7 +1662,7 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 		 */
 		if (!etnaviv_blend(etnaviv, &clip_temp, NULL, vTemp, vSrc,
 				   &clip_temp, 1, src_topleft, ZERO_OFFSET))
-			goto failed;
+			return FALSE;
 //etnaviv_batch_wait_commit(etnaviv, vTemp);
 //dump_vPix(buf, etnaviv, vTemp, 1, "A-TMSK%02.2x-%p", op, pMask);
 	}
@@ -1682,7 +1677,9 @@ if (pMask->pDrawable)
 
 	if (!etnaviv_blend(etnaviv, &clip_temp, &mask_op, vTemp, vMask,
 			   &clip_temp, 1, mask_offset, ZERO_OFFSET))
-		goto failed;
+		return FALSE;
+
+	vDst = etnaviv_drawable_offset(pDst->pDrawable, &dst_offset);
 
 	src_topleft.x = -(xDst + dst_offset.x);
 	src_topleft.y = -(yDst + dst_offset.y);
@@ -1695,9 +1692,6 @@ if (pMask->pDrawable)
 	final_op->dst = INIT_BLIT_PIX(vDst, vDst->pict_format, dst_offset);
 
 	return TRUE;
-
- failed:
-	return FALSE;
 }
 
 /*
