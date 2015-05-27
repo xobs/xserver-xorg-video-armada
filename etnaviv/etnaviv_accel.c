@@ -1409,8 +1409,6 @@ static Bool etnaviv_Composite_Clear(PicturePtr pDst, struct etnaviv_de_op *op)
 
 	vDst = etnaviv_drawable_offset(pDst->pDrawable, &dst_offset);
 
-	etnaviv_workaround_nonalpha(vDst);
-
 	if (!gal_prepare_gpu(etnaviv, vDst, GPU_ACCESS_RW))
 		return FALSE;
 
@@ -1442,20 +1440,6 @@ static int etnaviv_accel_do_Composite(CARD8 op, PicturePtr pSrc,
 		return FALSE;
 
 	vDst = etnaviv_drawable_offset(pDst->pDrawable, &dst_offset);
-
-	if (etnaviv_workaround_nonalpha(vDst)) {
-		final_blend->alpha_mode |= VIVS_DE_ALPHA_MODES_GLOBAL_DST_ALPHA_MODE_GLOBAL;
-		final_blend->dst_alpha = 255;
-
-		/*
-		 * PE1.0 hardware contains a bug with destinations
-		 * of RGB565, which force src.A to one.
-		 */
-		if (vDst->pict_format.format == DE_FORMAT_R5G6B5 &&
-		    !VIV_FEATURE(etnaviv->conn, chipMinorFeatures0, 2DPE20) &&
-		    etnaviv_op_uses_source_alpha(final_blend))
-			return FALSE;
-	}
 
 	/* Remove repeat on source or mask if useless */
 	adjust_repeat(pSrc, xSrc, ySrc, width, height);
@@ -1735,6 +1719,31 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 		return FALSE;
 
 	final_blend = etnaviv_composite_op[op];
+
+	/*
+	 * Apply the workaround for non-alpha destination.  The test order
+	 * is important here: we only need the full workaround for non-
+	 * PictOpClear operations, but we still need the format adjustment.
+	 */
+	if (etnaviv_workaround_nonalpha(vDst) && op != PictOpClear) {
+		/*
+		 * Destination alpha channel subsitution - this needs
+		 * to happen before we modify the final blend for any
+		 * optimisations, which may change the destination alpha
+		 * value.
+		 */
+		final_blend.alpha_mode |= VIVS_DE_ALPHA_MODES_GLOBAL_DST_ALPHA_MODE_GLOBAL;
+		final_blend.dst_alpha = 255;
+
+		/*
+		 * PE1.0 hardware contains a bug with destinations
+		 * of RGB565, which force src.A to one.
+		 */
+		if (vDst->pict_format.format == DE_FORMAT_R5G6B5 &&
+		    !VIV_FEATURE(etnaviv->conn, chipMinorFeatures0, 2DPE20) &&
+		    etnaviv_op_uses_source_alpha(&final_blend))
+			return FALSE;
+	}
 
 	/*
 	 * Compute the composite region from the source, mask and
