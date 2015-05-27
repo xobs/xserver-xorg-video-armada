@@ -1448,8 +1448,6 @@ static int etnaviv_accel_do_Composite(CARD8 op, PicturePtr pSrc,
 	src_topleft.y = ySrc;
 
 	if (pMask) {
-		uint32_t colour;
-
 		mask_op = etnaviv_composite_op[PictOpInReverse];
 
 		if (VIV_FEATURE(etnaviv->conn, chipMinorFeatures0, 2DPE20)) {
@@ -1467,60 +1465,7 @@ static int etnaviv_accel_do_Composite(CARD8 op, PicturePtr pSrc,
 			return FALSE;
 		}
 
-		/*
-		 * A PictOpOver with a mask looks like this:
-		 *
-		 *  dst.A = src.A * mask.A + dst.A * (1 - src.A * mask.A)
-		 *  dst.C = src.C * mask.A + dst.C * (1 - src.A * mask.A)
-		 *
-		 * Or, in terms of the generic alpha blend equations:
-		 *
-		 *  dst.A = src.A * Fa + dst.A * Fb
-		 *  dst.C = src.C * Fa + dst.C * Fb
-		 *
-		 * with Fa = mask.A, Fb = (1 - src.A * mask.A).  With a
-		 * solid mask, mask.A is constant.
-		 *
-		 * Our GPU provides us with the ability to replace or scale
-		 * src.A and/or dst.A inputs in the generic alpha blend
-		 * equations, and using a PictOpAtop operation, the factors
-		 * are Fa = dst.A, Fb = 1 - src.A.
-		 *
-		 * If we subsitute src.A with src.A * mask.A, and dst.A with
-		 * mask.A, then we get pretty close for the colour channels.
-		 * However, the alpha channel becomes simply:
-		 *
-		 *  dst.A = mask.A
-		 *
-		 * and hence will be incorrect.  Therefore, the destination
-		 * format must not have an alpha channel.
-		 */
-		if (op == PictOpOver && !PICT_FORMAT_A(pDst->format) &&
-		    etnaviv_pict_solid_argb(pMask, &colour)) {
-			uint32_t src_alpha_mode;
-
-			/* Convert the colour to A8 */
-			colour >>= 24;
-
-			/*
-			 * With global scaled alpha and a non-alpha source,
-			 * the GPU appears to buggily read and use the X bits
-			 * as source alpha.  Work around this by using global
-			 * source alpha instead for this case.
-			 */
-			if (PICT_FORMAT_A(pSrc->format))
-				src_alpha_mode = VIVS_DE_ALPHA_MODES_GLOBAL_SRC_ALPHA_MODE_SCALED;
-			else
-				src_alpha_mode = VIVS_DE_ALPHA_MODES_GLOBAL_SRC_ALPHA_MODE_GLOBAL;
-
-			final_blend->alpha_mode = src_alpha_mode |
-				VIVS_DE_ALPHA_MODES_GLOBAL_DST_ALPHA_MODE_GLOBAL |
-				VIVS_DE_ALPHA_MODES_SRC_BLENDING_MODE(DE_BLENDMODE_NORMAL) |
-				VIVS_DE_ALPHA_MODES_DST_BLENDING_MODE(DE_BLENDMODE_INVERSED);
-			final_blend->src_alpha =
-			final_blend->dst_alpha = colour;
-			pMask = NULL;
-		} else if (pMask->pDrawable) {
+		if (pMask->pDrawable) {
 			int tx, ty;
 
 			transform_is_integer_translation(pMask->transform, &tx, &ty);
@@ -1680,6 +1625,78 @@ if (pMask && pMask->pDrawable)
 }
 
 /*
+ * Handle cases where we can reduce a (s IN m) OP d operation to
+ * a simpler s OP' d operation, possibly modifying OP' to use the
+ * GPU global alpha features.
+ */
+static Bool etnaviv_accel_reduce_mask(struct etnaviv_blend_op *final_blend,
+	CARD8 op, PicturePtr pSrc, PicturePtr pMask, PicturePtr pDst)
+{
+	uint32_t colour;
+
+	/*
+	 * A PictOpOver with a mask looks like this:
+	 *
+	 *  dst.A = src.A * mask.A + dst.A * (1 - src.A * mask.A)
+	 *  dst.C = src.C * mask.A + dst.C * (1 - src.A * mask.A)
+	 *
+	 * Or, in terms of the generic alpha blend equations:
+	 *
+	 *  dst.A = src.A * Fa + dst.A * Fb
+	 *  dst.C = src.C * Fa + dst.C * Fb
+	 *
+	 * with Fa = mask.A, Fb = (1 - src.A * mask.A).  With a
+	 * solid mask, mask.A is constant.
+	 *
+	 * Our GPU provides us with the ability to replace or scale
+	 * src.A and/or dst.A inputs in the generic alpha blend
+	 * equations, and using a PictOpAtop operation, the factors
+	 * are Fa = dst.A, Fb = 1 - src.A.
+	 *
+	 * If we subsitute src.A with src.A * mask.A, and dst.A with
+	 * mask.A, then we get pretty close for the colour channels.
+	 * However, the alpha channel becomes simply:
+	 *
+	 *  dst.A = mask.A
+	 *
+	 * and hence will be incorrect.  Therefore, the destination
+	 * format must not have an alpha channel.
+	 */
+	if (op == PictOpOver &&
+	    !pMask->componentAlpha &&
+	    !PICT_FORMAT_A(pDst->format) &&
+	    etnaviv_pict_solid_argb(pMask, &colour)) {
+		uint32_t src_alpha_mode;
+
+		/* Convert the colour to A8 */
+		colour >>= 24;
+
+		final_blend->src_alpha =
+		final_blend->dst_alpha = colour;
+
+		/*
+		 * With global scaled alpha and a non-alpha source,
+		 * the GPU appears to buggily read and use the X bits
+		 * as source alpha.  Work around this by using global
+		 * source alpha instead for this case.
+		 */
+		if (PICT_FORMAT_A(pSrc->format))
+			src_alpha_mode = VIVS_DE_ALPHA_MODES_GLOBAL_SRC_ALPHA_MODE_SCALED;
+		else
+			src_alpha_mode = VIVS_DE_ALPHA_MODES_GLOBAL_SRC_ALPHA_MODE_GLOBAL;
+
+		final_blend->alpha_mode = src_alpha_mode |
+			VIVS_DE_ALPHA_MODES_GLOBAL_DST_ALPHA_MODE_GLOBAL |
+			VIVS_DE_ALPHA_MODES_SRC_BLENDING_MODE(DE_BLENDMODE_NORMAL) |
+			VIVS_DE_ALPHA_MODES_DST_BLENDING_MODE(DE_BLENDMODE_INVERSED);
+
+		return TRUE;
+	}
+
+	return FALSE;
+}
+
+/*
  * A composite operation is: (pSrc IN pMask) OP pDst.  We always try
  * to perform an on-GPU "OP" where possible, which is handled by the
  * function below.  The source for this operation is determined by
@@ -1730,7 +1747,7 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 		 * Destination alpha channel subsitution - this needs
 		 * to happen before we modify the final blend for any
 		 * optimisations, which may change the destination alpha
-		 * value.
+		 * value, such as in etnaviv_accel_reduce_mask().
 		 */
 		final_blend.alpha_mode |= VIVS_DE_ALPHA_MODES_GLOBAL_DST_ALPHA_MODE_GLOBAL;
 		final_blend.dst_alpha = 255;
@@ -1760,6 +1777,13 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	if (op == PictOpClear) {
 		/* Short-circuit for PictOpClear */
 		rc = etnaviv_Composite_Clear(pDst, &final_op);
+	} else if (!pMask || etnaviv_accel_reduce_mask(&final_blend, op,
+						       pSrc, pMask, pDst)) {
+		rc = etnaviv_accel_do_Composite(op, pSrc, NULL, pDst,
+						xSrc, ySrc, 0, 0,
+						xDst, yDst, width, height,
+						&final_op, &final_blend,
+						&region, &pPixTemp);
 	} else {
 		rc = etnaviv_accel_do_Composite(op, pSrc, pMask, pDst,
 						xSrc, ySrc, xMask, yMask,
