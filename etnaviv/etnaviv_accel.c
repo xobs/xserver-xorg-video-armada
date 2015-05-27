@@ -1536,15 +1536,21 @@ static int etnaviv_accel_composite_masked(CARD8 op, PicturePtr pSrc,
 	BoxRec clip_temp;
 	xPoint src_topleft, dst_offset, mask_offset;
 
+	src_topleft.x = xSrc;
+	src_topleft.y = ySrc;
+	mask_offset.x = xMask;
+	mask_offset.y = yMask;
+
+	/* Include the destination drawable's position on the pixmap */
+	xDst += pDst->pDrawable->x;
+	yDst += pDst->pDrawable->y;
+
 	if (pSrc->alphaMap || pMask->alphaMap)
 		return FALSE;
 
 	/* If the source has no drawable, and is not solid, fallback */
 	if (!pSrc->pDrawable && !picture_is_solid(pSrc, NULL))
 		return FALSE;
-
-	src_topleft.x = xSrc;
-	src_topleft.y = ySrc;
 
 	mask_op = etnaviv_composite_op[PictOpInReverse];
 
@@ -1566,13 +1572,16 @@ static int etnaviv_accel_composite_masked(CARD8 op, PicturePtr pSrc,
 
 		transform_is_integer_translation(pMask->transform, &tx, &ty);
 
+		mask_offset.x += tx;
+		mask_offset.y += ty;
+
 		/* We don't handle mask repeats (yet) */
-		if (picture_needs_repeat(pMask, xMask + tx, yMask + ty,
+		if (picture_needs_repeat(pMask, mask_offset.x, mask_offset.y,
 					 width, height))
 			return FALSE;
 
-		xMask += pMask->pDrawable->x + tx;
-		yMask += pMask->pDrawable->y + ty;
+		mask_offset.x += pMask->pDrawable->x;
+		mask_offset.y += pMask->pDrawable->y;
 	} else {
 		return FALSE;
 	}
@@ -1582,10 +1591,6 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	__FUNCTION__, op,  pSrc, xSrc, ySrc,  pMask, xMask, yMask,
 	pDst, xDst, yDst,  width, height);
 #endif
-
-	/* Include the destination drawable's position on the pixmap */
-	xDst += pDst->pDrawable->x;
-	yDst += pDst->pDrawable->y;
 
 	/*
 	 * Compute the temporary image clipping box, which is the
@@ -1646,8 +1651,6 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 
 	etnaviv_set_format(vMask, pMask);
 
-	mask_offset.x += xMask;
-	mask_offset.y += yMask;
 //dump_vPix(buf, etnaviv, vMask, 1, "A-MASK%02.2x-%p", op, pMask);
 
 	if (vTemp != vSrc) {
