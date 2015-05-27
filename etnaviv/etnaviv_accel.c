@@ -1418,21 +1418,20 @@ static Bool etnaviv_Composite_Clear(PicturePtr pDst, struct etnaviv_de_op *op)
 	return TRUE;
 }
 
-static int etnaviv_accel_do_Composite(CARD8 op, PicturePtr pSrc,
-	PicturePtr pMask, PicturePtr pDst, INT16 xSrc, INT16 ySrc,
-	INT16 xMask, INT16 yMask, INT16 xDst, INT16 yDst,
+static int etnaviv_accel_composite_srconly(CARD8 op,
+	PicturePtr pSrc, PicturePtr pDst,
+	INT16 xSrc, INT16 ySrc, INT16 xDst, INT16 yDst,
 	CARD16 width, CARD16 height,
 	struct etnaviv_de_op *final_op, struct etnaviv_blend_op *final_blend,
 	RegionPtr region, PixmapPtr *ppPixTemp)
 {
 	ScreenPtr pScreen = pDst->pDrawable->pScreen;
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
-	struct etnaviv_pixmap *vDst, *vSrc, *vMask, *vTemp = NULL;
-	struct etnaviv_blend_op mask_op;
+	struct etnaviv_pixmap *vDst, *vSrc, *vTemp = NULL;
 	BoxRec clip_temp;
 	xPoint src_topleft, dst_offset;
 
-	if (pSrc->alphaMap || (pMask && pMask->alphaMap))
+	if (pSrc->alphaMap)
 		return FALSE;
 
 	/* If the source has no drawable, and is not solid, fallback */
@@ -1447,39 +1446,144 @@ static int etnaviv_accel_do_Composite(CARD8 op, PicturePtr pSrc,
 	src_topleft.x = xSrc;
 	src_topleft.y = ySrc;
 
-	if (pMask) {
-		mask_op = etnaviv_composite_op[PictOpInReverse];
+#if 0
+fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\n",
+	__FUNCTION__, op,  pSrc, xSrc, ySrc,  pMask, xMask, yMask,
+	pDst, xDst, yDst,  width, height);
+#endif
 
-		if (VIV_FEATURE(etnaviv->conn, chipMinorFeatures0, 2DPE20)) {
-			/*
-			 * PE2.0 can do component alpha blends.  Adjust
-			 * the mask blend (InReverse) to perform the blend.
-			 */
-			mask_op.alpha_mode =
-				VIVS_DE_ALPHA_MODES_GLOBAL_SRC_ALPHA_MODE_NORMAL |
-				VIVS_DE_ALPHA_MODES_GLOBAL_DST_ALPHA_MODE_NORMAL |
-				VIVS_DE_ALPHA_MODES_SRC_BLENDING_MODE(DE_BLENDMODE_ZERO) |
-				VIVS_DE_ALPHA_MODES_DST_BLENDING_MODE(DE_BLENDMODE_COLOR);
-		} else if (pMask->componentAlpha) {
-			/* No support for component alpha blending on PE1.0 */
+	/* Include the destination drawable's position on the pixmap */
+	xDst += pDst->pDrawable->x;
+	yDst += pDst->pDrawable->y;
+
+	/*
+	 * Compute the temporary image clipping box, which is the
+	 * clipping region extents without the destination offset.
+	 */
+	clip_temp = *RegionExtents(region);
+	clip_temp.x1 -= xDst;
+	clip_temp.y1 -= yDst;
+	clip_temp.x2 -= xDst;
+	clip_temp.y2 -= yDst;
+
+	/* Get a temporary pixmap. */
+	vTemp = etnaviv_get_scratch_argb(pScreen, ppPixTemp,
+					 clip_temp.x2, clip_temp.y2);
+	if (!vTemp)
+		goto failed;
+
+	/*
+	 * Get the source.  The source image will be described by vSrc with
+	 * origin src_topleft.  This may or may not be the temporary image,
+	 * and vSrc->pict_format describes its format, including whether the
+	 * alpha channel is valid.
+	 */
+	vSrc = etnaviv_acquire_src(etnaviv, pSrc, &clip_temp,
+				   *ppPixTemp, vTemp, &src_topleft);
+	if (!vSrc)
+		goto failed;
+
+	/*
+	 * Apply the same work-around for a non-alpha source as for
+	 * a non-alpha destination.
+	 */
+	if (vSrc != vTemp &&
+	    etnaviv_blend_src_alpha_normal(final_blend) &&
+	    etnaviv_workaround_nonalpha(vSrc)) {
+		final_blend->alpha_mode |= VIVS_DE_ALPHA_MODES_GLOBAL_SRC_ALPHA_MODE_GLOBAL;
+		final_blend->src_alpha = 255;
+	}
+
+//etnaviv_batch_wait_commit(etnaviv, vSrc);
+//dump_vPix(buf, etnaviv, vSrc, 1, "A-ISRC%02.2x-%p", op, pSrc);
+
+#if 0
+#define C(p,e) ((p) ? (p)->e : 0)
+fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux%u]x%dy%d dst=%p[%p]x%dy%d %ux%u\n",
+	__FUNCTION__, op,
+	pSrc, pSrc->transform, pSrc->pDrawable, pSrc->repeat, C(pSrc->pDrawable, width), C(pSrc->pDrawable, height), src_topleft.x, src_topleft.y,
+	pMask, C(pMask, pDrawable), C(pMask, repeat), C(C(pMask, pDrawable), width), C(C(pMask, pDrawable), height), xMask, yMask,
+	pDst, pDst->pDrawable, xDst, yDst,
+	width, height);
+}
+#endif
+
+	src_topleft.x -= xDst + dst_offset.x;
+	src_topleft.y -= yDst + dst_offset.y;
+
+	if (!gal_prepare_gpu(etnaviv, vDst, GPU_ACCESS_RW) ||
+	    !gal_prepare_gpu(etnaviv, vSrc, GPU_ACCESS_RO))
+		return FALSE;
+
+	final_op->src = INIT_BLIT_PIX(vSrc, vSrc->pict_format, src_topleft);
+	final_op->dst = INIT_BLIT_PIX(vDst, vDst->pict_format, dst_offset);
+
+	return TRUE;
+
+ failed:
+	return FALSE;
+}
+
+static int etnaviv_accel_composite_masked(CARD8 op, PicturePtr pSrc,
+	PicturePtr pMask, PicturePtr pDst, INT16 xSrc, INT16 ySrc,
+	INT16 xMask, INT16 yMask, INT16 xDst, INT16 yDst,
+	CARD16 width, CARD16 height,
+	struct etnaviv_de_op *final_op, struct etnaviv_blend_op *final_blend,
+	RegionPtr region, PixmapPtr *ppPixTemp)
+{
+	ScreenPtr pScreen = pDst->pDrawable->pScreen;
+	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
+	struct etnaviv_pixmap *vDst, *vSrc, *vMask, *vTemp = NULL;
+	struct etnaviv_blend_op mask_op;
+	BoxRec clip_temp;
+	xPoint src_topleft, dst_offset, mask_offset;
+
+	if (pSrc->alphaMap || pMask->alphaMap)
+		return FALSE;
+
+	/* If the source has no drawable, and is not solid, fallback */
+	if (!pSrc->pDrawable && !picture_is_solid(pSrc, NULL))
+		return FALSE;
+
+	vDst = etnaviv_drawable_offset(pDst->pDrawable, &dst_offset);
+
+	/* Remove repeat on source or mask if useless */
+	adjust_repeat(pSrc, xSrc, ySrc, width, height);
+
+	src_topleft.x = xSrc;
+	src_topleft.y = ySrc;
+
+	mask_op = etnaviv_composite_op[PictOpInReverse];
+
+	if (VIV_FEATURE(etnaviv->conn, chipMinorFeatures0, 2DPE20)) {
+		/*
+		 * PE2.0 can do component alpha blends.  Adjust
+		 * the mask blend (InReverse) to perform the blend.
+		 */
+		mask_op.alpha_mode =
+			VIVS_DE_ALPHA_MODES_GLOBAL_SRC_ALPHA_MODE_NORMAL |
+			VIVS_DE_ALPHA_MODES_GLOBAL_DST_ALPHA_MODE_NORMAL |
+			VIVS_DE_ALPHA_MODES_SRC_BLENDING_MODE(DE_BLENDMODE_ZERO) |
+			VIVS_DE_ALPHA_MODES_DST_BLENDING_MODE(DE_BLENDMODE_COLOR);
+	} else if (pMask->componentAlpha) {
+		/* No support for component alpha blending on PE1.0 */
+		return FALSE;
+	}
+
+	if (pMask->pDrawable) {
+		int tx, ty;
+
+		transform_is_integer_translation(pMask->transform, &tx, &ty);
+
+		/* We don't handle mask repeats (yet) */
+		if (picture_needs_repeat(pMask, xMask + tx, yMask + ty,
+					 width, height))
 			return FALSE;
-		}
 
-		if (pMask->pDrawable) {
-			int tx, ty;
-
-			transform_is_integer_translation(pMask->transform, &tx, &ty);
-
-			/* We don't handle mask repeats (yet) */
-			if (picture_needs_repeat(pMask, xMask + tx, yMask + ty,
-						 width, height))
-				return FALSE;
-
-			xMask += pMask->pDrawable->x + tx;
-			yMask += pMask->pDrawable->y + ty;
-		} else {
-			return FALSE;
-		}
+		xMask += pMask->pDrawable->x + tx;
+		yMask += pMask->pDrawable->y + ty;
+	} else {
+		return FALSE;
 	}
 
 #if 0
@@ -1502,11 +1606,7 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	clip_temp.x2 -= xDst;
 	clip_temp.y2 -= yDst;
 
-	/*
-	 * Get a temporary pixmap.  We don't know whether we will need
-	 * this at this stage.  Its size is the size of the temporary clip
-	 * box.
-	 */
+	/* Get a temporary pixmap. */
 	vTemp = etnaviv_get_scratch_argb(pScreen, ppPixTemp,
 					 clip_temp.x2, clip_temp.y2);
 	if (!vTemp)
@@ -1522,17 +1622,6 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 				   *ppPixTemp, vTemp, &src_topleft);
 	if (!vSrc)
 		goto failed;
-
-	/*
-	 * Apply the same work-around for a non-alpha source as for
-	 * a non-alpha destination.
-	 */
-	if (!pMask && vSrc != vTemp &&
-	    etnaviv_blend_src_alpha_normal(final_blend) &&
-	    etnaviv_workaround_nonalpha(vSrc)) {
-		final_blend->alpha_mode |= VIVS_DE_ALPHA_MODES_GLOBAL_SRC_ALPHA_MODE_GLOBAL;
-		final_blend->src_alpha = 255;
-	}
 
 //etnaviv_batch_wait_commit(etnaviv, vSrc);
 //dump_vPix(buf, etnaviv, vSrc, 1, "A-ISRC%02.2x-%p", op, pSrc);
@@ -1560,62 +1649,51 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 	 *  vTemp <= vTemp BlendOp(In) vMask
 	 *  vSrc = vTemp
 	 */
-	if (pMask) {
-		xPoint mask_offset, temp_offset;
+	vMask = etnaviv_drawable_offset(pMask->pDrawable, &mask_offset);
+	if (!vMask)
+		goto failed;
 
-		vMask = etnaviv_drawable_offset(pMask->pDrawable, &mask_offset);
-		if (!vMask)
-			goto failed;
+	etnaviv_set_format(vMask, pMask);
 
-		etnaviv_set_format(vMask, pMask);
-
-		mask_offset.x += xMask;
-		mask_offset.y += yMask;
-		temp_offset.x = 0;
-		temp_offset.y = 0;
+	mask_offset.x += xMask;
+	mask_offset.y += yMask;
 //dump_vPix(buf, etnaviv, vMask, 1, "A-MASK%02.2x-%p", op, pMask);
 
-		if (vTemp != vSrc) {
-			/*
-			 * Copy Source to Temp.
-			 * The source may not have alpha, but we need the
-			 * temporary pixmap to have alpha.  Try to convert
-			 * while copying.  (If this doesn't work, use OR
-			 * in the brush with maximum alpha value.)
-			 */
-			if (!etnaviv_blend(etnaviv, &clip_temp, NULL,
-					   vTemp, vSrc, &clip_temp, 1,
-					   src_topleft, temp_offset))
-				goto failed;
+	if (vTemp != vSrc) {
+		/*
+		 * Copy Source to Temp.
+		 * The source may not have alpha, but we need the
+		 * temporary pixmap to have alpha.  Try to convert
+		 * while copying.  (If this doesn't work, use OR
+		 * in the brush with maximum alpha value.)
+		 */
+		if (!etnaviv_blend(etnaviv, &clip_temp, NULL, vTemp, vSrc,
+				   &clip_temp, 1, src_topleft, ZERO_OFFSET))
+			goto failed;
 //etnaviv_batch_wait_commit(etnaviv, vTemp);
 //dump_vPix(buf, etnaviv, vTemp, 1, "A-TMSK%02.2x-%p", op, pMask);
-		}
+	}
 
 #if 0
-if (pMask && pMask->pDrawable)
+if (pMask->pDrawable)
  fprintf(stderr, "%s: src %d,%d,%d,%d %d,%d %u (%x)\n",
   __FUNCTION__, pMask->pDrawable->x, pMask->pDrawable->y,
   pMask->pDrawable->x + pMask->pDrawable->width, pMask->pDrawable->y + pMask->pDrawable->height,
   xMask, yMask, vMask->pict_format, pMask->format);
 #endif
 
-		if (!etnaviv_blend(etnaviv, &clip_temp, &mask_op,
-				   vTemp, vMask, &clip_temp, 1,
-				   mask_offset, temp_offset))
-			goto failed;
+	if (!etnaviv_blend(etnaviv, &clip_temp, &mask_op, vTemp, vMask,
+			   &clip_temp, 1, mask_offset, ZERO_OFFSET))
+		goto failed;
 
-		vSrc = vTemp;
-		src_topleft = temp_offset;
-	}
-
-	src_topleft.x -= xDst + dst_offset.x;
-	src_topleft.y -= yDst + dst_offset.y;
+	src_topleft.x = -(xDst + dst_offset.x);
+	src_topleft.y = -(yDst + dst_offset.y);
 
 	if (!gal_prepare_gpu(etnaviv, vDst, GPU_ACCESS_RW) ||
-	    !gal_prepare_gpu(etnaviv, vSrc, GPU_ACCESS_RO))
+	    !gal_prepare_gpu(etnaviv, vTemp, GPU_ACCESS_RO))
 		return FALSE;
 
-	final_op->src = INIT_BLIT_PIX(vSrc, vSrc->pict_format, src_topleft);
+	final_op->src = INIT_BLIT_PIX(vTemp, vTemp->pict_format, src_topleft);
 	final_op->dst = INIT_BLIT_PIX(vDst, vDst->pict_format, dst_offset);
 
 	return TRUE;
@@ -1779,17 +1857,17 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 		rc = etnaviv_Composite_Clear(pDst, &final_op);
 	} else if (!pMask || etnaviv_accel_reduce_mask(&final_blend, op,
 						       pSrc, pMask, pDst)) {
-		rc = etnaviv_accel_do_Composite(op, pSrc, NULL, pDst,
-						xSrc, ySrc, 0, 0,
-						xDst, yDst, width, height,
-						&final_op, &final_blend,
-						&region, &pPixTemp);
+		rc = etnaviv_accel_composite_srconly(op, pSrc, pDst,
+						     xSrc, ySrc,
+						     xDst, yDst, width, height,
+						     &final_op, &final_blend,
+						     &region, &pPixTemp);
 	} else {
-		rc = etnaviv_accel_do_Composite(op, pSrc, pMask, pDst,
-						xSrc, ySrc, xMask, yMask,
-						xDst, yDst, width, height,
-						&final_op, &final_blend,
-						&region, &pPixTemp);
+		rc = etnaviv_accel_composite_masked(op, pSrc, pMask, pDst,
+						    xSrc, ySrc, xMask, yMask,
+						    xDst, yDst, width, height,
+						    &final_op, &final_blend,
+						    &region, &pPixTemp);
 	}
 
 	/*
