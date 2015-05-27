@@ -1288,7 +1288,7 @@ static Bool etnaviv_composite_to_pixmap(CARD8 op, PicturePtr pSrc,
  */
 static struct etnaviv_pixmap *etnaviv_acquire_src(struct etnaviv *etnaviv,
 	PicturePtr pict, const BoxRec *clip,
-	PixmapPtr pix, struct etnaviv_pixmap *vTemp, xPoint *src_topleft)
+	PixmapPtr *pPix, struct etnaviv_pixmap *vTemp, xPoint *src_topleft)
 {
 	struct etnaviv_pixmap *vSrc;
 	DrawablePtr drawable;
@@ -1326,7 +1326,7 @@ static struct etnaviv_pixmap *etnaviv_acquire_src(struct etnaviv *etnaviv,
 		int w = clip->x2;
 		int h = clip->y2;
 
-		if (!etnaviv_composite_to_pixmap(PictOpSrc, pict, NULL, pix,
+		if (!etnaviv_composite_to_pixmap(PictOpSrc, pict, NULL, *pPix,
 						 x, y, 0, 0, w, h))
 			return NULL;
 
@@ -1478,7 +1478,7 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	 * alpha channel is valid.
 	 */
 	vSrc = etnaviv_acquire_src(etnaviv, pSrc, &clip_temp,
-				   *ppPixTemp, vTemp, &src_topleft);
+				   ppPixTemp, vTemp, &src_topleft);
 	if (!vSrc)
 		return FALSE;
 
@@ -1615,7 +1615,7 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	 * alpha channel is valid.
 	 */
 	vSrc = etnaviv_acquire_src(etnaviv, pSrc, &clip_temp,
-				   *ppPixTemp, vTemp, &src_topleft);
+				   ppPixTemp, vTemp, &src_topleft);
 	if (!vSrc)
 		return FALSE;
 
