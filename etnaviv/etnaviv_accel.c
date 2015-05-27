@@ -1463,13 +1463,12 @@ static Bool etnaviv_Composite_Clear(PicturePtr pSrc, PicturePtr pMask,
 static int etnaviv_accel_do_Composite(CARD8 op, PicturePtr pSrc,
 	PicturePtr pMask, PicturePtr pDst, INT16 xSrc, INT16 ySrc,
 	INT16 xMask, INT16 yMask, INT16 xDst, INT16 yDst,
-	CARD16 width, CARD16 height, RegionPtr region)
+	CARD16 width, CARD16 height, RegionPtr region, PixmapPtr *ppPixTemp)
 {
 	ScreenPtr pScreen = pDst->pDrawable->pScreen;
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
 	struct etnaviv_pixmap *vDst, *vSrc, *vMask, *vTemp = NULL;
 	struct etnaviv_blend_op final_op, mask_op;
-	PixmapPtr pPixTemp = NULL;
 	BoxRec clip_temp;
 	xPoint src_topleft, dst_offset;
 	int rc;
@@ -1620,7 +1619,7 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	 * this at this stage.  Its size is the size of the temporary clip
 	 * box.
 	 */
-	vTemp = etnaviv_get_scratch_argb(pScreen, &pPixTemp,
+	vTemp = etnaviv_get_scratch_argb(pScreen, ppPixTemp,
 					 clip_temp.x2, clip_temp.y2);
 	if (!vTemp)
 		goto failed;
@@ -1632,7 +1631,7 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	 * alpha channel is valid.
 	 */
 	vSrc = etnaviv_acquire_src(etnaviv, pSrc, &clip_temp,
-				   pPixTemp, vTemp, &src_topleft);
+				   *ppPixTemp, vTemp, &src_topleft);
 	if (!vSrc)
 		goto failed;
 
@@ -1728,17 +1727,9 @@ if (pMask && pMask->pDrawable)
 				       dst_offset, region,
 				       pDst, vDst,
 				       pSrc, vSrc, src_topleft);
-	if (pPixTemp) {
-		ScreenPtr pScreen = pPixTemp->drawable.pScreen;
-		pScreen->DestroyPixmap(pPixTemp);
-	}
 	return !!rc;
 
  failed:
-	if (pPixTemp) {
-		ScreenPtr pScreen = pPixTemp->drawable.pScreen;
-		pScreen->DestroyPixmap(pPixTemp);
-	}
 	return FALSE;
 }
 
@@ -1755,6 +1746,7 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	ScreenPtr pScreen = pDst->pDrawable->pScreen;
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
 	struct etnaviv_pixmap *vDst;
+	PixmapPtr pPixTemp = NULL;
 	RegionRec region;
 	xPoint dst_offset;
 	int rc;
@@ -1800,8 +1792,12 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 		rc = etnaviv_accel_do_Composite(op, pSrc, pMask, pDst,
 						xSrc, ySrc, xMask, yMask,
 						xDst, yDst, width, height,
-						&region);
+						&region, &pPixTemp);
 	}
+
+	/* Destroy any temporary pixmap we may have allocated */
+	if (pPixTemp)
+		pScreen->DestroyPixmap(pPixTemp);
 
 	RegionUninit(&region);
 
