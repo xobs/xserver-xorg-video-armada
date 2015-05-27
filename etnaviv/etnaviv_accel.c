@@ -1486,8 +1486,7 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	 * Apply the same work-around for a non-alpha source as for
 	 * a non-alpha destination.
 	 */
-	if (vSrc != vTemp &&
-	    etnaviv_blend_src_alpha_normal(final_blend) &&
+	if (etnaviv_blend_src_alpha_normal(final_blend) &&
 	    etnaviv_workaround_nonalpha(vSrc)) {
 		final_blend->alpha_mode |= VIVS_DE_ALPHA_MODES_GLOBAL_SRC_ALPHA_MODE_GLOBAL;
 		final_blend->src_alpha = 255;
