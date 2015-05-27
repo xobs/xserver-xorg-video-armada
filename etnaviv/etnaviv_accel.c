@@ -1555,19 +1555,17 @@ static int etnaviv_accel_composite_masked(CARD8 op, PicturePtr pSrc,
 
 	mask_op = etnaviv_composite_op[PictOpInReverse];
 
-	if (VIV_FEATURE(etnaviv->conn, chipMinorFeatures0, 2DPE20)) {
-		/*
-		 * PE2.0 can do component alpha blends.  Adjust
-		 * the mask blend (InReverse) to perform the blend.
-		 */
+	if (pMask->componentAlpha) {
+		/* Only PE2.0 can do component alpha blends. */
+		if (!VIV_FEATURE(etnaviv->conn, chipMinorFeatures0, 2DPE20))
+			return FALSE;
+
+		/* Adjust the mask blend (InReverse) to perform the blend. */
 		mask_op.alpha_mode =
 			VIVS_DE_ALPHA_MODES_GLOBAL_SRC_ALPHA_MODE_NORMAL |
 			VIVS_DE_ALPHA_MODES_GLOBAL_DST_ALPHA_MODE_NORMAL |
 			VIVS_DE_ALPHA_MODES_SRC_BLENDING_MODE(DE_BLENDMODE_ZERO) |
 			VIVS_DE_ALPHA_MODES_DST_BLENDING_MODE(DE_BLENDMODE_COLOR);
-	} else if (pMask->componentAlpha) {
-		/* No support for component alpha blending on PE1.0 */
-		return FALSE;
 	}
 
 	if (pMask->pDrawable) {
