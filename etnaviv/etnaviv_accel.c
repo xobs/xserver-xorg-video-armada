@@ -1545,19 +1545,35 @@ static int etnaviv_accel_composite_masked(CARD8 op, PicturePtr pSrc,
 	xDst += pDst->pDrawable->x;
 	yDst += pDst->pDrawable->y;
 
-	if (pSrc->alphaMap || pMask->alphaMap)
+	/*
+	 * Compute the temporary image clipping box, which is the
+	 * clipping region extents without the destination offset.
+	 */
+	clip_temp = *RegionExtents(region);
+	clip_temp.x1 -= xDst;
+	clip_temp.y1 -= yDst;
+	clip_temp.x2 -= xDst;
+	clip_temp.y2 -= yDst;
+
+	/* Get a temporary pixmap. */
+	vTemp = etnaviv_get_scratch_argb(pScreen, ppPixTemp,
+					 clip_temp.x2, clip_temp.y2);
+	if (!vTemp)
 		return FALSE;
+
+	if (pSrc->alphaMap || pMask->alphaMap)
+		goto fallback;
 
 	/* If the source has no drawable, and is not solid, fallback */
 	if (!pSrc->pDrawable && !picture_is_solid(pSrc, NULL))
-		return FALSE;
+		goto fallback;
 
 	mask_op = etnaviv_composite_op[PictOpInReverse];
 
 	if (pMask->componentAlpha) {
 		/* Only PE2.0 can do component alpha blends. */
 		if (!VIV_FEATURE(etnaviv->conn, chipMinorFeatures0, 2DPE20))
-			return FALSE;
+			goto fallback;
 
 		/* Adjust the mask blend (InReverse) to perform the blend. */
 		mask_op.alpha_mode =
@@ -1578,35 +1594,29 @@ static int etnaviv_accel_composite_masked(CARD8 op, PicturePtr pSrc,
 		/* We don't handle mask repeats (yet) */
 		if (picture_needs_repeat(pMask, mask_offset.x, mask_offset.y,
 					 width, height))
-			return FALSE;
+			goto fallback;
 
 		mask_offset.x += pMask->pDrawable->x;
 		mask_offset.y += pMask->pDrawable->y;
 	} else {
-		return FALSE;
+		goto fallback;
 	}
+
+	/*
+	 * Check whether the mask has a etna bo backing it.  If not,
+	 * fallback to software for the mask operation.
+	 */
+	vMask = etnaviv_drawable_offset(pMask->pDrawable, &mask_offset);
+	if (!vMask)
+		goto fallback;
+
+	etnaviv_set_format(vMask, pMask);
 
 #if 0
 fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\n",
 	__FUNCTION__, op,  pSrc, xSrc, ySrc,  pMask, xMask, yMask,
 	pDst, xDst, yDst,  width, height);
 #endif
-
-	/*
-	 * Compute the temporary image clipping box, which is the
-	 * clipping region extents without the destination offset.
-	 */
-	clip_temp = *RegionExtents(region);
-	clip_temp.x1 -= xDst;
-	clip_temp.y1 -= yDst;
-	clip_temp.x2 -= xDst;
-	clip_temp.y2 -= yDst;
-
-	/* Get a temporary pixmap. */
-	vTemp = etnaviv_get_scratch_argb(pScreen, ppPixTemp,
-					 clip_temp.x2, clip_temp.y2);
-	if (!vTemp)
-		return FALSE;
 
 	/*
 	 * Get the source.  The source image will be described by vSrc with
@@ -1617,7 +1627,7 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	vSrc = etnaviv_acquire_src(etnaviv, pSrc, &clip_temp,
 				   ppPixTemp, vTemp, &src_topleft);
 	if (!vSrc)
-		return FALSE;
+		goto fallback;
 
 //etnaviv_batch_wait_commit(etnaviv, vSrc);
 //dump_vPix(buf, etnaviv, vSrc, 1, "A-ISRC%02.2x-%p", op, pSrc);
@@ -1645,12 +1655,6 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 	 *  vTemp <= vTemp BlendOp(In) vMask
 	 *  vSrc = vTemp
 	 */
-	vMask = etnaviv_drawable_offset(pMask->pDrawable, &mask_offset);
-	if (!vMask)
-		return FALSE;
-
-	etnaviv_set_format(vMask, pMask);
-
 //dump_vPix(buf, etnaviv, vMask, 1, "A-MASK%02.2x-%p", op, pMask);
 
 	if (vTemp != vSrc) {
@@ -1680,6 +1684,7 @@ if (pMask->pDrawable)
 			   &clip_temp, 1, mask_offset, ZERO_OFFSET))
 		return FALSE;
 
+finish:
 	vDst = etnaviv_drawable_offset(pDst->pDrawable, &dst_offset);
 
 	src_topleft.x = -(xDst + dst_offset.x);
@@ -1693,6 +1698,14 @@ if (pMask->pDrawable)
 	final_op->dst = INIT_BLIT_PIX(vDst, vDst->pict_format, dst_offset);
 
 	return TRUE;
+
+fallback:
+	/* Do the (src IN mask) in software instead */
+	if (!etnaviv_composite_to_pixmap(PictOpSrc, pSrc, pMask, *ppPixTemp,
+					 xSrc, ySrc, xMask, yMask,
+					 clip_temp.x2, clip_temp.y2))
+		return FALSE;
+	goto finish;
 }
 
 /*
