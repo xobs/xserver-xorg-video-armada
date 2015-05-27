@@ -1035,6 +1035,27 @@ Bool etnaviv_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 #include "fbpict.h"
 #include "pictureutil.h"
 
+#ifdef DEBUG_BLEND
+static void etnaviv_debug_blend_op(const char *func,
+	CARD8 op, CARD16 width, CARD16 height,
+	PicturePtr pSrc, INT16 xSrc, INT16 ySrc,
+	PicturePtr pMask, INT16 xMask, INT16 yMask,
+	PicturePtr pDst, INT16 xDst, INT16 yDst)
+{
+	char src_buf[80], mask_buf[80], dst_buf[80];
+
+	fprintf(stderr,
+		"%s: op 0x%02x %ux%u\n"
+		"  src  %s\n"
+		"  mask %s\n"
+		"  dst  %s\n",
+		func, op, width, height,
+		picture_desc(pSrc, src_buf, sizeof(src_buf)),
+		picture_desc(pMask, mask_buf, sizeof(mask_buf)),
+		picture_desc(pDst, dst_buf, sizeof(dst_buf)));
+}
+#endif
+
 /*
  * For a rectangle described by (wxh+x+y) on the picture's drawable,
  * determine whether the picture repeat flag is meaningful.  The
@@ -1422,10 +1443,8 @@ static Bool etnaviv_Composite_Clear(PicturePtr pDst, struct etnaviv_de_op *op)
 	return TRUE;
 }
 
-static int etnaviv_accel_composite_srconly(CARD8 op,
-	PicturePtr pSrc, PicturePtr pDst,
+static int etnaviv_accel_composite_srconly(PicturePtr pSrc, PicturePtr pDst,
 	INT16 xSrc, INT16 ySrc, INT16 xDst, INT16 yDst,
-	CARD16 width, CARD16 height,
 	struct etnaviv_de_op *final_op, struct etnaviv_blend_op *final_blend,
 	RegionPtr region, PixmapPtr *ppPixTemp)
 {
@@ -1444,12 +1463,6 @@ static int etnaviv_accel_composite_srconly(CARD8 op,
 
 	src_topleft.x = xSrc;
 	src_topleft.y = ySrc;
-
-#if 0
-fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\n",
-	__FUNCTION__, op,  pSrc, xSrc, ySrc,  pMask, xMask, yMask,
-	pDst, xDst, yDst,  width, height);
-#endif
 
 	/* Include the destination drawable's position on the pixmap */
 	xDst += pDst->pDrawable->x;
@@ -1492,20 +1505,6 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 		final_blend->src_alpha = 255;
 	}
 
-//etnaviv_batch_wait_commit(etnaviv, vSrc);
-//dump_vPix(buf, etnaviv, vSrc, 1, "A-ISRC%02.2x-%p", op, pSrc);
-
-#if 0
-#define C(p,e) ((p) ? (p)->e : 0)
-fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux%u]x%dy%d dst=%p[%p]x%dy%d %ux%u\n",
-	__FUNCTION__, op,
-	pSrc, pSrc->transform, pSrc->pDrawable, pSrc->repeat, C(pSrc->pDrawable, width), C(pSrc->pDrawable, height), src_topleft.x, src_topleft.y,
-	pMask, C(pMask, pDrawable), C(pMask, repeat), C(C(pMask, pDrawable), width), C(C(pMask, pDrawable), height), xMask, yMask,
-	pDst, pDst->pDrawable, xDst, yDst,
-	width, height);
-}
-#endif
-
 	vDst = etnaviv_drawable_offset(pDst->pDrawable, &dst_offset);
 
 	src_topleft.x -= xDst + dst_offset.x;
@@ -1521,12 +1520,15 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 	return TRUE;
 }
 
-static int etnaviv_accel_composite_masked(CARD8 op, PicturePtr pSrc,
-	PicturePtr pMask, PicturePtr pDst, INT16 xSrc, INT16 ySrc,
-	INT16 xMask, INT16 yMask, INT16 xDst, INT16 yDst,
-	CARD16 width, CARD16 height,
-	struct etnaviv_de_op *final_op, struct etnaviv_blend_op *final_blend,
-	RegionPtr region, PixmapPtr *ppPixTemp)
+static int etnaviv_accel_composite_masked(PicturePtr pSrc, PicturePtr pMask,
+	PicturePtr pDst, INT16 xSrc, INT16 ySrc, INT16 xMask, INT16 yMask,
+	INT16 xDst, INT16 yDst, struct etnaviv_de_op *final_op,
+	struct etnaviv_blend_op *final_blend, RegionPtr region,
+	PixmapPtr *ppPixTemp
+#ifdef DEBUG_BLEND
+	, CARD8 op
+#endif
+	)
 {
 	ScreenPtr pScreen = pDst->pDrawable->pScreen;
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
@@ -1611,12 +1613,6 @@ static int etnaviv_accel_composite_masked(CARD8 op, PicturePtr pSrc,
 
 	etnaviv_set_format(vMask, pMask);
 
-#if 0
-fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\n",
-	__FUNCTION__, op,  pSrc, xSrc, ySrc,  pMask, xMask, yMask,
-	pDst, xDst, yDst,  width, height);
-#endif
-
 	/*
 	 * Get the source.  The source image will be described by vSrc with
 	 * origin src_topleft.  This may or may not be the temporary image,
@@ -1628,18 +1624,11 @@ fprintf(stderr, "%s: i: op 0x%02x src=%p,%d,%d mask=%p,%d,%d dst=%p,%d,%d %ux%u\
 	if (!vSrc)
 		goto fallback;
 
-//etnaviv_batch_wait_commit(etnaviv, vSrc);
-//dump_vPix(buf, etnaviv, vSrc, 1, "A-ISRC%02.2x-%p", op, pSrc);
-
-#if 0
-#define C(p,e) ((p) ? (p)->e : 0)
-fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux%u]x%dy%d dst=%p[%p]x%dy%d %ux%u\n",
-	__FUNCTION__, op,
-	pSrc, pSrc->transform, pSrc->pDrawable, pSrc->repeat, C(pSrc->pDrawable, width), C(pSrc->pDrawable, height), src_topleft.x, src_topleft.y,
-	pMask, C(pMask, pDrawable), C(pMask, repeat), C(C(pMask, pDrawable), width), C(C(pMask, pDrawable), height), xMask, yMask,
-	pDst, pDst->pDrawable, xDst, yDst,
-	width, height);
-}
+#ifdef DEBUG_BLEND
+	etnaviv_batch_wait_commit(etnaviv, vSrc);
+	etnaviv_batch_wait_commit(etnaviv, vMask);
+	dump_vPix(etnaviv, vSrc, 1, "A-ISRC%2.2x-%p", op, pSrc);
+	dump_vPix(etnaviv, vMask, 1, "A-MASK%2.2x-%p", op, pMask);
 #endif
 
 	/*
@@ -1654,8 +1643,6 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 	 *  vTemp <= vTemp BlendOp(In) vMask
 	 *  vSrc = vTemp
 	 */
-//dump_vPix(buf, etnaviv, vMask, 1, "A-MASK%02.2x-%p", op, pMask);
-
 	if (vTemp != vSrc) {
 		/*
 		 * Copy Source to Temp.
@@ -1667,17 +1654,11 @@ fprintf(stderr, "%s: 0: OP 0x%02x src=%p[%p,%p,%u,%ux%u]x%dy%d mask=%p[%p,%u,%ux
 		if (!etnaviv_blend(etnaviv, &clip_temp, NULL, vTemp, vSrc,
 				   &clip_temp, 1, src_topleft, ZERO_OFFSET))
 			return FALSE;
-//etnaviv_batch_wait_commit(etnaviv, vTemp);
-//dump_vPix(buf, etnaviv, vTemp, 1, "A-TMSK%02.2x-%p", op, pMask);
-	}
-
-#if 0
-if (pMask->pDrawable)
- fprintf(stderr, "%s: src %d,%d,%d,%d %d,%d %u (%x)\n",
-  __FUNCTION__, pMask->pDrawable->x, pMask->pDrawable->y,
-  pMask->pDrawable->x + pMask->pDrawable->width, pMask->pDrawable->y + pMask->pDrawable->height,
-  xMask, yMask, vMask->pict_format, pMask->format);
+#ifdef DEBUG_BLEND
+		etnaviv_batch_wait_commit(etnaviv, vTemp);
+		dump_vPix(etnaviv, vTemp, 1, "A-TMSK%2.2x-%p", op, pMask);
 #endif
+	}
 
 	if (!etnaviv_blend(etnaviv, &clip_temp, &mask_op, vTemp, vMask,
 			   &clip_temp, 1, mask_offset, ZERO_OFFSET))
@@ -1799,6 +1780,13 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	xPoint dst_offset;
 	int rc;
 
+#ifdef DEBUG_BLEND
+	etnaviv_debug_blend_op(__FUNCTION__, op, width, height,
+			       pSrc, xSrc, ySrc,
+			       pMask, xMask, yMask,
+			       pDst, xDst, yDst);
+#endif
+
 	/* If the destination has an alpha map, fallback */
 	if (pDst->alphaMap)
 		return FALSE;
@@ -1862,17 +1850,21 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 		rc = etnaviv_Composite_Clear(pDst, &final_op);
 	} else if (!pMask || etnaviv_accel_reduce_mask(&final_blend, op,
 						       pSrc, pMask, pDst)) {
-		rc = etnaviv_accel_composite_srconly(op, pSrc, pDst,
+		rc = etnaviv_accel_composite_srconly(pSrc, pDst,
 						     xSrc, ySrc,
-						     xDst, yDst, width, height,
+						     xDst, yDst,
 						     &final_op, &final_blend,
 						     &region, &pPixTemp);
 	} else {
-		rc = etnaviv_accel_composite_masked(op, pSrc, pMask, pDst,
+		rc = etnaviv_accel_composite_masked(pSrc, pMask, pDst,
 						    xSrc, ySrc, xMask, yMask,
-						    xDst, yDst, width, height,
+						    xDst, yDst,
 						    &final_op, &final_blend,
-						    &region, &pPixTemp);
+						    &region, &pPixTemp
+#ifdef DEBUG_BLEND
+						    , op
+#endif
+						    );
 	}
 
 	/*
@@ -1891,9 +1883,9 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 #ifdef DEBUG_BLEND
 		etnaviv_batch_wait_commit(etnaviv, final_op.src.pixmap);
 		dump_vPix(etnaviv, final_op.src.pixmap, 1,
-			  "A-FSRC%02.2x-%p", op, pSrc);
+			  "A-FSRC%2.2x-%p", op, pSrc);
 		dump_vPix(etnaviv, final_op.dst.pixmap, 1,
-			  "A-FDST%02.2x-%p", op, pDst);
+			  "A-FDST%2.2x-%p", op, pDst);
 #endif
 
 		etnaviv_blit_start(etnaviv, &final_op);
@@ -1905,7 +1897,7 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 		etnaviv_batch_wait_commit(etnaviv, final_op.dst.pixmap);
 		dump_vPix(etnaviv, final_op.dst.pixmap,
 			  PICT_FORMAT_A(pDst->format) != 0,
-			  "A-DEST%02.2x-%p", op, pDst);
+			  "A-DEST%2.2x-%p", op, pDst);
 #endif
 	}
 
