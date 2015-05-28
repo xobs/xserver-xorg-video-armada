@@ -1,3 +1,9 @@
+xf86-video-armada (0.0.1-r9) unstable; urgency=medium
+
+  * Rebase to a newer master
+
+ -- Sean Cross <xobs@kosagi.com>  Thu, 28 May 2015 10:50:38 +0800
+
 xf86-video-armada (0.0.1-r8) unstable; urgency=medium
 
   * Add backlight support
