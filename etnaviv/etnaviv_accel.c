@@ -610,7 +610,7 @@ void etnaviv_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 {
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pDst->pScreen);
 	struct etnaviv_de_op op;
-	BoxRec extent;
+	BoxRec extent, *clip;
 
 	if (!nBox)
 		return;
@@ -633,10 +633,16 @@ void etnaviv_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 	extent.y2 = min_t(short, pDst->y + pDst->height,
 				 pSrc->y + pSrc->height - dy);
 
-	if (extent.x1 < 0)
-		extent.x1 = 0;
-	if (extent.y1 < 0)
-		extent.y1 = 0;
+	if (pGC) {
+		clip = RegionExtents(fbGetCompositeClip(pGC));
+		if (__box_intersect(&extent, &extent, clip))
+			return;
+	} else {
+		if (extent.x1 < 0)
+			extent.x1 = 0;
+		if (extent.y1 < 0)
+			extent.y1 = 0;
+	}
 
 	op.blend_op = NULL;
 	op.clip = &extent;
