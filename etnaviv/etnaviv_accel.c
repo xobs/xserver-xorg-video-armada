@@ -1087,21 +1087,6 @@ static Bool picture_needs_repeat(PicturePtr pPict, int x, int y,
 	return TRUE;
 }
 
-static void adjust_repeat(PicturePtr pPict, int x, int y, unsigned w, unsigned h)
-{
-	int tx, ty;
-
-	if (pPict->pDrawable &&
-	    pPict->repeat &&
-	    pPict->filter != PictFilterConvolution &&
-	    transform_is_integer_translation(pPict->transform, &tx, &ty) &&
-	    (pPict->pDrawable->width > 1 || pPict->pDrawable->height > 1) &&
-	    drawable_contains(pPict->pDrawable, x + tx, y + ty, w, h)) {
-//fprintf(stderr, "%s: removing repeat on %p\n", __FUNCTION__, pPict);
-		pPict->repeat = 0;
-	}
-}
-
 static const struct etnaviv_blend_op etnaviv_composite_op[] = {
 #define OP(op,s,d) \
 	[PictOp##op] = { \
@@ -1339,19 +1324,22 @@ static struct etnaviv_pixmap *etnaviv_acquire_src(struct etnaviv *etnaviv,
 		goto fallback;
 
 	etnaviv_set_format(vSrc, pict);
+	if (!etnaviv_src_format_valid(etnaviv, vSrc->pict_format))
+		goto fallback;
 
-	/* Remove repeat on source or mask if useless */
-	adjust_repeat(pict, src_topleft->x, src_topleft->y, clip->x2, clip->y2);
+	if (!transform_is_integer_translation(pict->transform, &tx, &ty))
+		goto fallback;
 
-	if (!pict->repeat &&
-	    transform_is_integer_translation(pict->transform, &tx, &ty) &&
-	    etnaviv_src_format_valid(etnaviv, vSrc->pict_format)) {
-		src_topleft->x += drawable->x + src_offset.x + tx;
-		src_topleft->y += drawable->y + src_offset.y + ty;
-		if (force_vtemp)
-			goto copy_to_vtemp;
-		return vSrc;
-	}
+	if (picture_needs_repeat(pict, src_topleft->x + tx, src_topleft->y + ty,
+				 clip->x2, clip->y2))
+		goto fallback;
+
+	src_topleft->x += drawable->x + src_offset.x + tx;
+	src_topleft->y += drawable->y + src_offset.y + ty;
+	if (force_vtemp)
+		goto copy_to_vtemp;
+
+	return vSrc;
 
 fallback:
 	if (!etnaviv_composite_to_pixmap(PictOpSrc, pict, NULL, *pPix,
