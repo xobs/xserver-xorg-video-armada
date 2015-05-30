@@ -1398,29 +1398,21 @@ static Bool etnaviv_workaround_nonalpha(struct etnaviv_pixmap *vpix)
  * Compute the regions (in destination pixmap coordinates) which need to
  * be composited.  Each picture's pCompositeClip includes the drawable
  * position, so each position must be adjusted for its position on the
- * backing pixmap.  We also need to apply the translation too.
+ * backing pixmap.
  */
-static int etnaviv_compute_composite_region(RegionPtr region,
+static Bool etnaviv_compute_composite_region(RegionPtr region,
 	PicturePtr pSrc, PicturePtr pMask, PicturePtr pDst,
 	INT16 xSrc, INT16 ySrc, INT16 xMask, INT16 yMask,
 	INT16 xDst, INT16 yDst, CARD16 width, CARD16 height)
 {
-	int tx, ty;
-
 	if (pSrc->pDrawable) {
-		if (!transform_is_integer_translation(pSrc->transform, &tx, &ty))
-			return -1;
-
-		xSrc += pSrc->pDrawable->x + tx;
-		ySrc += pSrc->pDrawable->y + ty;
+		xSrc += pSrc->pDrawable->x;
+		ySrc += pSrc->pDrawable->y;
 	}
 
 	if (pMask && pMask->pDrawable) {
-		if (!transform_is_integer_translation(pMask->transform, &tx, &ty))
-			return -1;
-
-		xMask += pMask->pDrawable->x + tx;
-		yMask += pMask->pDrawable->y + ty;
+		xMask += pMask->pDrawable->x;
+		yMask += pMask->pDrawable->y;
 	}
 
 	xDst += pDst->pDrawable->x;
@@ -1593,7 +1585,8 @@ static int etnaviv_accel_composite_masked(PicturePtr pSrc, PicturePtr pMask,
 	if (pMask->pDrawable) {
 		int tx, ty;
 
-		transform_is_integer_translation(pMask->transform, &tx, &ty);
+		if (!transform_is_integer_translation(pMask->transform, &tx, &ty))
+			goto fallback;
 
 		mask_offset.x += tx;
 		mask_offset.y += ty;
@@ -1841,15 +1834,13 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 
 	/*
 	 * Compute the composite region from the source, mask and
-	 * destination positions, the source and mask transformation,
-	 * and their clip masks.  Note that we do not support any
-	 * transform other than a linear translation here.
+	 * destination positions on their backing pixmaps.  The
+	 * transformation is not applied at this stage.
 	 */
-	rc = etnaviv_compute_composite_region(&region, pSrc, pMask, pDst,
+	if (!etnaviv_compute_composite_region(&region, pSrc, pMask, pDst,
 					      xSrc, ySrc, xMask, yMask,
-					      xDst, yDst, width, height);
-	if (rc < 1)
-		return rc ? FALSE : TRUE;
+					      xDst, yDst, width, height))
+		return TRUE;
 
 	if (op == PictOpClear) {
 		/* Short-circuit for PictOpClear */
