@@ -1946,10 +1946,8 @@ Bool etnaviv_accel_Glyphs(CARD8 final_op, PicturePtr pSrc, PicturePtr pDst,
 	pMaskPixmap = pScreen->CreatePixmap(pScreen, width, height,
 					    maskFormat->depth,
 					    CREATE_PIXMAP_USAGE_GPU);
-	if (!pMaskPixmap) {
-		free(gr);
-		return FALSE;
-	}
+	if (!pMaskPixmap)
+		goto destroy_gr;
 
 	alpha = NeedsComponent(maskFormat->format);
 	pMask = CreatePicture(0, &pMaskPixmap->drawable, maskFormat,
@@ -2000,6 +1998,8 @@ Bool etnaviv_accel_Glyphs(CARD8 final_op, PicturePtr pSrc, PicturePtr pDst,
 				    grp->width, grp->height);
 	}
 
+	free(gr);
+
 	x = extents.x1;
 	y = extents.y1;
 
@@ -2020,10 +2020,12 @@ Bool etnaviv_accel_Glyphs(CARD8 final_op, PicturePtr pSrc, PicturePtr pDst,
 
 destroy_picture:
 	FreePicture(pMask, 0);
+	free(gr);
 	return FALSE;
 
 destroy_pixmap:
 	pScreen->DestroyPixmap(pMaskPixmap);
+destroy_gr:
 	free(gr);
 	return FALSE;
 }
