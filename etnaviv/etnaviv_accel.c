@@ -1308,14 +1308,15 @@ static Bool etnaviv_composite_to_pixmap(CARD8 op, PicturePtr pSrc,
 }
 
 /*
- *  If we're filling a solid
- * surface, force it to have alpha; it may be used in combination
- * with a mask.  Otherwise, we ask for the plain source format,
- * with or without alpha, and convert later when copying.
+ * Acquire the source. If we're filling a solid surface, force it to have
+ * alpha; it may be used in combination with a mask.  Otherwise, we ask
+ * for the plain source format, with or without alpha, and convert later
+ * when copying.  If force_vtemp is set, we ensure that the source is in
+ * our temporary pixmap.
  */
 static struct etnaviv_pixmap *etnaviv_acquire_src(struct etnaviv *etnaviv,
-	PicturePtr pict, const BoxRec *clip,
-	PixmapPtr *pPix, struct etnaviv_pixmap *vTemp, xPoint *src_topleft)
+	PicturePtr pict, const BoxRec *clip, PixmapPtr *pPix,
+	struct etnaviv_pixmap *vTemp, xPoint *src_topleft, Bool force_vtemp)
 {
 	struct etnaviv_pixmap *vSrc;
 	DrawablePtr drawable;
@@ -1347,6 +1348,8 @@ static struct etnaviv_pixmap *etnaviv_acquire_src(struct etnaviv *etnaviv,
 	    etnaviv_src_format_valid(etnaviv, vSrc->pict_format)) {
 		src_topleft->x += drawable->x + src_offset.x + tx;
 		src_topleft->y += drawable->y + src_offset.y + ty;
+		if (force_vtemp)
+			goto copy_to_vtemp;
 		return vSrc;
 	}
 
@@ -1354,6 +1357,15 @@ fallback:
 	if (!etnaviv_composite_to_pixmap(PictOpSrc, pict, NULL, *pPix,
 					 src_topleft->x, src_topleft->y,
 					 0, 0, clip->x2, clip->y2))
+		return NULL;
+
+	src_topleft->x = 0;
+	src_topleft->y = 0;
+	return vTemp;
+
+copy_to_vtemp:
+	if (!etnaviv_blend(etnaviv, clip, NULL, vTemp, vSrc, clip, 1,
+			   *src_topleft, ZERO_OFFSET))
 		return NULL;
 
 	src_topleft->x = 0;
@@ -1484,8 +1496,8 @@ static int etnaviv_accel_composite_srconly(PicturePtr pSrc, PicturePtr pDst,
 	 * and vSrc->pict_format describes its format, including whether the
 	 * alpha channel is valid.
 	 */
-	vSrc = etnaviv_acquire_src(etnaviv, pSrc, &clip_temp,
-				   ppPixTemp, vTemp, &src_topleft);
+	vSrc = etnaviv_acquire_src(etnaviv, pSrc, &clip_temp, ppPixTemp,
+				   vTemp, &src_topleft, FALSE);
 	if (!vSrc)
 		return FALSE;
 
@@ -1613,9 +1625,13 @@ static int etnaviv_accel_composite_masked(PicturePtr pSrc, PicturePtr pMask,
 	 * origin src_topleft.  This may or may not be the temporary image,
 	 * and vSrc->pict_format describes its format, including whether the
 	 * alpha channel is valid.
+	 *
+	 * As we have a mask to process, we must have the source in our
+	 * temporary pixmap so we can blend the mask with it prior to
+	 * performing the final blend.
 	 */
-	vSrc = etnaviv_acquire_src(etnaviv, pSrc, &clip_temp,
-				   ppPixTemp, vTemp, &src_topleft);
+	vSrc = etnaviv_acquire_src(etnaviv, pSrc, &clip_temp, ppPixTemp,
+				   vTemp, &src_topleft, TRUE);
 	if (!vSrc)
 		goto fallback;
 
@@ -1627,34 +1643,9 @@ static int etnaviv_accel_composite_masked(PicturePtr pSrc, PicturePtr pMask,
 #endif
 
 	/*
-	 * If we have a mask, handle it.  We deal with the mask by doing a
-	 * InReverse operation.  However, note that the source may already
-	 * be in the temporary buffer.  Also note that the temporary buffer
-	 * must have valid alpha upon completion of this operation for the
-	 * subsequent final blend to work.
-	 *
-	 *  If vTemp != vSrc
-	 *     vTemp <= vSrc (if non-alpha, + max alpha)
-	 *  vTemp <= vTemp BlendOp(In) vMask
-	 *  vSrc = vTemp
+	 * Blend the source (in the temporary pixmap) with the mask
+	 * via a InReverse op.
 	 */
-	if (vTemp != vSrc) {
-		/*
-		 * Copy Source to Temp.
-		 * The source may not have alpha, but we need the
-		 * temporary pixmap to have alpha.  Try to convert
-		 * while copying.  (If this doesn't work, use OR
-		 * in the brush with maximum alpha value.)
-		 */
-		if (!etnaviv_blend(etnaviv, &clip_temp, NULL, vTemp, vSrc,
-				   &clip_temp, 1, src_topleft, ZERO_OFFSET))
-			return FALSE;
-#ifdef DEBUG_BLEND
-		etnaviv_batch_wait_commit(etnaviv, vTemp);
-		dump_vPix(etnaviv, vTemp, 1, "A-TMSK%2.2x-%p", op, pMask);
-#endif
-	}
-
 	if (!etnaviv_blend(etnaviv, &clip_temp, &mask_op, vTemp, vMask,
 			   &clip_temp, 1, mask_offset, ZERO_OFFSET))
 		return FALSE;
