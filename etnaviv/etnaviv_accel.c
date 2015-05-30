@@ -1324,18 +1324,18 @@ static struct etnaviv_pixmap *etnaviv_acquire_src(struct etnaviv *etnaviv,
 	int tx, ty;
 
 	if (etnaviv_pict_solid_argb(pict, &colour)) {
-		src_topleft->x = 0;
-		src_topleft->y = 0;
 		if (!etnaviv_fill_single(etnaviv, vTemp, clip, colour))
 			return NULL;
 
+		src_topleft->x = 0;
+		src_topleft->y = 0;
 		return vTemp;
 	}
 
 	drawable = pict->pDrawable;
 	vSrc = etnaviv_drawable_offset(drawable, &src_offset);
 	if (!vSrc)
-		return NULL;
+		goto fallback;
 
 	etnaviv_set_format(vSrc, pict);
 
@@ -1347,22 +1347,18 @@ static struct etnaviv_pixmap *etnaviv_acquire_src(struct etnaviv *etnaviv,
 	    etnaviv_src_format_valid(etnaviv, vSrc->pict_format)) {
 		src_topleft->x += drawable->x + src_offset.x + tx;
 		src_topleft->y += drawable->y + src_offset.y + ty;
-	} else {
-		int x = src_topleft->x;
-		int y = src_topleft->y;
-		int w = clip->x2;
-		int h = clip->y2;
-
-		if (!etnaviv_composite_to_pixmap(PictOpSrc, pict, NULL, *pPix,
-						 x, y, 0, 0, w, h))
-			return NULL;
-
-		src_topleft->x = 0;
-		src_topleft->y = 0;
-		vSrc = vTemp;
+		return vSrc;
 	}
 
-	return vSrc;
+fallback:
+	if (!etnaviv_composite_to_pixmap(PictOpSrc, pict, NULL, *pPix,
+					 src_topleft->x, src_topleft->y,
+					 0, 0, clip->x2, clip->y2))
+		return NULL;
+
+	src_topleft->x = 0;
+	src_topleft->y = 0;
+	return vTemp;
 }
 
 /*
