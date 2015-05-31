@@ -256,28 +256,32 @@ int viv_close(struct viv_conn *conn)
 	return 0;
 }
 
+static void etnadrm_convert_timeout(struct drm_etnaviv_timespec *ts,
+	uint32_t timeout)
+{
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+
+	ts->tv_sec = now.tv_sec + timeout / 1000;
+	ts->tv_nsec = now.tv_nsec + (timeout % 1000) * 10000000;
+	if (ts->tv_nsec > 1000000000) {
+		ts->tv_nsec -= 1000000000;
+		ts->tv_sec += 1;
+	}
+}
+
 int viv_fence_finish(struct viv_conn *conn, uint32_t fence, uint32_t timeout)
 {
-	struct timespec ts;
 	struct drm_etnaviv_wait_fence req = {
 		.pipe = conn->etnadrm_pipe,
 		.fence = fence,
 	};
-	int ret;
 
-	clock_gettime(CLOCK_MONOTONIC, &ts);
+	etnadrm_convert_timeout(&req.timeout, timeout);
 
-	req.timeout.tv_sec = ts.tv_sec + timeout / 1000;
-	req.timeout.tv_nsec = ts.tv_nsec + (timeout % 1000) * 10000000;
-	if (req.timeout.tv_nsec > 1000000000) {
-		req.timeout.tv_nsec -= 1000000000;
-		req.timeout.tv_sec += 1;
-	}
-
-	ret = drmCommandWrite(conn->fd, DRM_ETNAVIV_WAIT_FENCE,
-			      &req, sizeof(req));
-
-	return ret;
+	return drmCommandWrite(conn->fd, DRM_ETNAVIV_WAIT_FENCE,
+			       &req, sizeof(req));
 }
 
 struct etna_bo {
@@ -289,7 +293,22 @@ struct etna_bo {
 	int bo_idx;
 	struct xorg_list node;
 	struct bo_entry cache;
+	uint8_t is_usermem;
 };
+
+static int etna_bo_gem_wait(struct etna_bo *bo, uint32_t timeout)
+{
+	struct viv_conn *conn = bo->conn;
+	struct drm_etnaviv_gem_wait req = {
+		.pipe = conn->etnadrm_pipe,
+		.handle = bo->handle,
+	};
+
+	etnadrm_convert_timeout(&req.timeout, timeout);
+
+	return drmCommandWrite(conn->fd, DRM_ETNAVIV_GEM_WAIT,
+			       &req, sizeof(req));
+}
 
 static void etna_bo_free(struct etna_bo *bo)
 {
@@ -300,6 +319,9 @@ static void etna_bo_free(struct etna_bo *bo)
 
 	if (bo->logical)
 		munmap(bo->logical, bo->size);
+
+	if (bo->is_usermem)
+		etna_bo_gem_wait(bo, VIV_WAIT_INDEFINITE);
 
 	drmIoctl(conn->fd, DRM_IOCTL_GEM_CLOSE, &req);
 	free(bo);
@@ -469,6 +491,7 @@ struct etna_bo *etna_bo_from_usermem_prot(struct viv_conn *conn, void *memory, s
 		mem = NULL;
 	} else {
 		mem->handle = req.handle;
+		mem->is_usermem = TRUE;
 	}
 
 	return mem;
