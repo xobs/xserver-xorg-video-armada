@@ -73,6 +73,7 @@ struct etnaviv {
 	/* pixmaps committed with fence id, ordered by id */
 	struct xorg_list fence_head;
 	struct xorg_list busy_free_list;
+	struct xorg_list usermem_free_list;
 	OsTimerPtr cache_timer;
 	uint32_t last_fence;
 	Bool force_fallback;
@@ -156,6 +157,16 @@ struct etnaviv_pixmap {
 	struct etna_bo *etna_bo;
 	uint32_t name;
 };
+
+struct etnaviv_usermem_node {
+	struct xorg_list node;
+	struct etnaviv_pixmap *dst;
+	struct etna_bo *bo;
+	void *mem;
+};
+
+void etnaviv_add_freemem(struct etnaviv *etnaviv,
+	struct etnaviv_usermem_node *n);
 
 #define BATCH_SETUP_START(etp)						\
 	do {								\

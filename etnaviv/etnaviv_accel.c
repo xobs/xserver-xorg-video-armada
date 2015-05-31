@@ -2022,8 +2022,13 @@ void etnaviv_accel_glyph_upload(ScreenPtr pScreen, PicturePtr pDst,
 		etnaviv_set_format(vpix, pSrc);
 		op.src = INIT_BLIT_PIX(vpix, vpix->pict_format, src_offset);
 	} else {
+		struct etnaviv_usermem_node *unode;
 		char *buf, *src = src_pix->devPrivate.ptr;
 		size_t size, align = maxt(VIVANTE_ALIGN_MASK, getpagesize());
+
+		unode = malloc(sizeof(*unode));
+		if (!unode)
+			return;
 
 		size = pitch * height + align - 1;
 		size &= ~(align - 1);
@@ -2043,6 +2048,14 @@ void etnaviv_accel_glyph_upload(ScreenPtr pScreen, PicturePtr pDst,
 			return;
 		}
 
+		/* vdst will not go away while the server is running */
+		unode->dst = vdst;
+		unode->bo = usr;
+		unode->mem = b;
+
+		/* Add this to the list of usermem nodes to be freed */
+		etnaviv_add_freemem(etnaviv, unode);
+
 		op.src = INIT_BLIT_BO(usr, pitch,
 				      etnaviv_pict_format(pSrc->format, FALSE),
 				      src_offset);
@@ -2056,7 +2069,7 @@ void etnaviv_accel_glyph_upload(ScreenPtr pScreen, PicturePtr pDst,
 	etnaviv_set_format(vdst, pDst);
 
 	if (!gal_prepare_gpu(etnaviv, vdst, GPU_ACCESS_RW))
-		goto unmap;
+		return;
 
 	op.dst = INIT_BLIT_PIX(vdst, vdst->pict_format, dst_offset);
 	op.blend_op = NULL;
@@ -2068,13 +2081,6 @@ void etnaviv_accel_glyph_upload(ScreenPtr pScreen, PicturePtr pDst,
 	etnaviv_blit_start(etnaviv, &op);
 	etnaviv_blit(etnaviv, &op, &box, 1);
 	etnaviv_blit_complete(etnaviv);
-	etnaviv_batch_wait_commit(etnaviv, vdst);
-
- unmap:
-	if (usr)
-		etna_bo_del(etnaviv->conn, usr, NULL);
-	if (b)
-		free(b);
 }
 #endif
 
