@@ -2136,8 +2136,15 @@ Bool etnaviv_accel_init(struct etnaviv *etnaviv)
 	 * consecutive operations.
 	 */
 	if (etnaviv->conn->chip.chip_model == chipModel_GC320) {
-		etnaviv->gc320_etna_bo = etna_bo_new(etnaviv->conn, 4096,
-						     DRM_ETNA_GEM_TYPE_BMP);
+		struct etnaviv_format fmt = { .format = DE_FORMAT_A1R5G5B5 };
+		xPoint offset = { 0, -1 };
+		struct etna_bo *bo;
+
+		bo = etna_bo_new(etnaviv->conn, 4096, DRM_ETNA_GEM_TYPE_BMP);
+		etnaviv->gc320_etna_bo = bo;
+		etnaviv->gc320_wa_src = INIT_BLIT_BO(bo, 64, fmt, offset);
+		etnaviv->gc320_wa_dst = INIT_BLIT_BO(bo, 64, fmt, ZERO_OFFSET);
+
 		/* reserve some additional batch space */
 		etnaviv->batch_de_high_watermark -= 22;
 
