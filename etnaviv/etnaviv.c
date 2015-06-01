@@ -138,6 +138,8 @@ static void etnaviv_free_pixmap(PixmapPtr pixmap)
 	if (vPix) {
 		struct etnaviv *etnaviv;
 
+		etnaviv_set_pixmap_priv(pixmap, NULL);
+
 		etnaviv = etnaviv_get_screen_priv(pixmap->drawable.pScreen);
 
 		switch (vPix->batch_state) {
@@ -514,7 +516,6 @@ static Bool etnaviv_CloseScreen(CLOSE_SCREEN_ARGS_DECL)
 
 	pixmap = pScreen->GetScreenPixmap(pScreen);
 	etnaviv_free_pixmap(pixmap);
-	etnaviv_set_pixmap_priv(pixmap, NULL);
 
 	etnaviv_accel_shutdown(etnaviv);
 
@@ -798,7 +799,6 @@ static Bool etnaviv_DestroyPixmap(PixmapPtr pixmap)
 		dbg("Destroying pixmap %p\n", pixmap);
 #endif
 		etnaviv_free_pixmap(pixmap);
-		etnaviv_set_pixmap_priv(pixmap, NULL);
 	}
 	return etnaviv->DestroyPixmap(pixmap);
 }
@@ -1088,13 +1088,10 @@ static Bool etnaviv_import_dmabuf(ScreenPtr pScreen, PixmapPtr pPixmap, int fd)
 {
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
 	struct etnaviv_format fmt = { .swizzle = DE_SWIZZLE_ARGB, };
-	struct etnaviv_pixmap *vpix = etnaviv_get_pixmap_priv(pPixmap);
+	struct etnaviv_pixmap *vpix;
 	struct etna_bo *bo;
 
-	if (vpix) {
-		etnaviv_free_pixmap(pPixmap);
-		etnaviv_set_pixmap_priv(pPixmap, NULL);
-	}
+	etnaviv_free_pixmap(pPixmap);
 
 	switch (pPixmap->drawable.bitsPerPixel) {
 	case 16:
