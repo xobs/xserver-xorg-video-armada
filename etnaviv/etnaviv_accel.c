@@ -412,6 +412,7 @@ static void etnaviv_init_fill(struct etnaviv *etnaviv,
 {
 	op->src = INIT_BLIT_NULL;
 	op->blend_op = NULL;
+	op->src_origin_mode = SRC_ORIGIN_NONE;
 	op->rop = etnaviv_fill_rop[pGC->alu];
 	op->brush = TRUE;
 	op->fg_colour = etnaviv_fg_col(etnaviv, pGC);
@@ -624,6 +625,7 @@ void etnaviv_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 	/* Include the copy delta on the source */
 	op.src.offset.x += dx - op.dst.offset.x;
 	op.src.offset.y += dy - op.dst.offset.y;
+	op.src_origin_mode = SRC_ORIGIN_RELATIVE;
 
 	/* Calculate the overall extent */
 	extent.x1 = max_t(short, pDst->x, pSrc->x - dx);
@@ -960,6 +962,7 @@ Bool etnaviv_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 		return FALSE;
 
 	op.blend_op = NULL;
+	op.src_origin_mode = SRC_ORIGIN_RELATIVE;
 	op.rop = etnaviv_copy_rop[pGC ? pGC->alu : GXcopy];
 	op.cmd = VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT;
 	op.brush = FALSE;
@@ -1164,6 +1167,7 @@ static Bool etnaviv_blend(struct etnaviv *etnaviv, const BoxRec *clip,
 	struct etnaviv_de_op op = {
 		.blend_op = blend,
 		.clip = clip,
+		.src_origin_mode = SRC_ORIGIN_RELATIVE,
 		.rop = 0xcc,
 		.cmd = VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT,
 		.brush = FALSE,
@@ -1848,6 +1852,7 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	if (rc) {
 		final_op.clip = RegionExtents(&region);
 		final_op.blend_op = &final_blend;
+		final_op.src_origin_mode = SRC_ORIGIN_RELATIVE;
 		final_op.rop = 0xcc;
 		final_op.cmd = VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT;
 		final_op.brush = FALSE;
@@ -1936,6 +1941,7 @@ Bool etnaviv_accel_Glyphs(CARD8 final_op, PicturePtr pSrc, PicturePtr pDst,
 	op.dst = INIT_BLIT_PIX(vMask, vMask->pict_format, ZERO_OFFSET);
 	op.blend_op = &etnaviv_composite_op[PictOpAdd];
 	op.clip = &box;
+	op.src_origin_mode = SRC_ORIGIN_RELATIVE;
 	op.rop = 0xcc;
 	op.cmd = VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT;
 	op.brush = FALSE;
@@ -2074,6 +2080,7 @@ void etnaviv_accel_glyph_upload(ScreenPtr pScreen, PicturePtr pDst,
 	op.dst = INIT_BLIT_PIX(vdst, vdst->pict_format, dst_offset);
 	op.blend_op = NULL;
 	op.clip = &box;
+	op.src_origin_mode = SRC_ORIGIN_RELATIVE;
 	op.rop = 0xcc;
 	op.cmd = VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT;
 	op.brush = FALSE;

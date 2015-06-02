@@ -35,9 +35,10 @@ static inline uint32_t etnaviv_src_config(struct etnaviv_format fmt,
 }
 
 static void etnaviv_set_source_bo(struct etnaviv *etnaviv,
-	const struct etnaviv_blit_buf *buf)
+	const struct etnaviv_blit_buf *buf, unsigned int src_origin_mode)
 {
-	uint32_t src_cfg = etnaviv_src_config(buf->format, true);
+	uint32_t src_cfg = etnaviv_src_config(buf->format, src_origin_mode ==
+					       SRC_ORIGIN_RELATIVE);
 
 	EMIT_LOADSTATE(etnaviv, VIVS_DE_SRC_ADDRESS, 5);
 	EMIT_RELOC(etnaviv, buf->bo, 0, FALSE);
@@ -154,7 +155,7 @@ void etnaviv_de_start(struct etnaviv *etnaviv, const struct etnaviv_de_op *op)
 	BATCH_SETUP_START(etnaviv);
 
 	if (op->src.bo)
-		etnaviv_set_source_bo(etnaviv, &op->src);
+		etnaviv_set_source_bo(etnaviv, &op->src, op->src_origin_mode);
 	etnaviv_set_dest_bo(etnaviv, &op->dst, op->cmd);
 	etnaviv_set_blend(etnaviv, op->blend_op);
 	if (op->brush)
@@ -171,7 +172,8 @@ void etnaviv_de_end(struct etnaviv *etnaviv)
 		BoxRec box = { 0, 1, 1, 2 };
 
 		/* Append the GC320 workaround - 6 + 6 + 2 + 4 + 4 */
-		etnaviv_set_source_bo(etnaviv, &etnaviv->gc320_wa_src);
+		etnaviv_set_source_bo(etnaviv, &etnaviv->gc320_wa_src,
+				      SRC_ORIGIN_RELATIVE);
 		etnaviv_set_dest_bo(etnaviv, &etnaviv->gc320_wa_dst,
 				    VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT);
 		etnaviv_set_blend(etnaviv, NULL);

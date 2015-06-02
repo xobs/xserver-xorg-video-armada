@@ -60,12 +60,18 @@ struct etnaviv_blit_buf {
 
 #define ZERO_OFFSET ((xPoint){ 0, 0 })
 
+#define SRC_ORIGIN_NONE		0
+#define SRC_ORIGIN_ABSOLUTE	1
+#define SRC_ORIGIN_RELATIVE	2
+
 struct etnaviv_de_op {
 	struct etnaviv_blit_buf dst;
 	struct etnaviv_blit_buf src;
 	const struct etnaviv_blend_op *blend_op;
 	const BoxRec *clip;
-	unsigned rop, cmd;
+	uint8_t src_origin_mode;
+	uint8_t rop;
+	unsigned cmd;
 	Bool brush;
 	uint32_t fg_colour;
 };
