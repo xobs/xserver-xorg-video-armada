@@ -4,8 +4,7 @@
 struct glyph_render {
 	PicturePtr picture;
 	xPoint glyph_pos;
-	unsigned short width, height;
-	short dest_x, dest_y;
+	BoxRec dest_box;
 };
 
 int glyphs_assemble(ScreenPtr pScreen, struct glyph_render **gp,

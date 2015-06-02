@@ -1943,8 +1943,6 @@ Bool etnaviv_accel_Glyphs(CARD8 final_op, PicturePtr pSrc, PicturePtr pDst,
 
 	pCurrent = NULL;
 	for (grp = gr; grp < gr + n; grp++) {
-		BoxRec box;
-
 		if (pCurrent != grp->picture) {
 			PixmapPtr pPix = drawable_pixmap(grp->picture->pDrawable);
 			struct etnaviv_pixmap *v = etnaviv_get_pixmap_priv(pPix);
@@ -1966,12 +1964,8 @@ Bool etnaviv_accel_Glyphs(CARD8 final_op, PicturePtr pSrc, PicturePtr pDst,
 
 		prefetch(grp + 1);
 
-		box.x1 = grp->dest_x;
-		box.x2 = grp->dest_x + grp->width;
-		box.y1 = grp->dest_y;
-		box.y2 = grp->dest_y + grp->height;
-
-		etnaviv_de_op_src_origin(etnaviv, &op, grp->glyph_pos, &box);
+		etnaviv_de_op_src_origin(etnaviv, &op, grp->glyph_pos,
+					 &grp->dest_box);
 	}
 	etnaviv_blit_complete(etnaviv);
 
