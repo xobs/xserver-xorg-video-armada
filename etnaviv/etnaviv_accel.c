@@ -176,27 +176,6 @@ static void etnaviv_blit_clipped(struct etnaviv *etnaviv,
 		etnaviv_de_op(etnaviv, op, boxes, n);
 }
 
-static void etnaviv_blit_srcdst(struct etnaviv *etnaviv,
-	struct etnaviv_de_op *op,
-	int src_x, int src_y, int dst_x, int dst_y, int width, int height)
-{
-	xPoint src_origin;
-	BoxRec box;
-
-	op->src_origin_mode = SRC_ORIGIN_NONE;
-	src_origin.x = src_x;
-	src_origin.y = src_y;
-
-	box.x1 = dst_x;
-	box.y1 = dst_y;
-	box.x2 = dst_x + width;
-	box.y2 = dst_y + height;
-
-	etnaviv_blit_start(etnaviv, op);
-	etnaviv_de_op_src_origin(etnaviv, op, src_origin, &box);
-	etnaviv_blit_complete(etnaviv);
-}
-
 static Bool etnaviv_init_dst_drawable(struct etnaviv *etnaviv,
 	struct etnaviv_de_op *op, DrawablePtr pDrawable)
 {
@@ -964,7 +943,7 @@ Bool etnaviv_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 		return FALSE;
 
 	op.blend_op = NULL;
-	op.src_origin_mode = SRC_ORIGIN_RELATIVE;
+	op.src_origin_mode = SRC_ORIGIN_NONE;
 	op.rop = etnaviv_copy_rop[pGC ? pGC->alu : GXcopy];
 	op.cmd = VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT;
 	op.brush = FALSE;
@@ -992,13 +971,18 @@ Bool etnaviv_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 
 		pBox = RegionRects(rects);
 		while (nbox--) {
+			xPoint tile_origin;
 			int dst_y, height, tile_y;
 
 			op.clip = pBox;
 
+			etnaviv_blit_start(etnaviv, &op);
+
 			dst_y = pBox->y1;
 			height = pBox->y2 - dst_y;
 			modulus(dst_y - tile_off_y, tile_h, tile_y);
+
+			tile_origin.y = tile_y;
 
 			while (height > 0) {
 				int dst_x, width, tile_x, h;
@@ -1007,30 +991,39 @@ Bool etnaviv_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 				width = pBox->x2 - dst_x;
 				modulus(dst_x - tile_off_x, tile_w, tile_x);
 
-				h = tile_h - tile_y;
+				tile_origin.x = tile_x;
+
+				h = tile_h - tile_origin.y;
 				if (h > height)
 					h = height;
 				height -= h;
 
 				while (width > 0) {
+					BoxRec dst;
 					int w;
 
-					w = tile_w - tile_x;
+					w = tile_w - tile_origin.x;
 					if (w > width)
 						w = width;
 					width -= w;
 
-					etnaviv_blit_srcdst(etnaviv, &op,
-							    tile_x, tile_y,
-							    dst_x, dst_y,
-							    w, h);
+					dst.x1 = dst_x;
+					dst.x2 = dst_x + w;
+					dst.y1 = dst_y;
+					dst.y2 = dst_y + h;
+					etnaviv_de_op_src_origin(etnaviv, &op,
+								 tile_origin,
+								 &dst);
 
 					dst_x += w;
-					tile_x = 0;
+					tile_origin.x = 0;
 				}
 				dst_y += h;
-				tile_y = 0;
+				tile_origin.y = 0;
 			}
+
+			etnaviv_blit_complete(etnaviv);
+
 			pBox++;
 		}
 	}
