@@ -199,6 +199,36 @@ void etnaviv_de_end(struct etnaviv *etnaviv)
 	etnaviv_emit(etnaviv);
 }
 
+void etnaviv_de_op_src_origin(struct etnaviv *etnaviv,
+	const struct etnaviv_de_op *op, xPoint src_origin, const BoxRec *dest)
+{
+	unsigned int high_wm = etnaviv->batch_de_high_watermark;
+	size_t op_size = etnaviv_size_2d_draw(etnaviv, 1) + 6 + 2;
+	xPoint offset = op->dst.offset;
+
+	if (op_size > high_wm - etnaviv->batch_size) {
+		etnaviv_de_end(etnaviv);
+		BATCH_OP_START(etnaviv);
+	}
+
+	EMIT_LOADSTATE(etnaviv, VIVS_DE_SRC_ORIGIN, 1);
+	EMIT(etnaviv, VIVS_DE_SRC_ORIGIN_X(src_origin.x) |
+		      VIVS_DE_SRC_ORIGIN_Y(src_origin.y));
+	EMIT_DRAW_2D(etnaviv, 1);
+	EMIT(etnaviv,
+	     VIV_FE_DRAW_2D_TOP_LEFT_X(offset.x + dest->x1) |
+	     VIV_FE_DRAW_2D_TOP_LEFT_Y(offset.y + dest->y1));
+	EMIT(etnaviv,
+	     VIV_FE_DRAW_2D_BOTTOM_RIGHT_X(offset.x + dest->x2) |
+	     VIV_FE_DRAW_2D_BOTTOM_RIGHT_Y(offset.y + dest->y2));
+	EMIT_LOADSTATE(etnaviv, 4, 1);
+	EMIT(etnaviv, 0);
+	EMIT_LOADSTATE(etnaviv, 4, 1);
+	EMIT(etnaviv, 0);
+	EMIT_LOADSTATE(etnaviv, 4, 1);
+	EMIT(etnaviv, 0);
+}
+
 void etnaviv_de_op(struct etnaviv *etnaviv, const struct etnaviv_de_op *op,
 	const BoxRec *pBox, size_t nBox)
 {

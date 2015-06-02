@@ -180,10 +180,12 @@ static void etnaviv_blit_srcdst(struct etnaviv *etnaviv,
 	struct etnaviv_de_op *op,
 	int src_x, int src_y, int dst_x, int dst_y, int width, int height)
 {
+	xPoint src_origin;
 	BoxRec box;
 
-	op->src.offset.x = src_x - (dst_x + op->dst.offset.x);
-	op->src.offset.y = src_y - (dst_y + op->dst.offset.y);
+	op->src_origin_mode = SRC_ORIGIN_NONE;
+	src_origin.x = src_x;
+	src_origin.y = src_y;
 
 	box.x1 = dst_x;
 	box.y1 = dst_y;
@@ -191,7 +193,7 @@ static void etnaviv_blit_srcdst(struct etnaviv *etnaviv,
 	box.y2 = dst_y + height;
 
 	etnaviv_blit_start(etnaviv, op);
-	etnaviv_blit(etnaviv, op, &box, 1);
+	etnaviv_de_op_src_origin(etnaviv, op, src_origin, &box);
 	etnaviv_blit_complete(etnaviv);
 }
 
