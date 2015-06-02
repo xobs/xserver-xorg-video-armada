@@ -16,12 +16,20 @@
 
 #include <etnaviv/state.xml.h>
 
+#include "bo-cache.h"
 #include "etnadrm.h"
 #include "etnaviv_drm.h"
 #include "compat-list.h"
 #include "utils.h"
 
 #define etnadrm_pipe last_fence_id
+
+struct etna_viv_conn {
+	struct viv_conn conn;
+	struct bo_cache cache;
+};
+
+static void etna_bo_cache_free(struct bo_entry *be);
 
 struct chip_specs {
 	uint32_t param;
@@ -130,14 +138,19 @@ int etnadrm_open_render(const char *name)
 
 int viv_open(enum viv_hw_type hw_type, struct viv_conn **out)
 {
+	struct etna_viv_conn *ec;
 	struct viv_conn *conn;
 	drmVersionPtr version;
 	Bool found = FALSE;
 	int pipe, err = -1;
 
-	conn = calloc(1, sizeof *conn);
-	if (!conn)
+	ec = calloc(1, sizeof *ec);
+	if (!ec)
 		return -1;
+
+	bo_cache_init(&ec->cache, etna_bo_cache_free);
+
+	conn = &ec->conn;
 
 	conn->fd = etnadrm_open_render("etnaviv");
 	if (conn->fd == -1)
@@ -231,36 +244,44 @@ error:
 
 int viv_close(struct viv_conn *conn)
 {
+	struct etna_viv_conn *ec = container_of(conn, struct etna_viv_conn, conn);
+
 	if (conn->fd < 0)
 		return -1;
+
+	bo_cache_fini(&ec->cache);
 
 	close(conn->fd);
 	free(conn);
 	return 0;
 }
 
+static void etnadrm_convert_timeout(struct drm_etnaviv_timespec *ts,
+	uint32_t timeout)
+{
+	struct timespec now;
+
+	clock_gettime(CLOCK_MONOTONIC, &now);
+
+	ts->tv_sec = now.tv_sec + timeout / 1000;
+	ts->tv_nsec = now.tv_nsec + (timeout % 1000) * 10000000;
+	if (ts->tv_nsec > 1000000000) {
+		ts->tv_nsec -= 1000000000;
+		ts->tv_sec += 1;
+	}
+}
+
 int viv_fence_finish(struct viv_conn *conn, uint32_t fence, uint32_t timeout)
 {
-	struct timespec ts;
 	struct drm_etnaviv_wait_fence req = {
 		.pipe = conn->etnadrm_pipe,
 		.fence = fence,
 	};
-	int ret;
 
-	clock_gettime(CLOCK_MONOTONIC, &ts);
+	etnadrm_convert_timeout(&req.timeout, timeout);
 
-	req.timeout.tv_sec = ts.tv_sec + timeout / 1000;
-	req.timeout.tv_nsec = ts.tv_nsec + (timeout % 1000) * 10000000;
-	if (req.timeout.tv_nsec > 1000000000) {
-		req.timeout.tv_nsec -= 1000000000;
-		req.timeout.tv_sec += 1;
-	}
-
-	ret = drmCommandWrite(conn->fd, DRM_ETNAVIV_WAIT_FENCE,
-			      &req, sizeof(req));
-
-	return ret;
+	return drmCommandWrite(conn->fd, DRM_ETNAVIV_WAIT_FENCE,
+			       &req, sizeof(req));
 }
 
 struct etna_bo {
@@ -271,20 +292,69 @@ struct etna_bo {
 	int ref;
 	int bo_idx;
 	struct xorg_list node;
+	struct bo_entry cache;
+	uint8_t is_usermem;
 };
+
+static int etna_bo_gem_wait(struct etna_bo *bo, uint32_t timeout)
+{
+	struct viv_conn *conn = bo->conn;
+	struct drm_etnaviv_gem_wait req = {
+		.pipe = conn->etnadrm_pipe,
+		.handle = bo->handle,
+	};
+
+	etnadrm_convert_timeout(&req.timeout, timeout);
+
+	return drmCommandWrite(conn->fd, DRM_ETNAVIV_GEM_WAIT,
+			       &req, sizeof(req));
+}
+
+static void etna_bo_free(struct etna_bo *bo)
+{
+	struct viv_conn *conn = bo->conn;
+	struct drm_gem_close req = {
+		.handle = bo->handle,
+	};
+
+	if (bo->logical)
+		munmap(bo->logical, bo->size);
+
+	if (bo->is_usermem)
+		etna_bo_gem_wait(bo, VIV_WAIT_INDEFINITE);
+
+	drmIoctl(conn->fd, DRM_IOCTL_GEM_CLOSE, &req);
+	free(bo);
+}
+
+static void etna_bo_cache_free(struct bo_entry *be)
+{
+	etna_bo_free(container_of(be, struct etna_bo, cache));
+}
+
+static struct etna_bo *etna_bo_bucket_get(struct bo_bucket *bucket)
+{
+	struct bo_entry *be = bo_cache_bucket_get(bucket);
+	struct etna_bo *bo = NULL;
+
+	if (be) {
+		bo = container_of(be, struct etna_bo, cache);
+		bo->ref = 1;
+		bo->bo_idx = -1;
+	}
+
+	return bo;
+}
 
 int etna_bo_del(struct viv_conn *conn, struct etna_bo *mem, struct etna_queue *queue)
 {
+	struct etna_viv_conn *ec = container_of(conn, struct etna_viv_conn, conn);
+
 	if (--mem->ref == 0) {
-		struct drm_gem_close req = {
-			.handle = mem->handle,
-		};
-
-		if (mem->logical)
-			munmap(mem->logical, mem->size);
-
-		drmIoctl(conn->fd, DRM_IOCTL_GEM_CLOSE, &req);
-		free(mem);
+		if (mem->cache.bucket)
+			bo_cache_put(&ec->cache, &mem->cache);
+		else
+			etna_bo_free(mem);
 		return 0;
 	}
 	return -1;
@@ -303,7 +373,8 @@ static struct etna_bo *etna_bo_alloc(struct viv_conn *conn)
 	return mem;
 }
 
-struct etna_bo *etna_bo_new(struct viv_conn *conn, size_t bytes, uint32_t flags)
+static struct etna_bo *etna_bo_get(struct viv_conn *conn, size_t bytes,
+	uint32_t flags)
 {
 	struct etna_bo *mem;
 	struct drm_etnaviv_gem_new req = {
@@ -330,6 +401,35 @@ struct etna_bo *etna_bo_new(struct viv_conn *conn, size_t bytes, uint32_t flags)
 	mem->handle = req.handle;
 
 	return mem;
+}
+
+struct etna_bo *etna_bo_new(struct viv_conn *conn, size_t bytes, uint32_t flags)
+{
+	struct etna_viv_conn *ec = container_of(conn, struct etna_viv_conn, conn);
+	struct bo_bucket *bucket = NULL;
+	struct etna_bo *bo;
+
+	do {
+		if ((flags & DRM_ETNA_GEM_TYPE_MASK) == DRM_ETNA_GEM_TYPE_CMD)
+			break;
+
+		bucket = bo_cache_bucket_find(&ec->cache, bytes);
+		if (!bucket)
+			break;
+
+		/* We must allocate the bucket size for it to be re-usable */
+		bytes = bucket->size;
+
+		bo = etna_bo_bucket_get(bucket);
+		if (bo)
+			return bo;
+	} while (0);
+
+	bo = etna_bo_get(conn, bytes, flags);
+	if (bo)
+		bo->cache.bucket = bucket;
+
+	return bo;
 }
 
 struct etna_bo *etna_bo_from_dmabuf(struct viv_conn *conn, int fd, int prot)
@@ -391,6 +491,7 @@ struct etna_bo *etna_bo_from_usermem_prot(struct viv_conn *conn, void *memory, s
 		mem = NULL;
 	} else {
 		mem->handle = req.handle;
+		mem->is_usermem = TRUE;
 	}
 
 	return mem;
@@ -418,6 +519,11 @@ uint32_t etna_bo_gpu_address(struct etna_bo *bo)
 
 uint32_t etna_bo_handle(struct etna_bo *bo)
 {
+	/*
+	 * If we're wanting the handle, we're more than likely
+	 * exporting it, which means we must not re-use this bo.
+	 */
+	bo->cache.bucket = NULL;
 	return bo->handle;
 }
 

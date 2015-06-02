@@ -610,7 +610,7 @@ void etnaviv_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 {
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pDst->pScreen);
 	struct etnaviv_de_op op;
-	BoxRec extent;
+	BoxRec extent, *clip;
 
 	if (!nBox)
 		return;
@@ -633,10 +633,16 @@ void etnaviv_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 	extent.y2 = min_t(short, pDst->y + pDst->height,
 				 pSrc->y + pSrc->height - dy);
 
-	if (extent.x1 < 0)
-		extent.x1 = 0;
-	if (extent.y1 < 0)
-		extent.y1 = 0;
+	if (pGC) {
+		clip = RegionExtents(fbGetCompositeClip(pGC));
+		if (__box_intersect(&extent, &extent, clip))
+			return;
+	} else {
+		if (extent.x1 < 0)
+			extent.x1 = 0;
+		if (extent.y1 < 0)
+			extent.y1 = 0;
+	}
 
 	op.blend_op = NULL;
 	op.clip = &extent;
@@ -1081,21 +1087,6 @@ static Bool picture_needs_repeat(PicturePtr pPict, int x, int y,
 	return TRUE;
 }
 
-static void adjust_repeat(PicturePtr pPict, int x, int y, unsigned w, unsigned h)
-{
-	int tx, ty;
-
-	if (pPict->pDrawable &&
-	    pPict->repeat &&
-	    pPict->filter != PictFilterConvolution &&
-	    transform_is_integer_translation(pPict->transform, &tx, &ty) &&
-	    (pPict->pDrawable->width > 1 || pPict->pDrawable->height > 1) &&
-	    drawable_contains(pPict->pDrawable, x + tx, y + ty, w, h)) {
-//fprintf(stderr, "%s: removing repeat on %p\n", __FUNCTION__, pPict);
-		pPict->repeat = 0;
-	}
-}
-
 static const struct etnaviv_blend_op etnaviv_composite_op[] = {
 #define OP(op,s,d) \
 	[PictOp##op] = { \
@@ -1302,14 +1293,15 @@ static Bool etnaviv_composite_to_pixmap(CARD8 op, PicturePtr pSrc,
 }
 
 /*
- *  If we're filling a solid
- * surface, force it to have alpha; it may be used in combination
- * with a mask.  Otherwise, we ask for the plain source format,
- * with or without alpha, and convert later when copying.
+ * Acquire the source. If we're filling a solid surface, force it to have
+ * alpha; it may be used in combination with a mask.  Otherwise, we ask
+ * for the plain source format, with or without alpha, and convert later
+ * when copying.  If force_vtemp is set, we ensure that the source is in
+ * our temporary pixmap.
  */
 static struct etnaviv_pixmap *etnaviv_acquire_src(struct etnaviv *etnaviv,
-	PicturePtr pict, const BoxRec *clip,
-	PixmapPtr *pPix, struct etnaviv_pixmap *vTemp, xPoint *src_topleft)
+	PicturePtr pict, const BoxRec *clip, PixmapPtr *pPix,
+	struct etnaviv_pixmap *vTemp, xPoint *src_topleft, Bool force_vtemp)
 {
 	struct etnaviv_pixmap *vSrc;
 	DrawablePtr drawable;
@@ -1318,45 +1310,55 @@ static struct etnaviv_pixmap *etnaviv_acquire_src(struct etnaviv *etnaviv,
 	int tx, ty;
 
 	if (etnaviv_pict_solid_argb(pict, &colour)) {
-		src_topleft->x = 0;
-		src_topleft->y = 0;
 		if (!etnaviv_fill_single(etnaviv, vTemp, clip, colour))
 			return NULL;
 
+		src_topleft->x = 0;
+		src_topleft->y = 0;
 		return vTemp;
 	}
 
 	drawable = pict->pDrawable;
 	vSrc = etnaviv_drawable_offset(drawable, &src_offset);
 	if (!vSrc)
-		return NULL;
+		goto fallback;
 
 	etnaviv_set_format(vSrc, pict);
+	if (!etnaviv_src_format_valid(etnaviv, vSrc->pict_format))
+		goto fallback;
 
-	/* Remove repeat on source or mask if useless */
-	adjust_repeat(pict, src_topleft->x, src_topleft->y, clip->x2, clip->y2);
+	if (!transform_is_integer_translation(pict->transform, &tx, &ty))
+		goto fallback;
 
-	if (!pict->repeat &&
-	    transform_is_integer_translation(pict->transform, &tx, &ty) &&
-	    etnaviv_src_format_valid(etnaviv, vSrc->pict_format)) {
-		src_topleft->x += drawable->x + src_offset.x + tx;
-		src_topleft->y += drawable->y + src_offset.y + ty;
-	} else {
-		int x = src_topleft->x;
-		int y = src_topleft->y;
-		int w = clip->x2;
-		int h = clip->y2;
+	if (picture_needs_repeat(pict, src_topleft->x + tx, src_topleft->y + ty,
+				 clip->x2, clip->y2))
+		goto fallback;
 
-		if (!etnaviv_composite_to_pixmap(PictOpSrc, pict, NULL, *pPix,
-						 x, y, 0, 0, w, h))
-			return NULL;
-
-		src_topleft->x = 0;
-		src_topleft->y = 0;
-		vSrc = vTemp;
-	}
+	src_topleft->x += drawable->x + src_offset.x + tx;
+	src_topleft->y += drawable->y + src_offset.y + ty;
+	if (force_vtemp)
+		goto copy_to_vtemp;
 
 	return vSrc;
+
+fallback:
+	if (!etnaviv_composite_to_pixmap(PictOpSrc, pict, NULL, *pPix,
+					 src_topleft->x, src_topleft->y,
+					 0, 0, clip->x2, clip->y2))
+		return NULL;
+
+	src_topleft->x = 0;
+	src_topleft->y = 0;
+	return vTemp;
+
+copy_to_vtemp:
+	if (!etnaviv_blend(etnaviv, clip, NULL, vTemp, vSrc, clip, 1,
+			   *src_topleft, ZERO_OFFSET))
+		return NULL;
+
+	src_topleft->x = 0;
+	src_topleft->y = 0;
+	return vTemp;
 }
 
 /*
@@ -1392,29 +1394,21 @@ static Bool etnaviv_workaround_nonalpha(struct etnaviv_pixmap *vpix)
  * Compute the regions (in destination pixmap coordinates) which need to
  * be composited.  Each picture's pCompositeClip includes the drawable
  * position, so each position must be adjusted for its position on the
- * backing pixmap.  We also need to apply the translation too.
+ * backing pixmap.
  */
-static int etnaviv_compute_composite_region(RegionPtr region,
+static Bool etnaviv_compute_composite_region(RegionPtr region,
 	PicturePtr pSrc, PicturePtr pMask, PicturePtr pDst,
 	INT16 xSrc, INT16 ySrc, INT16 xMask, INT16 yMask,
 	INT16 xDst, INT16 yDst, CARD16 width, CARD16 height)
 {
-	int tx, ty;
-
 	if (pSrc->pDrawable) {
-		if (!transform_is_integer_translation(pSrc->transform, &tx, &ty))
-			return -1;
-
-		xSrc += pSrc->pDrawable->x + tx;
-		ySrc += pSrc->pDrawable->y + ty;
+		xSrc += pSrc->pDrawable->x;
+		ySrc += pSrc->pDrawable->y;
 	}
 
 	if (pMask && pMask->pDrawable) {
-		if (!transform_is_integer_translation(pMask->transform, &tx, &ty))
-			return -1;
-
-		xMask += pMask->pDrawable->x + tx;
-		yMask += pMask->pDrawable->y + ty;
+		xMask += pMask->pDrawable->x;
+		yMask += pMask->pDrawable->y;
 	}
 
 	xDst += pDst->pDrawable->x;
@@ -1490,8 +1484,8 @@ static int etnaviv_accel_composite_srconly(PicturePtr pSrc, PicturePtr pDst,
 	 * and vSrc->pict_format describes its format, including whether the
 	 * alpha channel is valid.
 	 */
-	vSrc = etnaviv_acquire_src(etnaviv, pSrc, &clip_temp,
-				   ppPixTemp, vTemp, &src_topleft);
+	vSrc = etnaviv_acquire_src(etnaviv, pSrc, &clip_temp, ppPixTemp,
+				   vTemp, &src_topleft, FALSE);
 	if (!vSrc)
 		return FALSE;
 
@@ -1587,7 +1581,8 @@ static int etnaviv_accel_composite_masked(PicturePtr pSrc, PicturePtr pMask,
 	if (pMask->pDrawable) {
 		int tx, ty;
 
-		transform_is_integer_translation(pMask->transform, &tx, &ty);
+		if (!transform_is_integer_translation(pMask->transform, &tx, &ty))
+			goto fallback;
 
 		mask_offset.x += tx;
 		mask_offset.y += ty;
@@ -1618,9 +1613,13 @@ static int etnaviv_accel_composite_masked(PicturePtr pSrc, PicturePtr pMask,
 	 * origin src_topleft.  This may or may not be the temporary image,
 	 * and vSrc->pict_format describes its format, including whether the
 	 * alpha channel is valid.
+	 *
+	 * As we have a mask to process, we must have the source in our
+	 * temporary pixmap so we can blend the mask with it prior to
+	 * performing the final blend.
 	 */
-	vSrc = etnaviv_acquire_src(etnaviv, pSrc, &clip_temp,
-				   ppPixTemp, vTemp, &src_topleft);
+	vSrc = etnaviv_acquire_src(etnaviv, pSrc, &clip_temp, ppPixTemp,
+				   vTemp, &src_topleft, TRUE);
 	if (!vSrc)
 		goto fallback;
 
@@ -1632,34 +1631,9 @@ static int etnaviv_accel_composite_masked(PicturePtr pSrc, PicturePtr pMask,
 #endif
 
 	/*
-	 * If we have a mask, handle it.  We deal with the mask by doing a
-	 * InReverse operation.  However, note that the source may already
-	 * be in the temporary buffer.  Also note that the temporary buffer
-	 * must have valid alpha upon completion of this operation for the
-	 * subsequent final blend to work.
-	 *
-	 *  If vTemp != vSrc
-	 *     vTemp <= vSrc (if non-alpha, + max alpha)
-	 *  vTemp <= vTemp BlendOp(In) vMask
-	 *  vSrc = vTemp
+	 * Blend the source (in the temporary pixmap) with the mask
+	 * via a InReverse op.
 	 */
-	if (vTemp != vSrc) {
-		/*
-		 * Copy Source to Temp.
-		 * The source may not have alpha, but we need the
-		 * temporary pixmap to have alpha.  Try to convert
-		 * while copying.  (If this doesn't work, use OR
-		 * in the brush with maximum alpha value.)
-		 */
-		if (!etnaviv_blend(etnaviv, &clip_temp, NULL, vTemp, vSrc,
-				   &clip_temp, 1, src_topleft, ZERO_OFFSET))
-			return FALSE;
-#ifdef DEBUG_BLEND
-		etnaviv_batch_wait_commit(etnaviv, vTemp);
-		dump_vPix(etnaviv, vTemp, 1, "A-TMSK%2.2x-%p", op, pMask);
-#endif
-	}
-
 	if (!etnaviv_blend(etnaviv, &clip_temp, &mask_op, vTemp, vMask,
 			   &clip_temp, 1, mask_offset, ZERO_OFFSET))
 		return FALSE;
@@ -1835,15 +1809,13 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 
 	/*
 	 * Compute the composite region from the source, mask and
-	 * destination positions, the source and mask transformation,
-	 * and their clip masks.  Note that we do not support any
-	 * transform other than a linear translation here.
+	 * destination positions on their backing pixmaps.  The
+	 * transformation is not applied at this stage.
 	 */
-	rc = etnaviv_compute_composite_region(&region, pSrc, pMask, pDst,
+	if (!etnaviv_compute_composite_region(&region, pSrc, pMask, pDst,
 					      xSrc, ySrc, xMask, yMask,
-					      xDst, yDst, width, height);
-	if (rc < 1)
-		return rc ? FALSE : TRUE;
+					      xDst, yDst, width, height))
+		return TRUE;
 
 	if (op == PictOpClear) {
 		/* Short-circuit for PictOpClear */
@@ -1940,10 +1912,8 @@ Bool etnaviv_accel_Glyphs(CARD8 final_op, PicturePtr pSrc, PicturePtr pDst,
 	pMaskPixmap = pScreen->CreatePixmap(pScreen, width, height,
 					    maskFormat->depth,
 					    CREATE_PIXMAP_USAGE_GPU);
-	if (!pMaskPixmap) {
-		free(gr);
-		return FALSE;
-	}
+	if (!pMaskPixmap)
+		goto destroy_gr;
 
 	alpha = NeedsComponent(maskFormat->format);
 	pMask = CreatePicture(0, &pMaskPixmap->drawable, maskFormat,
@@ -1994,6 +1964,8 @@ Bool etnaviv_accel_Glyphs(CARD8 final_op, PicturePtr pSrc, PicturePtr pDst,
 				    grp->width, grp->height);
 	}
 
+	free(gr);
+
 	x = extents.x1;
 	y = extents.y1;
 
@@ -2014,10 +1986,12 @@ Bool etnaviv_accel_Glyphs(CARD8 final_op, PicturePtr pSrc, PicturePtr pDst,
 
 destroy_picture:
 	FreePicture(pMask, 0);
+	free(gr);
 	return FALSE;
 
 destroy_pixmap:
 	pScreen->DestroyPixmap(pMaskPixmap);
+destroy_gr:
 	free(gr);
 	return FALSE;
 }
@@ -2048,8 +2022,13 @@ void etnaviv_accel_glyph_upload(ScreenPtr pScreen, PicturePtr pDst,
 		etnaviv_set_format(vpix, pSrc);
 		op.src = INIT_BLIT_PIX(vpix, vpix->pict_format, src_offset);
 	} else {
+		struct etnaviv_usermem_node *unode;
 		char *buf, *src = src_pix->devPrivate.ptr;
 		size_t size, align = maxt(VIVANTE_ALIGN_MASK, getpagesize());
+
+		unode = malloc(sizeof(*unode));
+		if (!unode)
+			return;
 
 		size = pitch * height + align - 1;
 		size &= ~(align - 1);
@@ -2069,6 +2048,14 @@ void etnaviv_accel_glyph_upload(ScreenPtr pScreen, PicturePtr pDst,
 			return;
 		}
 
+		/* vdst will not go away while the server is running */
+		unode->dst = vdst;
+		unode->bo = usr;
+		unode->mem = b;
+
+		/* Add this to the list of usermem nodes to be freed */
+		etnaviv_add_freemem(etnaviv, unode);
+
 		op.src = INIT_BLIT_BO(usr, pitch,
 				      etnaviv_pict_format(pSrc->format, FALSE),
 				      src_offset);
@@ -2082,7 +2069,7 @@ void etnaviv_accel_glyph_upload(ScreenPtr pScreen, PicturePtr pDst,
 	etnaviv_set_format(vdst, pDst);
 
 	if (!gal_prepare_gpu(etnaviv, vdst, GPU_ACCESS_RW))
-		goto unmap;
+		return;
 
 	op.dst = INIT_BLIT_PIX(vdst, vdst->pict_format, dst_offset);
 	op.blend_op = NULL;
@@ -2094,13 +2081,6 @@ void etnaviv_accel_glyph_upload(ScreenPtr pScreen, PicturePtr pDst,
 	etnaviv_blit_start(etnaviv, &op);
 	etnaviv_blit(etnaviv, &op, &box, 1);
 	etnaviv_blit_complete(etnaviv);
-	etnaviv_batch_wait_commit(etnaviv, vdst);
-
- unmap:
-	if (usr)
-		etna_bo_del(etnaviv->conn, usr, NULL);
-	if (b)
-		free(b);
 }
 #endif
 

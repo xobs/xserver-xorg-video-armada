@@ -20,6 +20,7 @@ AM_CFLAGS = $(filter-out -Wnested-externs -Wcast-qual -Wredundant-decls \
 noinst_LTLIBRARIES = libcommon.la
 libcommon_la_SOURCES = \
 		backlight.c \
+		bo-cache.c \
 		boxutil.c \
 		drawable_desc.c \
 		fd.c \

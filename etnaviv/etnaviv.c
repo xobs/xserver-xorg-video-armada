@@ -103,6 +103,29 @@ void etnaviv_finish_fences(struct etnaviv *etnaviv, uint32_t fence)
 	}
 }
 
+void etnaviv_add_freemem(struct etnaviv *etnaviv,
+	struct etnaviv_usermem_node *n)
+{
+	xorg_list_append(&n->node, &etnaviv->usermem_free_list);
+}
+
+static void etnaviv_free_usermem(struct etnaviv *etnaviv)
+{
+	struct etnaviv_usermem_node *i, *n;
+
+	/*
+	 * This is really a hack - we should have proper APIs, but as long
+	 * as we support etnaviv alongside etnadrm, we have no option.
+	 */
+	xorg_list_for_each_entry_safe(i, n, &etnaviv->usermem_free_list, node) {
+		xorg_list_del(&i->node);
+		etnaviv_batch_wait_commit(etnaviv, i->dst);
+		etna_bo_del(etnaviv->conn, i->bo, NULL);
+		free(i->mem);
+		free(i);
+	}
+}
+
 static CARD32 etnaviv_cache_expire(OsTimerPtr timer, CARD32 time, pointer arg)
 {
 	return 0;
@@ -830,6 +853,12 @@ static void etnaviv_BlockHandler(BLOCKHANDLER_ARGS_DECL)
 							etnaviv);
 		}
 	}
+
+	/*
+	 * Try to free any usermem buffers
+	 */
+	if (!xorg_list_is_empty(&etnaviv->usermem_free_list))
+		etnaviv_free_usermem(etnaviv);
 }
 
 #ifdef RENDER
@@ -842,13 +871,9 @@ etnaviv_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask, PicturePtr pDst,
 	Bool ret;
 
 	if (!etnaviv->force_fallback) {
-		unsigned src_repeat = pSrc->repeat;
-
 		ret = etnaviv_accel_Composite(op, pSrc, pMask, pDst,
-					      xSrc, ySrc,
-					      xMask, yMask,
+					      xSrc, ySrc, xMask, yMask,
 					      xDst, yDst, width, height);
-		pSrc->repeat = src_repeat;
 		if (ret)
 			return;
 	}
@@ -961,6 +986,7 @@ static Bool etnaviv_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 	xorg_list_init(&etnaviv->batch_head);
 	xorg_list_init(&etnaviv->fence_head);
 	xorg_list_init(&etnaviv->busy_free_list);
+	xorg_list_init(&etnaviv->usermem_free_list);
 
 	etnaviv_set_screen_priv(pScreen, etnaviv);
 
