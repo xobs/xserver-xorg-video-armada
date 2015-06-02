@@ -1,3 +1,9 @@
+xf86-video-armada (0.0.1-r10) unstable; urgency=medium
+
+  * Pull newest upstream code
+
+ -- Sean Cross <xobs@kosagi.com>  Tue, 02 Jun 2015 12:16:49 +0800
+
 xf86-video-armada (0.0.1-r9) unstable; urgency=medium
 
   * Rebase to a newer master
