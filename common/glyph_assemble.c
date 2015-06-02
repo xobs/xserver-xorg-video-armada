@@ -60,10 +60,12 @@ int glyphs_assemble(ScreenPtr pScreen, struct glyph_render **gp,
 			GlyphPtr glyph = *glyphs++;
 
 			if (glyph->info.width && glyph->info.height) {
-				grp->width = glyph->info.width;
-				grp->height = glyph->info.height;
-				grp->dest_x = x - glyph->info.x;
-				grp->dest_y = y - glyph->info.y;
+				grp->dest_box.x1 = x - glyph->info.x;
+				grp->dest_box.y1 = y - glyph->info.y;
+				grp->dest_box.x2 = grp->dest_box.x1 +
+						   glyph->info.width;
+				grp->dest_box.y2 = grp->dest_box.y1 +
+						   glyph->info.height;
 				grp->picture = glyph_cache_only(pScreen, glyph,
 					      &grp->glyph_pos);
 				if (!grp->picture) {
