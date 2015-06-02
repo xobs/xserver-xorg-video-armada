@@ -90,6 +90,8 @@ struct etnaviv_vr_op {
 
 void etnaviv_de_start(struct etnaviv *etnaviv, const struct etnaviv_de_op *op);
 void etnaviv_de_end(struct etnaviv *etnaviv);
+void etnaviv_de_op_src_origin(struct etnaviv *etnaviv,
+	const struct etnaviv_de_op *op, xPoint src_origin, const BoxRec *dest);
 void etnaviv_de_op(struct etnaviv *etnaviv, const struct etnaviv_de_op *op,
 	const BoxRec *pBox, size_t nBox);
 void etnaviv_vr_op(struct etnaviv *etnaviv, struct etnaviv_vr_op *op,
