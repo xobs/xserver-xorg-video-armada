@@ -176,25 +176,6 @@ static void etnaviv_blit_clipped(struct etnaviv *etnaviv,
 		etnaviv_de_op(etnaviv, op, boxes, n);
 }
 
-static void etnaviv_blit_srcdst(struct etnaviv *etnaviv,
-	struct etnaviv_de_op *op,
-	int src_x, int src_y, int dst_x, int dst_y, int width, int height)
-{
-	BoxRec box;
-
-	op->src.offset.x = src_x - (dst_x + op->dst.offset.x);
-	op->src.offset.y = src_y - (dst_y + op->dst.offset.y);
-
-	box.x1 = dst_x;
-	box.y1 = dst_y;
-	box.x2 = dst_x + width;
-	box.y2 = dst_y + height;
-
-	etnaviv_blit_start(etnaviv, op);
-	etnaviv_blit(etnaviv, op, &box, 1);
-	etnaviv_blit_complete(etnaviv);
-}
-
 static Bool etnaviv_init_dst_drawable(struct etnaviv *etnaviv,
 	struct etnaviv_de_op *op, DrawablePtr pDrawable)
 {
@@ -412,6 +393,7 @@ static void etnaviv_init_fill(struct etnaviv *etnaviv,
 {
 	op->src = INIT_BLIT_NULL;
 	op->blend_op = NULL;
+	op->src_origin_mode = SRC_ORIGIN_NONE;
 	op->rop = etnaviv_fill_rop[pGC->alu];
 	op->brush = TRUE;
 	op->fg_colour = etnaviv_fg_col(etnaviv, pGC);
@@ -624,6 +606,7 @@ void etnaviv_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 	/* Include the copy delta on the source */
 	op.src.offset.x += dx - op.dst.offset.x;
 	op.src.offset.y += dy - op.dst.offset.y;
+	op.src_origin_mode = SRC_ORIGIN_RELATIVE;
 
 	/* Calculate the overall extent */
 	extent.x1 = max_t(short, pDst->x, pSrc->x - dx);
@@ -960,6 +943,7 @@ Bool etnaviv_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 		return FALSE;
 
 	op.blend_op = NULL;
+	op.src_origin_mode = SRC_ORIGIN_NONE;
 	op.rop = etnaviv_copy_rop[pGC ? pGC->alu : GXcopy];
 	op.cmd = VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT;
 	op.brush = FALSE;
@@ -987,13 +971,18 @@ Bool etnaviv_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 
 		pBox = RegionRects(rects);
 		while (nbox--) {
+			xPoint tile_origin;
 			int dst_y, height, tile_y;
 
 			op.clip = pBox;
 
+			etnaviv_blit_start(etnaviv, &op);
+
 			dst_y = pBox->y1;
 			height = pBox->y2 - dst_y;
 			modulus(dst_y - tile_off_y, tile_h, tile_y);
+
+			tile_origin.y = tile_y;
 
 			while (height > 0) {
 				int dst_x, width, tile_x, h;
@@ -1002,30 +991,39 @@ Bool etnaviv_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 				width = pBox->x2 - dst_x;
 				modulus(dst_x - tile_off_x, tile_w, tile_x);
 
-				h = tile_h - tile_y;
+				tile_origin.x = tile_x;
+
+				h = tile_h - tile_origin.y;
 				if (h > height)
 					h = height;
 				height -= h;
 
 				while (width > 0) {
+					BoxRec dst;
 					int w;
 
-					w = tile_w - tile_x;
+					w = tile_w - tile_origin.x;
 					if (w > width)
 						w = width;
 					width -= w;
 
-					etnaviv_blit_srcdst(etnaviv, &op,
-							    tile_x, tile_y,
-							    dst_x, dst_y,
-							    w, h);
+					dst.x1 = dst_x;
+					dst.x2 = dst_x + w;
+					dst.y1 = dst_y;
+					dst.y2 = dst_y + h;
+					etnaviv_de_op_src_origin(etnaviv, &op,
+								 tile_origin,
+								 &dst);
 
 					dst_x += w;
-					tile_x = 0;
+					tile_origin.x = 0;
 				}
 				dst_y += h;
-				tile_y = 0;
+				tile_origin.y = 0;
 			}
+
+			etnaviv_blit_complete(etnaviv);
+
 			pBox++;
 		}
 	}
@@ -1164,6 +1162,7 @@ static Bool etnaviv_blend(struct etnaviv *etnaviv, const BoxRec *clip,
 	struct etnaviv_de_op op = {
 		.blend_op = blend,
 		.clip = clip,
+		.src_origin_mode = SRC_ORIGIN_RELATIVE,
 		.rop = 0xcc,
 		.cmd = VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT,
 		.brush = FALSE,
@@ -1848,6 +1847,7 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	if (rc) {
 		final_op.clip = RegionExtents(&region);
 		final_op.blend_op = &final_blend;
+		final_op.src_origin_mode = SRC_ORIGIN_RELATIVE;
 		final_op.rop = 0xcc;
 		final_op.cmd = VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT;
 		final_op.brush = FALSE;
@@ -1936,6 +1936,7 @@ Bool etnaviv_accel_Glyphs(CARD8 final_op, PicturePtr pSrc, PicturePtr pDst,
 	op.dst = INIT_BLIT_PIX(vMask, vMask->pict_format, ZERO_OFFSET);
 	op.blend_op = &etnaviv_composite_op[PictOpAdd];
 	op.clip = &box;
+	op.src_origin_mode = SRC_ORIGIN_NONE;
 	op.rop = 0xcc;
 	op.cmd = VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT;
 	op.brush = FALSE;
@@ -1949,20 +1950,24 @@ Bool etnaviv_accel_Glyphs(CARD8 final_op, PicturePtr pSrc, PicturePtr pDst,
 			if (!gal_prepare_gpu(etnaviv, v, GPU_ACCESS_RO))
 				goto destroy_picture;
 
+			if (pCurrent)
+				etnaviv_blit_complete(etnaviv);
+
 			prefetch(grp);
 
 			op.src = INIT_BLIT_PIX(v, v->pict_format, ZERO_OFFSET);
 
 			pCurrent = grp->picture;
+
+			etnaviv_blit_start(etnaviv, &op);
 		}
 
 		prefetch(grp + 1);
 
-		etnaviv_blit_srcdst(etnaviv, &op,
-				    grp->glyph_pos.x, grp->glyph_pos.y,
-				    grp->dest_x, grp->dest_y,
-				    grp->width, grp->height);
+		etnaviv_de_op_src_origin(etnaviv, &op, grp->glyph_pos,
+					 &grp->dest_box);
 	}
+	etnaviv_blit_complete(etnaviv);
 
 	free(gr);
 
@@ -2074,6 +2079,7 @@ void etnaviv_accel_glyph_upload(ScreenPtr pScreen, PicturePtr pDst,
 	op.dst = INIT_BLIT_PIX(vdst, vdst->pict_format, dst_offset);
 	op.blend_op = NULL;
 	op.clip = &box;
+	op.src_origin_mode = SRC_ORIGIN_RELATIVE;
 	op.rop = 0xcc;
 	op.cmd = VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT;
 	op.brush = FALSE;
@@ -2136,8 +2142,15 @@ Bool etnaviv_accel_init(struct etnaviv *etnaviv)
 	 * consecutive operations.
 	 */
 	if (etnaviv->conn->chip.chip_model == chipModel_GC320) {
-		etnaviv->gc320_etna_bo = etna_bo_new(etnaviv->conn, 4096,
-						     DRM_ETNA_GEM_TYPE_BMP);
+		struct etnaviv_format fmt = { .format = DE_FORMAT_A1R5G5B5 };
+		xPoint offset = { 0, -1 };
+		struct etna_bo *bo;
+
+		bo = etna_bo_new(etnaviv->conn, 4096, DRM_ETNA_GEM_TYPE_BMP);
+		etnaviv->gc320_etna_bo = bo;
+		etnaviv->gc320_wa_src = INIT_BLIT_BO(bo, 64, fmt, offset);
+		etnaviv->gc320_wa_dst = INIT_BLIT_BO(bo, 64, fmt, ZERO_OFFSET);
+
 		/* reserve some additional batch space */
 		etnaviv->batch_de_high_watermark -= 22;
 

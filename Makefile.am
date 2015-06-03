@@ -24,6 +24,9 @@ SUBDIRS = common man src
 if HAVE_ACCEL_ETNAVIV
 SUBDIRS += etnaviv
 endif
+if HAVE_ACCEL_ETNADRM
+SUBDIRS += etnaviv
+endif
 if HAVE_ACCEL_GALCORE
 SUBDIRS += vivante
 endif
