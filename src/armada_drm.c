@@ -41,6 +41,7 @@ const OptionInfoRec armada_drm_options[] = {
 	{ OPTION_XV_ACCEL,	"XvAccel",	   OPTV_BOOLEAN, {0}, FALSE },
 	{ OPTION_XV_PREFEROVL,	"XvPreferOverlay", OPTV_BOOLEAN, {0}, TRUE  },
 	{ OPTION_USE_GPU,	"UseGPU",	   OPTV_BOOLEAN, {0}, FALSE },
+	{ OPTION_USE_KMS_BO,	"UseKMSBo",	   OPTV_BOOLEAN, {0}, FALSE },
 	{ OPTION_ACCEL_MODULE,	"AccelModule",	   OPTV_STRING,  {0}, FALSE },
 	{ -1,			NULL,		   OPTV_NONE,    {0}, FALSE }
 };
@@ -437,6 +438,7 @@ static Bool armada_drm_ScreenInit(SCREEN_INIT_ARGS_DECL)
 	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
 	struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(pScrn);
 	struct drm_armada_bo *bo;
+	Bool use_kms_bo;
 	Bool ret;
 
 	if (drmSetMaster(drm->fd)) {
@@ -472,14 +474,19 @@ static Bool armada_drm_ScreenInit(SCREEN_INIT_ARGS_DECL)
 	arm->CloseScreen = pScreen->CloseScreen;
 	pScreen->CloseScreen = armada_drm_CloseScreen;
 
+	/*
+	 * Only pass the armada-drm bo manager if we are really
+	 * driving armada-drm, other DRMs don't provide bo managers.
+	 */
+	use_kms_bo = arm->version && strstr(arm->version->name, "armada");
+	if (use_kms_bo)
+		use_kms_bo = xf86ReturnOptValBool(arm->Options,
+						  OPTION_USE_KMS_BO, TRUE);
+
 	if (arm->accel) {
 		struct drm_armada_bufmgr *mgr = arm->bufmgr;
 
-		/*
-		 * Only pass the armada-drm bo manager if we are really
-		 * driving armada-drm, other DRMs don't provide bo managers.
-		 */
-		if (!arm->version || !strstr(arm->version->name, "armada"))
+		if (!use_kms_bo)
 			mgr = NULL;
 
 		if (!arm->accel_ops->screen_init(pScreen, mgr)) {
