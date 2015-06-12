@@ -564,13 +564,6 @@ static Bool armada_drm_is_bmm(unsigned char *buf)
 }
 
 static int
-armada_drm_get_bmm(ScrnInfoPtr pScrn, struct drm_xv *drmxv, unsigned char *buf,
-	uint32_t *id)
-{
-	return BadAlloc;
-}
-
-static int
 armada_drm_get_xvbo(ScrnInfoPtr pScrn, struct drm_xv *drmxv, unsigned char *buf,
 	uint32_t *id)
 {
@@ -704,6 +697,12 @@ armada_drm_plane_fbid(ScrnInfoPtr pScrn, struct drm_xv *drmxv, int image,
 		 * first word.
 		 */
 		image = ((uint32_t *)buf)[0];
+	else if (armada_drm_is_bmm(buf))
+		/*
+		 * We no longer handle the old Marvell BMM buffer
+		 * passing protocol
+		 */
+		return BadAlloc;
 
 	if (drmxv->width != width || drmxv->height != height ||
 	    drmxv->fourcc != image || !drmxv->plane_format) {
@@ -718,9 +717,6 @@ armada_drm_plane_fbid(ScrnInfoPtr pScrn, struct drm_xv *drmxv, int image,
 		if (is_bo) {
 			drmxv->is_bmm = TRUE;
 			drmxv->get_fb = armada_drm_get_xvbo;
-		} else if (armada_drm_is_bmm(buf)) {
-			drmxv->is_bmm = TRUE;
-			drmxv->get_fb = armada_drm_get_bmm;
 		} else {
 			drmxv->is_bmm = FALSE;
 			drmxv->get_fb = armada_drm_get_std;
@@ -738,8 +734,8 @@ armada_drm_plane_fbid(ScrnInfoPtr pScrn, struct drm_xv *drmxv, int image,
 		drmxv->fourcc = image;
 
 //		xf86DrvMsg(pScrn->scrnIndex, X_INFO,
-//			   "[drm] bmm %u xvbo %u fourcc %08x\n",
-//			   drmxv->is_bmm, is_bo, image);
+//			   "[drm] xvbo %u fourcc %08x\n",
+//			   is_bo, image);
 
 		/* Pre-allocate the buffers if we aren't using XVBO or BMM */
 		if (!drmxv->is_bmm) {
