@@ -58,7 +58,7 @@ struct drm_xv {
 
 	/* Common information */
 	xf86CrtcPtr desired_crtc;
-	Bool is_bmm;
+	Bool is_xvbo;
 	Bool autopaint_colorkey;
 
 	/* Cached image information */
@@ -684,10 +684,10 @@ armada_drm_plane_fbid(ScrnInfoPtr pScrn, struct drm_xv *drmxv, int image,
 	unsigned char *buf, short width, short height, uint32_t *id)
 {
 	const struct xv_image_format *fmt;
-	Bool is_bo = image == FOURCC_XVBO;
+	Bool is_xvbo = image == FOURCC_XVBO;
 	int ret;
 
-	if (is_bo)
+	if (is_xvbo)
 		/*
 		 * XVBO support allows applications to prepare the DRM
 		 * buffer object themselves, and pass a global name to
@@ -714,11 +714,11 @@ armada_drm_plane_fbid(ScrnInfoPtr pScrn, struct drm_xv *drmxv, int image,
 			return BadMatch;
 
 		/* Check whether this is XVBO mapping */
-		if (is_bo) {
-			drmxv->is_bmm = TRUE;
+		if (is_xvbo) {
+			drmxv->is_xvbo = TRUE;
 			drmxv->get_fb = armada_drm_get_xvbo;
 		} else {
-			drmxv->is_bmm = FALSE;
+			drmxv->is_xvbo = FALSE;
 			drmxv->get_fb = armada_drm_get_std;
 		}
 
@@ -735,10 +735,10 @@ armada_drm_plane_fbid(ScrnInfoPtr pScrn, struct drm_xv *drmxv, int image,
 
 //		xf86DrvMsg(pScrn->scrnIndex, X_INFO,
 //			   "[drm] xvbo %u fourcc %08x\n",
-//			   is_bo, image);
+//			   is_xvbo, image);
 
 		/* Pre-allocate the buffers if we aren't using XVBO or BMM */
-		if (!drmxv->is_bmm) {
+		if (!drmxv->is_xvbo) {
 			int ret = armada_drm_bufs_alloc(drmxv);
 			if (ret != Success) {
 				drmxv->plane_format = NULL;
@@ -892,7 +892,7 @@ static int armada_drm_plane_PutImage(ScrnInfoPtr pScrn,
 				    width, height, &dst, clipBoxes);
 
 	/* If there was a previous fb, release it. */
-	if (drmxv->is_bmm &&
+	if (drmxv->is_xvbo &&
 	    drmxv->plane_fb_id && drmxv->plane_fb_id != fb_id) {
 		drmModeRmFB(drmxv->fd, drmxv->plane_fb_id);
 		drmxv->plane_fb_id = 0;
