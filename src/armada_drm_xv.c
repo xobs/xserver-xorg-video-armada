@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <unistd.h>
 
 #include <armada_bufmgr.h>
 
@@ -58,6 +59,7 @@ struct drm_xv {
 
 	/* Common information */
 	xf86CrtcPtr desired_crtc;
+	Bool has_xvbo;
 	Bool is_xvbo;
 	Bool autopaint_colorkey;
 
@@ -80,6 +82,8 @@ struct drm_xv {
 
 	int (*get_fb)(ScrnInfoPtr, struct drm_xv *, unsigned char *,
 		uint32_t *);
+	struct drm_armada_bo *(*import_name)(ScrnInfoPtr, struct drm_xv *,
+		uint32_t);
 
 	/* Plane information */
 	const struct xv_image_format *plane_format;
@@ -382,8 +386,9 @@ static const struct xv_image_format armada_drm_formats[] = {
 		.u.drm_format = DRM_FORMAT_BGR565,
 		.xv_image = XVIMAGE_BGR565
 	}, {
+		/* This must be the last */
 		.u.drm_format = 0,
-		.xv_image = 		XVIMAGE_XVBO
+		.xv_image = XVIMAGE_XVBO
 	},
 };
 
@@ -570,10 +575,14 @@ armada_drm_get_xvbo(ScrnInfoPtr pScrn, struct drm_xv *drmxv, unsigned char *buf,
 	struct drm_armada_bo *bo;
 	uint32_t name = ((uint32_t *)buf)[1];
 
-	/* Lookup the bo for the global name */
-	bo = drm_armada_bo_create_from_name(drmxv->bufmgr, name);
-	if (!bo)
+	/* Lookup the bo for the global name on the DRI2 device */
+	bo = drmxv->import_name(pScrn, drmxv, name);
+	if (!bo) {
+		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+			   "[drm] xvbo: import of name 0x%08x failed: %s\n",
+			   name, strerror(errno));
 		return BadAlloc;
+	}
 
 	/* Is this a re-display of the previous frame? */
 	if (drmxv->last_bo == bo) {
@@ -676,6 +685,18 @@ armada_drm_Xv_QueryImageAttributes(ScrnInfoPtr pScrn, int image,
 	}
 
 	return ret;
+}
+
+static int
+armada_drm_Xv_QueryImageAttributes_noxvbo(ScrnInfoPtr pScrn, int image,
+	unsigned short *width, unsigned short *height, int *pitches,
+	int *offsets)
+{
+	if (image == FOURCC_XVBO)
+		return 0;
+
+	return armada_drm_Xv_QueryImageAttributes(pScrn, image, width, height,
+						  pitches, offsets);
 }
 
 /* Plane interface support */
@@ -952,7 +973,8 @@ armada_drm_XvInitPlane(ScrnInfoPtr pScrn, DevUnion *priv, struct drm_xv *drmxv)
 			images[num_images++] = fmt->xv_image;
 	}
 
-	images[num_images++] = (XF86ImageRec)XVIMAGE_XVBO;
+	if (drmxv->has_xvbo)
+		images[num_images++] = (XF86ImageRec)XVIMAGE_XVBO;
 
 	p->type = XvWindowMask | XvInputMask | XvImageMask;
 	p->flags = VIDEO_OVERLAID_IMAGES;
@@ -974,6 +996,14 @@ armada_drm_XvInitPlane(ScrnInfoPtr pScrn, DevUnion *priv, struct drm_xv *drmxv)
 	p->PutImage = armada_drm_plane_PutImage;
 	p->ReputImage = armada_drm_plane_ReputImage;
 	p->QueryImageAttributes = armada_drm_Xv_QueryImageAttributes;
+
+	/*
+	 * Simple work-around to disable XVBO support, rather
+	 * than run-time testing this.
+	 */
+	if (!drmxv->has_xvbo)
+		p->QueryImageAttributes =
+			armada_drm_Xv_QueryImageAttributes_noxvbo;
 
 	return p;
 }
@@ -1018,6 +1048,36 @@ static Bool armada_drm_init_atoms(ScrnInfoPtr pScrn)
 	return !mismatch;
 }
 
+static struct drm_armada_bo *armada_drm_import_armada_name(ScrnInfoPtr pScrn,
+	struct drm_xv *drmxv, uint32_t name)
+{
+	return drm_armada_bo_create_from_name(drmxv->bufmgr, name);
+}
+
+static struct drm_armada_bo *armada_drm_import_accel_name(ScrnInfoPtr pScrn,
+	struct drm_xv *drmxv, uint32_t name)
+{
+	ScreenPtr scrn = screenInfo.screens[pScrn->scrnIndex];
+	struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(pScrn);
+	struct drm_armada_bo *bo;
+	int fd;
+
+	fd = arm->accel_ops->export_name(scrn, name);
+	if (fd == -1) {
+		xf86DrvMsg(pScrn->scrnIndex, X_ERROR, "export_name failed\n");
+		return NULL;
+	}
+
+	bo = drm_armada_bo_from_fd(drmxv->bufmgr, fd);
+	if (!bo)
+		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+			   "drm_armada_bo_from_fd failed: %s\n",
+			   strerror(errno));
+	close(fd);
+
+	return bo;
+}
+
 Bool armada_drm_XvInit(ScrnInfoPtr pScrn)
 {
 	ScreenPtr scrn = screenInfo.screens[pScrn->scrnIndex];
@@ -1027,7 +1087,7 @@ Bool armada_drm_XvInit(ScrnInfoPtr pScrn)
 	drmModePlaneResPtr res;
 	struct drm_xv *drmxv;
 	DevUnion priv[1];
-	unsigned i, num;
+	unsigned i, num, cap = 0;
 	Bool ret, prefer_overlay;
 
 	if (!armada_drm_init_atoms(pScrn))
@@ -1035,7 +1095,7 @@ Bool armada_drm_XvInit(ScrnInfoPtr pScrn)
 
 	/* Initialise the GPU textured adapter first. */
 	if (arm->accel_ops && arm->accel_ops->xv_init)
-		gpu_adap = arm->accel_ops->xv_init(scrn);
+		gpu_adap = arm->accel_ops->xv_init(scrn, &cap);
 	else
 		gpu_adap = NULL;
 
@@ -1044,6 +1104,14 @@ Bool armada_drm_XvInit(ScrnInfoPtr pScrn)
 	if (!drmxv)
 		return FALSE;
 
+	if (cap & XVBO_CAP_KMS_DRM) {
+		drmxv->has_xvbo = TRUE;
+		drmxv->import_name = armada_drm_import_armada_name;
+	}
+	if (cap & XVBO_CAP_GPU_DRM) {
+		drmxv->has_xvbo = TRUE;
+		drmxv->import_name = armada_drm_import_accel_name;
+	}
 	drmxv->fd = drm->fd;
 	drmxv->bufmgr = arm->bufmgr;
 	drmxv->autopaint_colorkey = TRUE;
