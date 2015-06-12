@@ -19,6 +19,7 @@
 #include "bo-cache.h"
 #include "etnadrm.h"
 #include "etnaviv_drm.h"
+#include "etnaviv_compat.h"
 #include "compat-list.h"
 #include "utils.h"
 
@@ -454,6 +455,40 @@ struct etna_bo *etna_bo_from_dmabuf(struct viv_conn *conn, int fd, int prot)
 	if (err) {
 		free(mem);
 		mem = NULL;
+	}
+	return mem;
+}
+
+int etna_bo_to_dmabuf(struct viv_conn *conn, struct etna_bo *mem)
+{
+	int err, fd;
+
+	err = drmPrimeHandleToFD(conn->fd, mem->handle, 0, &fd);
+	if (err < 0)
+		return -1;
+
+	return fd;
+}
+
+struct etna_bo *etna_bo_from_name(struct viv_conn *conn, uint32_t name)
+{
+	struct etna_bo *mem;
+	struct drm_gem_open req;
+	int err;
+
+	mem = etna_bo_alloc(conn);
+	if (!mem)
+		return NULL;
+
+	memset(&req, 0, sizeof(req));
+	req.name = name;
+	err = drmIoctl(conn->fd, DRM_IOCTL_GEM_OPEN, &req);
+	if (err < 0) {
+		free(mem);
+		mem = NULL;
+	} else {
+		mem->handle = req.handle;
+		mem->size = req.size;
 	}
 	return mem;
 }
