@@ -705,7 +705,8 @@ armada_drm_plane_fbid(ScrnInfoPtr pScrn, struct drm_xv *drmxv, int image,
 		return BadAlloc;
 
 	if (drmxv->width != width || drmxv->height != height ||
-	    drmxv->fourcc != image || !drmxv->plane_format) {
+	    drmxv->fourcc != image || !drmxv->plane_format ||
+	    drmxv->is_xvbo != is_xvbo) {
 		uint32_t size;
 
 		/* format or size changed */
