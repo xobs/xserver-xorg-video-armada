@@ -1028,6 +1028,7 @@ static Bool etnaviv_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 		} else if (!etnaviv_dri2_ScreenInit(pScreen, dri_fd, name)) {
 			xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
 				   "direct rendering: failed\n");
+			etnaviv->dri2_enabled = FALSE;
 		} else {
 			xf86DrvMsg(pScrn->scrnIndex, X_INFO,
 				   "direct rendering: DRI2 enabled\n");

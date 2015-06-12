@@ -30,6 +30,7 @@
 #include "xv_image_format.h"
 #include "xvbo.h"
 
+#include "armada_accel.h"
 #include "common_drm_helper.h"
 
 #include "etnaviv_accel.h"
@@ -795,7 +796,7 @@ static Bool etnaviv_xv_CloseScreen(CLOSE_SCREEN_ARGS_DECL)
 	return pScreen->CloseScreen(CLOSE_SCREEN_ARGS);
 }
 
-XF86VideoAdaptorPtr etnaviv_xv_init(ScreenPtr pScreen)
+XF86VideoAdaptorPtr etnaviv_xv_init(ScreenPtr pScreen, unsigned int *caps)
 {
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
@@ -805,6 +806,13 @@ XF86VideoAdaptorPtr etnaviv_xv_init(ScreenPtr pScreen)
 	DevUnion *devUnions;
 	Bool has_yuy2;
 	unsigned nports = 16, i, num_images;
+
+#ifdef HAVE_DRI2
+	if (etnaviv->dri2_enabled) {
+		if (etnaviv->dri2_armada)
+			*caps = XVBO_CAP_KMS_DRM;
+	}
+#endif
 
 	etnaviv_init_filter_kernel();
 

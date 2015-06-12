@@ -731,11 +731,21 @@ static void vivante_attach_name(ScreenPtr pScreen, PixmapPtr pPixmap,
 		vPix->name = name;
 }
 
+static XF86VideoAdaptorPtr vivante_xv_init(ScreenPtr pScreen,
+	unsigned int *caps)
+{
+#ifdef HAVE_DRI2
+	*caps = XVBO_CAP_KMS_DRM;
+#endif
+	return NULL;
+}
+
 static const struct armada_accel_ops vivante_ops = {
 	.screen_init	= vivante_ScreenInit,
 	.import_dmabuf	= vivante_import_dmabuf,
 	.attach_name	= vivante_attach_name,
 	.free_pixmap	= vivante_free_pixmap,
+	.xv_init	= vivante_xv_init,
 };
 
 static const char *dev_names[] = {
