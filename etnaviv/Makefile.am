@@ -42,6 +42,7 @@ etnaviv_gpu_la_LIBADD = \
 etnaviv_gpu_ladir = @moduledir@/drivers
 etnaviv_gpu_la_SOURCES = \
 	$(ETNA_COMMON_SOURCES) \
+	etnaviv_dummy.c \
 	etnaviv_emit.c \
 	etnaviv_module.c
 endif
