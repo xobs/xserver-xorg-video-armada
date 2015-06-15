@@ -1816,6 +1816,10 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 					      xDst, yDst, width, height))
 		return TRUE;
 
+	miCompositeSourceValidate(pSrc);
+	if (pMask)
+		miCompositeSourceValidate(pMask);
+
 	if (op == PictOpClear) {
 		/* Short-circuit for PictOpClear */
 		rc = etnaviv_Composite_Clear(pDst, &final_op);
