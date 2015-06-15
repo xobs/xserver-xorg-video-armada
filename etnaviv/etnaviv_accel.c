@@ -1204,6 +1204,9 @@ static struct etnaviv_pixmap *etnaviv_get_scratch_argb(ScreenPtr pScreen,
 	struct etnaviv_pixmap *vpix;
 	PixmapPtr pixmap;
 
+	if (*ppPixmap)
+		return etnaviv_get_pixmap_priv(*ppPixmap);
+
 	pixmap = pScreen->CreatePixmap(pScreen, width, height, 32,
 				       CREATE_PIXMAP_USAGE_GPU);
 	if (!pixmap)
@@ -1308,17 +1311,23 @@ static Bool etnaviv_composite_to_pixmap(CARD8 op, PicturePtr pSrc,
  * when copying.  If force_vtemp is set, we ensure that the source is in
  * our temporary pixmap.
  */
-static struct etnaviv_pixmap *etnaviv_acquire_src(struct etnaviv *etnaviv,
-	PicturePtr pict, const BoxRec *clip, PixmapPtr *pPix,
-	struct etnaviv_pixmap *vTemp, xPoint *src_topleft, Bool force_vtemp)
+static struct etnaviv_pixmap *etnaviv_acquire_src(ScreenPtr pScreen,
+	PicturePtr pict, const BoxRec *clip, PixmapPtr *ppPixTemp,
+	xPoint *src_topleft, Bool force_vtemp)
 {
-	struct etnaviv_pixmap *vSrc;
+	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
+	struct etnaviv_pixmap *vSrc, *vTemp;
 	DrawablePtr drawable;
 	uint32_t colour;
 	xPoint src_offset;
 	int tx, ty;
 
 	if (etnaviv_pict_solid_argb(pict, &colour)) {
+		vTemp = etnaviv_get_scratch_argb(pScreen, ppPixTemp,
+						 clip->x2, clip->y2);
+		if (!vTemp)
+			return NULL;
+
 		if (!etnaviv_fill_single(etnaviv, vTemp, clip, colour))
 			return NULL;
 
@@ -1351,7 +1360,12 @@ static struct etnaviv_pixmap *etnaviv_acquire_src(struct etnaviv *etnaviv,
 	return vSrc;
 
 fallback:
-	if (!etnaviv_composite_to_pixmap(PictOpSrc, pict, NULL, *pPix,
+	vTemp = etnaviv_get_scratch_argb(pScreen, ppPixTemp,
+					 clip->x2, clip->y2);
+	if (!vTemp)
+		return NULL;
+
+	if (!etnaviv_composite_to_pixmap(PictOpSrc, pict, NULL, *ppPixTemp,
 					 src_topleft->x, src_topleft->y,
 					 0, 0, clip->x2, clip->y2))
 		return NULL;
@@ -1361,6 +1375,11 @@ fallback:
 	return vTemp;
 
 copy_to_vtemp:
+	vTemp = etnaviv_get_scratch_argb(pScreen, ppPixTemp,
+					 clip->x2, clip->y2);
+	if (!vTemp)
+		return NULL;
+
 	if (!etnaviv_blend(etnaviv, clip, NULL, vTemp, vSrc, clip, 1,
 			   *src_topleft, ZERO_OFFSET))
 		return NULL;
@@ -1453,7 +1472,7 @@ static int etnaviv_accel_composite_srconly(PicturePtr pSrc, PicturePtr pDst,
 {
 	ScreenPtr pScreen = pDst->pDrawable->pScreen;
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
-	struct etnaviv_pixmap *vDst, *vSrc, *vTemp = NULL;
+	struct etnaviv_pixmap *vDst, *vSrc;
 	BoxRec clip_temp;
 	xPoint src_topleft, dst_offset;
 
@@ -1481,20 +1500,14 @@ static int etnaviv_accel_composite_srconly(PicturePtr pSrc, PicturePtr pDst,
 	clip_temp.x2 -= xDst;
 	clip_temp.y2 -= yDst;
 
-	/* Get a temporary pixmap. */
-	vTemp = etnaviv_get_scratch_argb(pScreen, ppPixTemp,
-					 clip_temp.x2, clip_temp.y2);
-	if (!vTemp)
-		return FALSE;
-
 	/*
 	 * Get the source.  The source image will be described by vSrc with
 	 * origin src_topleft.  This may or may not be the temporary image,
 	 * and vSrc->pict_format describes its format, including whether the
 	 * alpha channel is valid.
 	 */
-	vSrc = etnaviv_acquire_src(etnaviv, pSrc, &clip_temp, ppPixTemp,
-				   vTemp, &src_topleft, FALSE);
+	vSrc = etnaviv_acquire_src(pScreen, pSrc, &clip_temp, ppPixTemp,
+				   &src_topleft, FALSE);
 	if (!vSrc)
 		return FALSE;
 
@@ -1619,16 +1632,12 @@ static int etnaviv_accel_composite_masked(PicturePtr pSrc, PicturePtr pMask,
 
 	/*
 	 * Get the source.  The source image will be described by vSrc with
-	 * origin src_topleft.  This may or may not be the temporary image,
-	 * and vSrc->pict_format describes its format, including whether the
-	 * alpha channel is valid.
-	 *
-	 * As we have a mask to process, we must have the source in our
-	 * temporary pixmap so we can blend the mask with it prior to
-	 * performing the final blend.
+	 * origin src_topleft.  This will always be the temporary image,
+	 * which will always have alpha - which is required for the final
+	 * blend.
 	 */
-	vSrc = etnaviv_acquire_src(etnaviv, pSrc, &clip_temp, ppPixTemp,
-				   vTemp, &src_topleft, TRUE);
+	vSrc = etnaviv_acquire_src(pScreen, pSrc, &clip_temp, ppPixTemp,
+				   &src_topleft, TRUE);
 	if (!vSrc)
 		goto fallback;
 
