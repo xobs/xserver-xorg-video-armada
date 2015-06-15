@@ -1525,7 +1525,7 @@ static int etnaviv_accel_composite_masked(PicturePtr pSrc, PicturePtr pMask,
 {
 	ScreenPtr pScreen = pDst->pDrawable->pScreen;
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
-	struct etnaviv_pixmap *vDst, *vSrc, *vMask, *vTemp = NULL;
+	struct etnaviv_pixmap *vDst, *vSrc, *vMask, *vTemp;
 	struct etnaviv_blend_op mask_op;
 	BoxRec clip_temp;
 	xPoint src_topleft, dst_offset, mask_offset;
@@ -1633,7 +1633,7 @@ static int etnaviv_accel_composite_masked(PicturePtr pSrc, PicturePtr pMask,
 	 * Blend the source (in the temporary pixmap) with the mask
 	 * via a InReverse op.
 	 */
-	if (!etnaviv_blend(etnaviv, &clip_temp, &mask_op, vTemp, vMask,
+	if (!etnaviv_blend(etnaviv, &clip_temp, &mask_op, vSrc, vMask,
 			   &clip_temp, 1, mask_offset, ZERO_OFFSET))
 		return FALSE;
 
@@ -1644,10 +1644,10 @@ finish:
 	src_topleft.y = -(yDst + dst_offset.y);
 
 	if (!gal_prepare_gpu(etnaviv, vDst, GPU_ACCESS_RW) ||
-	    !gal_prepare_gpu(etnaviv, vTemp, GPU_ACCESS_RO))
+	    !gal_prepare_gpu(etnaviv, vSrc, GPU_ACCESS_RO))
 		return FALSE;
 
-	final_op->src = INIT_BLIT_PIX(vTemp, vTemp->pict_format, src_topleft);
+	final_op->src = INIT_BLIT_PIX(vSrc, vSrc->pict_format, src_topleft);
 	final_op->dst = INIT_BLIT_PIX(vDst, vDst->pict_format, dst_offset);
 
 	return TRUE;
