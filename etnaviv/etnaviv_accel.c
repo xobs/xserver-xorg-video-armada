@@ -183,6 +183,9 @@ static Bool etnaviv_init_dst_drawable(struct etnaviv *etnaviv,
 	if (!op->dst.pixmap)
 		return FALSE;
 
+	if (!etnaviv_dst_format_valid(etnaviv, op->dst.pixmap->format))
+		return FALSE;
+
 	if (!gal_prepare_gpu(etnaviv, op->dst.pixmap, GPU_ACCESS_RW))
 		return FALSE;
 
@@ -199,6 +202,10 @@ static Bool etnaviv_init_dstsrc_drawable(struct etnaviv *etnaviv,
 	op->dst.pixmap = etnaviv_drawable_offset(pDst, &op->dst.offset);
 	op->src.pixmap = etnaviv_drawable_offset(pSrc, &op->src.offset);
 	if (!op->dst.pixmap || !op->src.pixmap)
+		return FALSE;
+
+	if (!etnaviv_src_format_valid(etnaviv, op->src.pixmap->format) ||
+	    !etnaviv_dst_format_valid(etnaviv, op->dst.pixmap->format))
 		return FALSE;
 
 	if (!gal_prepare_gpu(etnaviv, op->dst.pixmap, GPU_ACCESS_RW) ||
@@ -220,6 +227,9 @@ static Bool etnaviv_init_src_pixmap(struct etnaviv *etnaviv,
 {
 	op->src.pixmap = etnaviv_get_pixmap_priv(pix);
 	if (!op->src.pixmap)
+		return FALSE;
+
+	if (!etnaviv_src_format_valid(etnaviv, op->src.pixmap->format))
 		return FALSE;
 
 	if (!gal_prepare_gpu(etnaviv, op->src.pixmap, GPU_ACCESS_RO))
@@ -1658,6 +1668,8 @@ fallback:
 					 xSrc, ySrc, xMask, yMask,
 					 clip_temp.x2, clip_temp.y2))
 		return FALSE;
+
+	vSrc = vTemp;
 	goto finish;
 }
 
