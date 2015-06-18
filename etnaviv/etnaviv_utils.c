@@ -314,6 +314,9 @@ Bool etnaviv_dst_format_valid(struct etnaviv *etnaviv,
 	if (fmt.swizzle &&
 	    !VIV_FEATURE(etnaviv->conn, chipMinorFeatures0, 2DPE20))
 		return FALSE;
+	if (fmt.format == DE_FORMAT_A8 &&
+	    !VIV_FEATURE(etnaviv->conn, chipMinorFeatures0, 2D_A8_TARGET))
+		return FALSE;
 	return fmt.format != UNKNOWN_FORMAT;
 }
 
