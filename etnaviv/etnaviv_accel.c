@@ -1771,7 +1771,6 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 	struct etnaviv_de_op final_op;
 	PixmapPtr pPixTemp = NULL;
 	RegionRec region;
-	xPoint dst_offset;
 	int rc;
 
 #ifdef DEBUG_BLEND
@@ -1790,7 +1789,7 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 		return FALSE;
 
 	/* The destination pixmap must have a bo */
-	vDst = etnaviv_drawable_offset(pDst->pDrawable, &dst_offset);
+	vDst = etnaviv_drawable(pDst->pDrawable);
 	if (!vDst)
 		return FALSE;
 

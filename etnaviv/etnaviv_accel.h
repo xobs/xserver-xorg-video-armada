@@ -324,6 +324,12 @@ static inline struct etnaviv_pixmap *etnaviv_drawable_offset(
 	return etnaviv_get_pixmap_priv(pix);
 }
 
+static inline struct etnaviv_pixmap *etnaviv_drawable(DrawablePtr pDrawable)
+{
+	PixmapPtr pix = drawable_pixmap(pDrawable);
+	return etnaviv_get_pixmap_priv(pix);
+}
+
 static inline struct etnaviv *etnaviv_get_screen_priv(ScreenPtr pScreen)
 {
 	extern etnaviv_Key etnaviv_screen_index;

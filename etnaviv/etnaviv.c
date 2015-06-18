@@ -209,8 +209,7 @@ static struct etnaviv_pixmap *etnaviv_alloc_pixmap(PixmapPtr pixmap,
 /* Determine whether this GC and target Drawable can be accelerated */
 static Bool etnaviv_GC_can_accel(GCPtr pGC, DrawablePtr pDrawable)
 {
-	PixmapPtr pixmap = drawable_pixmap(pDrawable);
-	if (!etnaviv_get_pixmap_priv(pixmap))
+	if (!etnaviv_drawable(pDrawable))
 		return FALSE;
 
 	/* Must be full-planes */
