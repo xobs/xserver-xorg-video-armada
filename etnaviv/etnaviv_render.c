@@ -40,61 +40,46 @@
 #include "etnaviv_utils.h"
 #include "etnaviv_compat.h"
 
-static struct etnaviv_format etnaviv_pict_format(PictFormatShort format,
-	Bool force)
+static struct etnaviv_format etnaviv_pict_format(PictFormatShort fmt)
 {
-	switch (format) {
-#define DE_FORMAT_UNKNOWN UNKNOWN_FORMAT
-#define C(pf,vf,af,sw) case PICT_##pf: \
-	return (struct etnaviv_format){ \
-			.format = force ? DE_FORMAT_##af : DE_FORMAT_##vf, \
-			.swizzle = DE_SWIZZLE_##sw, \
-		}
+	unsigned int format, swizzle;
 
-	C(a8r8g8b8, 	A8R8G8B8,	A8R8G8B8,	ARGB);
-	C(x8r8g8b8, 	X8R8G8B8,	A8R8G8B8,	ARGB);
-	C(a8b8g8r8, 	A8R8G8B8,	A8R8G8B8,	ABGR);
-	C(x8b8g8r8, 	X8R8G8B8,	A8R8G8B8,	ABGR);
-	C(b8g8r8a8, 	A8R8G8B8,	A8R8G8B8,	BGRA);
-	C(b8g8r8x8, 	X8R8G8B8,	A8R8G8B8,	BGRA);
-	C(r5g6b5,	R5G6B5,		UNKNOWN,	ARGB);
-	C(b5g6r5,	R5G6B5,		UNKNOWN,	ABGR);
-	C(a1r5g5b5, 	A1R5G5B5,	A1R5G5B5,	ARGB);
-	C(x1r5g5b5, 	X1R5G5B5,	A1R5G5B5,	ARGB);
-	C(a1b5g5r5, 	A1R5G5B5,	A1R5G5B5,	ABGR);
-	C(x1b5g5r5, 	X1R5G5B5,	A1R5G5B5,	ABGR);
-	C(a4r4g4b4, 	A4R4G4B4,	A4R4G4B4,	ARGB);
-	C(x4r4g4b4, 	X4R4G4B4,	A4R4G4B4,	ARGB);
-	C(a4b4g4r4, 	A4R4G4B4,	A4R4G4B4,	ABGR);
-	C(x4b4g4r4, 	X4R4G4B4,	A4R4G4B4,	ABGR);
-	C(a8,		A8,		A8,		ARGB);
-	C(c8,		INDEX8,		INDEX8,		ARGB);
+	switch (fmt) {
+#define C(pf, vf, sw) case PICT_##pf:				\
+		format = DE_FORMAT_##vf;			\
+		swizzle = DE_SWIZZLE_##sw;			\
+		break
 
-/* The remainder we don't support */
-//	C(r8g8b8,	R8G8B8,		UNKNOWN,	ARGB);
-//	C(b8g8r8,	R8G8B8,		UNKNOWN,	ABGR);
-//	C(r3g3b2,	R3G3B2,		UNKNOWN);
-//	C(b2g3r3,	UNKNOWN,	UNKNOWN);
-//	C(a2r2g2b2, 	A2R2G2B2,	A2R2G2B2);
-//	C(a2b2g2r2, 	UNKNOWN,	A2R2G2B2);
-//	C(g8,		L8,		UNKNOWN);
-//	C(x4a4,		UNKNOWN,	UNKNOWN);
-//	C(x4c4,		UNKNOWN,	UNKNOWN); /* same value as c8 */
-//	C(x4g4,		UNKNOWN,	UNKNOWN); /* same value as g8 */
-//	C(a4,		A4,		A4);
-//	C(r1g2b1,	UNKNOWN,	UNKNOWN);
-//	C(b1g2r1,	UNKNOWN,	UNKNOWN);
-//	C(a1r1g1b1, 	UNKNOWN,	UNKNOWN);
-//	C(a1b1g1r1, 	UNKNOWN,	UNKNOWN);
-//	C(c4,		INDEX4,		UNKNOWN);
-//	C(g4,		L4,		UNKNOWN);
-//	C(a1,		A1,		A1);
-//	C(g1,		L1,		UNKNOWN);
-	default:
-		break;
-	}
-	return (struct etnaviv_format){ .format = UNKNOWN_FORMAT, .swizzle = 0 };
+	C(a8r8g8b8, 	A8R8G8B8,	ARGB);
+	C(x8r8g8b8, 	X8R8G8B8,	ARGB);
+	C(a8b8g8r8, 	A8R8G8B8,	ABGR);
+	C(x8b8g8r8, 	X8R8G8B8,	ABGR);
+	C(b8g8r8a8, 	A8R8G8B8,	BGRA);
+	C(b8g8r8x8, 	X8R8G8B8,	BGRA);
+	C(r5g6b5,	R5G6B5,		ARGB);
+	C(b5g6r5,	R5G6B5,		ABGR);
+	C(a1r5g5b5, 	A1R5G5B5,	ARGB);
+	C(x1r5g5b5, 	X1R5G5B5,	ARGB);
+	C(a1b5g5r5, 	A1R5G5B5,	ABGR);
+	C(x1b5g5r5, 	X1R5G5B5,	ABGR);
+	C(a4r4g4b4, 	A4R4G4B4,	ARGB);
+	C(x4r4g4b4, 	X4R4G4B4,	ARGB);
+	C(a4b4g4r4, 	A4R4G4B4,	ABGR);
+	C(x4b4g4r4, 	X4R4G4B4,	ABGR);
+	C(a8,		A8,		ARGB);
+	C(c8,		INDEX8,		ARGB);
 #undef C
+	/* Others are unsupported in hardware */
+	default:
+		return (struct etnaviv_format){
+			.format = UNKNOWN_FORMAT,
+		};
+	}
+
+	return (struct etnaviv_format){
+		.format = format,
+		.swizzle = swizzle,
+	};
 }
 
 #ifdef DEBUG_BLEND
@@ -242,7 +227,7 @@ static Bool etnaviv_blend(struct etnaviv *etnaviv, const BoxRec *clip,
 
 static void etnaviv_set_format(struct etnaviv_pixmap *vpix, PicturePtr pict)
 {
-	vpix->pict_format = etnaviv_pict_format(pict->format, FALSE);
+	vpix->pict_format = etnaviv_pict_format(pict->format);
 	vpix->pict_format.tile = vpix->format.tile;
 }
 
@@ -261,7 +246,7 @@ static struct etnaviv_pixmap *etnaviv_get_scratch_argb(ScreenPtr pScreen,
 		return NULL;
 
 	vpix = etnaviv_get_pixmap_priv(pixmap);
-	vpix->pict_format = etnaviv_pict_format(PICT_a8r8g8b8, FALSE);
+	vpix->pict_format = etnaviv_pict_format(PICT_a8r8g8b8);
 
 	*ppPixmap = pixmap;
 
@@ -1134,7 +1119,7 @@ static void etnaviv_accel_glyph_upload(ScreenPtr pScreen, PicturePtr pDst,
 		etnaviv_add_freemem(etnaviv, unode);
 
 		op.src = INIT_BLIT_BO(usr, pitch,
-				      etnaviv_pict_format(pSrc->format, FALSE),
+				      etnaviv_pict_format(pSrc->format),
 				      src_offset);
 	}
 
