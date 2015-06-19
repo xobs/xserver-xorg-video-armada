@@ -282,11 +282,16 @@ int viv_fence_finish(struct viv_conn *conn, uint32_t fence, uint32_t timeout)
 		.pipe = to_etna_viv_conn(conn)->etnadrm_pipe,
 		.fence = fence,
 	};
+	int ret;
 
 	etnadrm_convert_timeout(&req.timeout, timeout);
 
-	return drmCommandWrite(conn->fd, DRM_ETNAVIV_WAIT_FENCE,
-			       &req, sizeof(req));
+	ret = drmCommandWrite(conn->fd, DRM_ETNAVIV_WAIT_FENCE, &req,
+			      sizeof(req));
+	if (ret == 0)
+		conn->last_fence_id = fence;
+
+	return ret;
 }
 
 struct etna_bo {
@@ -817,6 +822,7 @@ int etna_finish(struct etna_ctx *ctx)
 
 int _etna_reserve_internal(struct etna_ctx *ctx, size_t n)
 {
+	uint32_t next_fence;
 	int next, ret;
 
 	assert((ctx->offset * 4 + END_COMMIT_CLEARANCE) <= COMMAND_BUFFER_SIZE);
@@ -833,10 +839,13 @@ int _etna_reserve_internal(struct etna_ctx *ctx, size_t n)
 
 	next = (ctx->cur_buf + 1) % NUM_COMMAND_BUFFERS;
 
-	ret = viv_fence_finish(ctx->conn, ctx->cmdbufi[next].sig_id,
-				VIV_WAIT_INDEFINITE);
-	if (ret)
-		return ETNA_INTERNAL_ERROR;
+	next_fence = ctx->cmdbufi[next].sig_id;
+	if (VIV_FENCE_BEFORE(ctx->conn->last_fence_id, next_fence)) {
+		ret = viv_fence_finish(ctx->conn, next_fence,
+				       VIV_WAIT_INDEFINITE);
+		if (ret)
+			return ETNA_INTERNAL_ERROR;
+	}
 
 	ctx->cmdbuf[next]->start = 0;
 	ctx->cmdbuf[next]->offset = BEGIN_COMMIT_CLEARANCE;
