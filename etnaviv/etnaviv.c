@@ -34,13 +34,13 @@
 #include "cpu_access.h"
 #include "fbutil.h"
 #include "gal_extension.h"
-#include "glyph_cache.h"
 #include "mark.h"
 #include "pixmaputil.h"
 #include "unaccel.h"
 
 #include "etnaviv_accel.h"
 #include "etnaviv_dri2.h"
+#include "etnaviv_render.h"
 #include "etnaviv_utils.h"
 #include "etnaviv_xv.h"
 
@@ -479,23 +479,11 @@ static Bool etnaviv_CloseScreen(CLOSE_SCREEN_ARGS_DECL)
 {
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
-#ifdef RENDER
-	PictureScreenPtr ps = GetPictureScreenIfSet(pScreen);
-#endif
 	PixmapPtr pixmap;
 
 	DeleteCallback(&FlushCallback, etnaviv_flush_callback, pScrn);
 
-#ifdef RENDER
-	/* Restore the Pointers */
-	ps->Composite = etnaviv->Composite;
-	ps->Glyphs = etnaviv->Glyphs;
-	ps->UnrealizeGlyph = etnaviv->UnrealizeGlyph;
-	ps->Triangles = etnaviv->Triangles;
-	ps->Trapezoids = etnaviv->Trapezoids;
-	ps->AddTriangles = etnaviv->AddTriangles;
-	ps->AddTraps = etnaviv->AddTraps;
-#endif
+	etnaviv_render_close_screen(pScreen);
 
 	pScreen->CloseScreen = etnaviv->CloseScreen;
 	pScreen->GetImage = etnaviv->GetImage;
@@ -859,77 +847,6 @@ static void etnaviv_BlockHandler(BLOCKHANDLER_ARGS_DECL)
 		etnaviv_free_usermem(etnaviv);
 }
 
-#ifdef RENDER
-static void
-etnaviv_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask, PicturePtr pDst,
-	INT16 xSrc, INT16 ySrc, INT16 xMask, INT16 yMask, INT16 xDst, INT16 yDst,
-	CARD16 width, CARD16 height)
-{
-	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pDst->pDrawable->pScreen);
-	Bool ret;
-
-	if (!etnaviv->force_fallback) {
-		ret = etnaviv_accel_Composite(op, pSrc, pMask, pDst,
-					      xSrc, ySrc, xMask, yMask,
-					      xDst, yDst, width, height);
-		if (ret)
-			return;
-	}
-	unaccel_Composite(op, pSrc, pMask, pDst, xSrc, ySrc,
-			  xMask, yMask, xDst, yDst, width, height);
-}
-
-static void etnaviv_Glyphs(CARD8 op, PicturePtr pSrc, PicturePtr pDst,
-	PictFormatPtr maskFormat, INT16 xSrc, INT16 ySrc, int nlist,
-	GlyphListPtr list, GlyphPtr * glyphs)
-{
-	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pDst->pDrawable->pScreen);
-
-	if (etnaviv->force_fallback ||
-	    !etnaviv_accel_Glyphs(op, pSrc, pDst, maskFormat,
-				  xSrc, ySrc, nlist, list, glyphs))
-		unaccel_Glyphs(op, pSrc, pDst, maskFormat,
-			       xSrc, ySrc, nlist, list, glyphs);
-}
-
-static const unsigned glyph_formats[] = {
-	PICT_a8r8g8b8,
-	PICT_a8,
-};
-
-static Bool etnaviv_CreateScreenResources(ScreenPtr pScreen)
-{
-	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
-	Bool ret;
-
-	pScreen->CreateScreenResources = etnaviv->CreateScreenResources;
-	ret = pScreen->CreateScreenResources(pScreen);
-	if (ret) {
-		size_t num = 1;
-
-		/*
-		 * If the 2D engine can do A8 targets, then enable
-		 * PICT_a8 for glyph cache acceleration.
-		 */
-		if (VIV_FEATURE(etnaviv->conn, chipMinorFeatures0,
-				2D_A8_TARGET)) {
-			xf86DrvMsg(etnaviv->scrnIndex, X_INFO,
-				   "etnaviv: A8 target supported\n");
-			num = 2;
-		} else {
-			xf86DrvMsg(etnaviv->scrnIndex, X_INFO,
-				   "etnaviv: A8 target not supported\n");
-		}
-
-		ret = glyph_cache_init(pScreen, etnaviv_accel_glyph_upload,
-				       glyph_formats, num,
-				       /* CREATE_PIXMAP_USAGE_TILE | */
-				       CREATE_PIXMAP_USAGE_GPU);
-	}
-	return ret;
-}
-#endif
-
 static Bool etnaviv_pre_init(ScrnInfoPtr pScrn, int drm_fd)
 {
 	struct etnaviv *etnaviv;
@@ -967,9 +884,6 @@ static Bool etnaviv_pre_init(ScrnInfoPtr pScrn, int drm_fd)
 static Bool etnaviv_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 {
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
-#ifdef RENDER
-	PictureScreenPtr ps = GetPictureScreenIfSet(pScreen);
-#endif
 	struct etnaviv *etnaviv = pScrn->privates[etnaviv_private_index].ptr;
 
 	if (!etnaviv_CreateKey(&etnaviv_pixmap_index, PRIVATE_PIXMAP) ||
@@ -1055,26 +969,8 @@ static Bool etnaviv_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 	etnaviv->BlockHandler = pScreen->BlockHandler;
 	pScreen->BlockHandler = etnaviv_BlockHandler;
 
-#ifdef RENDER
-	if (!etnaviv->force_fallback) {
-		etnaviv->CreateScreenResources = pScreen->CreateScreenResources;
-		pScreen->CreateScreenResources = etnaviv_CreateScreenResources;
-	}
+	etnaviv_render_screen_init(pScreen);
 
-	etnaviv->Composite = ps->Composite;
-	ps->Composite = etnaviv_Composite;
-	etnaviv->Glyphs = ps->Glyphs;
-	ps->Glyphs = etnaviv_Glyphs;
-	etnaviv->UnrealizeGlyph = ps->UnrealizeGlyph;
-	etnaviv->Triangles = ps->Triangles;
-	ps->Triangles = unaccel_Triangles;
-	etnaviv->Trapezoids = ps->Trapezoids;
-	ps->Trapezoids = unaccel_Trapezoids;
-	etnaviv->AddTriangles = ps->AddTriangles;
-	ps->AddTriangles = unaccel_AddTriangles;
-	etnaviv->AddTraps = ps->AddTraps;
-	ps->AddTraps = unaccel_AddTraps;
-#endif
 	return TRUE;
 
 fail_accel:

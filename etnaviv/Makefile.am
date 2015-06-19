@@ -22,6 +22,7 @@ ETNA_COMMON_SOURCES = \
 	etnaviv.c \
 	etnaviv_accel.c \
 	etnaviv_op.c \
+	etnaviv_render.c \
 	etnaviv_utils.c \
 	etnaviv_xv.c
 ETNA_COMMON_LIBADD = \
