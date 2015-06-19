@@ -23,12 +23,16 @@
 #include "compat-list.h"
 #include "utils.h"
 
-#define etnadrm_pipe last_fence_id
-
 struct etna_viv_conn {
 	struct viv_conn conn;
 	struct bo_cache cache;
+	unsigned int etnadrm_pipe;
 };
+
+static struct etna_viv_conn *to_etna_viv_conn(struct viv_conn *conn)
+{
+	return container_of(conn, struct etna_viv_conn, conn);
+}
 
 static void etna_bo_cache_free(struct bo_entry *be);
 
@@ -225,7 +229,7 @@ int viv_open(enum viv_hw_type hw_type, struct viv_conn **out)
 		}
 
 		if (found) {
-			conn->etnadrm_pipe = pipe;
+			ec->etnadrm_pipe = pipe;
 			break;
 		}
 	}
@@ -245,7 +249,7 @@ error:
 
 int viv_close(struct viv_conn *conn)
 {
-	struct etna_viv_conn *ec = container_of(conn, struct etna_viv_conn, conn);
+	struct etna_viv_conn *ec = to_etna_viv_conn(conn);
 
 	if (conn->fd < 0)
 		return -1;
@@ -275,7 +279,7 @@ static void etnadrm_convert_timeout(struct drm_etnaviv_timespec *ts,
 int viv_fence_finish(struct viv_conn *conn, uint32_t fence, uint32_t timeout)
 {
 	struct drm_etnaviv_wait_fence req = {
-		.pipe = conn->etnadrm_pipe,
+		.pipe = to_etna_viv_conn(conn)->etnadrm_pipe,
 		.fence = fence,
 	};
 
@@ -301,7 +305,7 @@ static int etna_bo_gem_wait(struct etna_bo *bo, uint32_t timeout)
 {
 	struct viv_conn *conn = bo->conn;
 	struct drm_etnaviv_gem_wait req = {
-		.pipe = conn->etnadrm_pipe,
+		.pipe = to_etna_viv_conn(conn)->etnadrm_pipe,
 		.handle = bo->handle,
 	};
 
@@ -349,7 +353,7 @@ static struct etna_bo *etna_bo_bucket_get(struct bo_bucket *bucket)
 
 int etna_bo_del(struct viv_conn *conn, struct etna_bo *mem, struct etna_queue *queue)
 {
-	struct etna_viv_conn *ec = container_of(conn, struct etna_viv_conn, conn);
+	struct etna_viv_conn *ec = to_etna_viv_conn(conn);
 
 	if (--mem->ref == 0) {
 		if (mem->cache.bucket)
@@ -406,7 +410,7 @@ static struct etna_bo *etna_bo_get(struct viv_conn *conn, size_t bytes,
 
 struct etna_bo *etna_bo_new(struct viv_conn *conn, size_t bytes, uint32_t flags)
 {
-	struct etna_viv_conn *ec = container_of(conn, struct etna_viv_conn, conn);
+	struct etna_viv_conn *ec = to_etna_viv_conn(conn);
 	struct bo_bucket *bucket = NULL;
 	struct etna_bo *bo;
 
@@ -752,7 +756,7 @@ int etna_flush(struct etna_ctx *ctx, uint32_t *fence_out)
 	cmd.nr_relocs = buf->num_relocs;
 
 	memset(&req, 0, sizeof(req));
-	req.pipe = ctx->conn->etnadrm_pipe;
+	req.pipe = to_etna_viv_conn(ctx->conn)->etnadrm_pipe;
 #if ETNAVIV_DATE == ETNAVIV_DATE_PENGUTRONIX
 	req.exec_state = ETNADRM_PIPE_2D;
 #endif
