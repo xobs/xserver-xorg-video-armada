@@ -103,26 +103,6 @@ static void etnaviv_batch_add(struct etnaviv *etnaviv,
 }
 
 
-Bool gal_prepare_gpu(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix,
-	enum gpu_access access)
-{
-#ifdef DEBUG_CHECK_DRAWABLE_USE
-	if (vPix->in_use) {
-		fprintf(stderr, "Trying to accelerate: %p %p %u\n",
-				vPix,
-				vPix->etna_bo ? (void *)vPix->etna_bo :
-						(void *)vPix->bo,
-				vPix->in_use);
-		return FALSE;
-	}
-#endif
-
-	if (!etnaviv_map_gpu(etnaviv, vPix, access))
-		return FALSE;
-
-	return TRUE;
-}
-
 static void etnaviv_blit_complete(struct etnaviv *etnaviv)
 {
 	etnaviv_de_end(etnaviv);
@@ -186,7 +166,7 @@ static Bool etnaviv_init_dst_drawable(struct etnaviv *etnaviv,
 	if (!etnaviv_dst_format_valid(etnaviv, op->dst.pixmap->format))
 		return FALSE;
 
-	if (!gal_prepare_gpu(etnaviv, op->dst.pixmap, GPU_ACCESS_RW))
+	if (!etnaviv_map_gpu(etnaviv, op->dst.pixmap, GPU_ACCESS_RW))
 		return FALSE;
 
 	op->dst.bo = op->dst.pixmap->etna_bo;
@@ -208,8 +188,8 @@ static Bool etnaviv_init_dstsrc_drawable(struct etnaviv *etnaviv,
 	    !etnaviv_dst_format_valid(etnaviv, op->dst.pixmap->format))
 		return FALSE;
 
-	if (!gal_prepare_gpu(etnaviv, op->dst.pixmap, GPU_ACCESS_RW) ||
-	    !gal_prepare_gpu(etnaviv, op->src.pixmap, GPU_ACCESS_RO))
+	if (!etnaviv_map_gpu(etnaviv, op->dst.pixmap, GPU_ACCESS_RW) ||
+	    !etnaviv_map_gpu(etnaviv, op->src.pixmap, GPU_ACCESS_RO))
 		return FALSE;
 
 	op->dst.bo = op->dst.pixmap->etna_bo;
@@ -232,7 +212,7 @@ static Bool etnaviv_init_src_pixmap(struct etnaviv *etnaviv,
 	if (!etnaviv_src_format_valid(etnaviv, op->src.pixmap->format))
 		return FALSE;
 
-	if (!gal_prepare_gpu(etnaviv, op->src.pixmap, GPU_ACCESS_RO))
+	if (!etnaviv_map_gpu(etnaviv, op->src.pixmap, GPU_ACCESS_RO))
 		return FALSE;
 
 	op->src.bo = op->src.pixmap->etna_bo;
@@ -1151,7 +1131,7 @@ static Bool etnaviv_fill_single(struct etnaviv *etnaviv,
 		.fg_colour = colour,
 	};
 
-	if (!gal_prepare_gpu(etnaviv, vPix, GPU_ACCESS_RW))
+	if (!etnaviv_map_gpu(etnaviv, vPix, GPU_ACCESS_RW))
 		return FALSE;
 
 	op.dst = INIT_BLIT_PIX(vPix, vPix->pict_format, ZERO_OFFSET);
@@ -1178,8 +1158,8 @@ static Bool etnaviv_blend(struct etnaviv *etnaviv, const BoxRec *clip,
 		.brush = FALSE,
 	};
 
-	if (!gal_prepare_gpu(etnaviv, vDst, GPU_ACCESS_RW) ||
-	    !gal_prepare_gpu(etnaviv, vSrc, GPU_ACCESS_RO))
+	if (!etnaviv_map_gpu(etnaviv, vDst, GPU_ACCESS_RW) ||
+	    !etnaviv_map_gpu(etnaviv, vSrc, GPU_ACCESS_RO))
 		return FALSE;
 
 	op.src = INIT_BLIT_PIX(vSrc, vSrc->pict_format, src_offset);
@@ -1456,7 +1436,7 @@ static Bool etnaviv_Composite_Clear(PicturePtr pDst, struct etnaviv_de_op *op)
 
 	vDst = etnaviv_drawable_offset(pDst->pDrawable, &dst_offset);
 
-	if (!gal_prepare_gpu(etnaviv, vDst, GPU_ACCESS_RW))
+	if (!etnaviv_map_gpu(etnaviv, vDst, GPU_ACCESS_RW))
 		return FALSE;
 
 	op->src = INIT_BLIT_PIX(vDst, vDst->pict_format, ZERO_OFFSET);
@@ -1526,8 +1506,8 @@ static int etnaviv_accel_composite_srconly(PicturePtr pSrc, PicturePtr pDst,
 	src_topleft.x -= xDst + dst_offset.x;
 	src_topleft.y -= yDst + dst_offset.y;
 
-	if (!gal_prepare_gpu(etnaviv, vDst, GPU_ACCESS_RW) ||
-	    !gal_prepare_gpu(etnaviv, vSrc, GPU_ACCESS_RO))
+	if (!etnaviv_map_gpu(etnaviv, vDst, GPU_ACCESS_RW) ||
+	    !etnaviv_map_gpu(etnaviv, vSrc, GPU_ACCESS_RO))
 		return FALSE;
 
 	final_op->src = INIT_BLIT_PIX(vSrc, vSrc->pict_format, src_topleft);
@@ -1662,8 +1642,8 @@ finish:
 	src_topleft.x = -(xDst + dst_offset.x);
 	src_topleft.y = -(yDst + dst_offset.y);
 
-	if (!gal_prepare_gpu(etnaviv, vDst, GPU_ACCESS_RW) ||
-	    !gal_prepare_gpu(etnaviv, vSrc, GPU_ACCESS_RO))
+	if (!etnaviv_map_gpu(etnaviv, vDst, GPU_ACCESS_RW) ||
+	    !etnaviv_map_gpu(etnaviv, vSrc, GPU_ACCESS_RO))
 		return FALSE;
 
 	final_op->src = INIT_BLIT_PIX(vSrc, vSrc->pict_format, src_topleft);
@@ -1971,7 +1951,7 @@ Bool etnaviv_accel_Glyphs(CARD8 final_op, PicturePtr pSrc, PicturePtr pDst,
 			PixmapPtr pPix = drawable_pixmap(grp->picture->pDrawable);
 			struct etnaviv_pixmap *v = etnaviv_get_pixmap_priv(pPix);
 
-			if (!gal_prepare_gpu(etnaviv, v, GPU_ACCESS_RO))
+			if (!etnaviv_map_gpu(etnaviv, v, GPU_ACCESS_RO))
 				goto destroy_picture;
 
 			if (pCurrent)
@@ -2097,7 +2077,7 @@ void etnaviv_accel_glyph_upload(ScreenPtr pScreen, PicturePtr pDst,
 
 	etnaviv_set_format(vdst, pDst);
 
-	if (!gal_prepare_gpu(etnaviv, vdst, GPU_ACCESS_RW))
+	if (!etnaviv_map_gpu(etnaviv, vdst, GPU_ACCESS_RW))
 		return;
 
 	op.dst = INIT_BLIT_PIX(vdst, vdst->pict_format, dst_offset);

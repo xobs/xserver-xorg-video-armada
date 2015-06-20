@@ -99,7 +99,14 @@ Bool etnaviv_map_gpu(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix,
 	uint32_t handle;
 
 #ifdef DEBUG_CHECK_DRAWABLE_USE
-	assert(vPix->in_use == 0);
+	if (vPix->in_use) {
+		fprintf(stderr, "Trying to accelerate: %p %p %u\n",
+				vPix,
+				vPix->etna_bo ? (void *)vPix->etna_bo :
+						(void *)vPix->bo,
+				vPix->in_use);
+		return FALSE;
+	}
 #endif
 
 	if (access == GPU_ACCESS_RO) {

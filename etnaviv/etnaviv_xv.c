@@ -7,7 +7,6 @@
  *  - does not use SRC_ORIGIN_FRACTION.
  *
  * Todo:
- *  - sort out gal_prepare_gpu() hack
  *  - sync with display (using drmWaitVBlank?)
  */
 #ifdef HAVE_CONFIG_H
@@ -40,9 +39,6 @@
 
 #include "etnaviv/etna_bo.h"
 #include "etnaviv/state_2d.xml.h"
-
-Bool gal_prepare_gpu(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix,
-	enum gpu_access access);
 
 /*
  * The Vivante GPU supports up to 32k x 32k, but that would be
@@ -474,7 +470,7 @@ static int etnaviv_PutImage(ScrnInfoPtr pScrn,
 	if (!vPix)
 		return BadMatch;
 
-	if (!gal_prepare_gpu(etnaviv, vPix, GPU_ACCESS_RW))
+	if (!etnaviv_map_gpu(etnaviv, vPix, GPU_ACCESS_RW))
 		return BadMatch;
 
 	if (is_xvbo)
