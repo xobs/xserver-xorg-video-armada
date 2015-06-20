@@ -117,17 +117,7 @@ static void etnaviv_blit_start(struct etnaviv *etnaviv,
 static void etnaviv_blit(struct etnaviv *etnaviv,
 	const struct etnaviv_de_op *op, const BoxRec *pBox, size_t nBox)
 {
-	while (nBox) {
-		size_t n = nBox;
-
-		if (n > VIVANTE_MAX_2D_RECTS)
-			n = VIVANTE_MAX_2D_RECTS;
-
-		etnaviv_de_op(etnaviv, op, pBox, n);
-
-		pBox += n;
-		nBox -= n;
-	}
+	etnaviv_de_op(etnaviv, op, pBox, nBox);
 }
 
 static void etnaviv_blit_clipped(struct etnaviv *etnaviv,

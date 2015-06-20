@@ -234,7 +234,6 @@ void etnaviv_de_op(struct etnaviv *etnaviv, const struct etnaviv_de_op *op,
 {
 	unsigned int high_wm = etnaviv->batch_de_high_watermark;
 
-	assert(nBox <= VIVANTE_MAX_2D_RECTS);
 	assert(nBox);
 
 	if (op->cmd == VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT &&
@@ -258,21 +257,35 @@ void etnaviv_de_op(struct etnaviv *etnaviv, const struct etnaviv_de_op *op,
 			EMIT(etnaviv, 0);
 		}		
 	} else {
-		unsigned int remaining = high_wm - etnaviv->batch_size;
+		unsigned int n;
 
-		if (etnaviv_size_2d_draw(etnaviv, nBox) + 6 > remaining) {
-			etnaviv_de_end(etnaviv);
-			BATCH_OP_START(etnaviv);
-		}
+		do {
+			unsigned int remaining = high_wm - etnaviv->batch_size;
 
-		etnaviv_emit_2d_draw(etnaviv, pBox, nBox, op->dst.offset);
+			if (remaining <= 8) {
+				etnaviv_de_end(etnaviv);
+				BATCH_OP_START(etnaviv);
+				continue;
+			}
 
-		EMIT_LOADSTATE(etnaviv, 4, 1);
-		EMIT(etnaviv, 0);
-		EMIT_LOADSTATE(etnaviv, 4, 1);
-		EMIT(etnaviv, 0);
-		EMIT_LOADSTATE(etnaviv, 4, 1);
-		EMIT(etnaviv, 0);
+			n = (remaining - 8) / 2;
+			if (n > VIVANTE_MAX_2D_RECTS)
+				n = VIVANTE_MAX_2D_RECTS;
+			if (n > nBox)
+				n = nBox;
+			
+			etnaviv_emit_2d_draw(etnaviv, pBox, n, op->dst.offset);
+
+			pBox += n;
+			nBox -= n;
+
+			EMIT_LOADSTATE(etnaviv, 4, 1);
+			EMIT(etnaviv, 0);
+			EMIT_LOADSTATE(etnaviv, 4, 1);
+			EMIT(etnaviv, 0);
+			EMIT_LOADSTATE(etnaviv, 4, 1);
+			EMIT(etnaviv, 0);
+		} while (nBox);
 	}
 }
 
