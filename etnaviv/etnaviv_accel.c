@@ -486,9 +486,11 @@ Bool etnaviv_accel_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int n,
 		ppt++;
 	}
 
-	etnaviv_blit_start(etnaviv, &op);
-	etnaviv_blit(etnaviv, &op, boxes, b - boxes);
-	etnaviv_blit_complete(etnaviv);
+	if (b != boxes) {
+		etnaviv_blit_start(etnaviv, &op);
+		etnaviv_blit(etnaviv, &op, boxes, b - boxes);
+		etnaviv_blit_complete(etnaviv);
+	}
 
 	free(boxes);
 
