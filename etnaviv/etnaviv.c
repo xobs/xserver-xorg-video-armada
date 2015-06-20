@@ -169,7 +169,6 @@ static void etnaviv_free_pixmap(PixmapPtr pixmap)
 			 * operations.  Place it on the busy_free_list.
 			 */
 			xorg_list_append(&vPix->busy_node, &etnaviv->busy_free_list);
-			vPix->free_time = currentTime.milliseconds;
 			break;
 		}
 	}

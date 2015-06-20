@@ -135,7 +135,6 @@ struct etnaviv_pixmap {
 	struct xorg_list batch_node;
 	struct xorg_list busy_node;
 	uint32_t fence;
-	CARD32 free_time;
 	viv_usermem_t info;
 
 	uint8_t batch_state;
