@@ -102,8 +102,7 @@ static void etnaviv_batch_add(struct etnaviv *etnaviv,
 	}
 }
 
-
-static void etnaviv_blit_start(struct etnaviv *etnaviv,
+void etnaviv_batch_start(struct etnaviv *etnaviv,
 	const struct etnaviv_de_op *op)
 {
 	if (op->src.pixmap)
@@ -466,7 +465,7 @@ Bool etnaviv_accel_FillSpans(DrawablePtr pDrawable, GCPtr pGC, int n,
 	}
 
 	if (b != boxes) {
-		etnaviv_blit_start(etnaviv, &op);
+		etnaviv_batch_start(etnaviv, &op);
 		etnaviv_de_op(etnaviv, &op, boxes, b - boxes);
 		etnaviv_de_end(etnaviv);
 	}
@@ -604,7 +603,7 @@ void etnaviv_accel_CopyNtoN(DrawablePtr pSrc, DrawablePtr pDst,
 	op.cmd = VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT;
 	op.brush = FALSE;
 
-	etnaviv_blit_start(etnaviv, &op);
+	etnaviv_batch_start(etnaviv, &op);
 	etnaviv_blit_clipped(etnaviv, &op, pBox, nBox);
 	etnaviv_de_end(etnaviv);
 
@@ -668,7 +667,7 @@ Bool etnaviv_accel_PolyPoint(DrawablePtr pDrawable, GCPtr pGC, int mode,
 	if (RegionNumRects(&region)) {
 		op.clip = RegionExtents(&region);
 
-		etnaviv_blit_start(etnaviv, &op);
+		etnaviv_batch_start(etnaviv, &op);
 		etnaviv_de_op(etnaviv, &op, RegionRects(&region),
 			      RegionNumRects(&region));
 		etnaviv_de_end(etnaviv);
@@ -756,7 +755,7 @@ Bool etnaviv_accel_PolyLines(DrawablePtr pDrawable, GCPtr pGC, int mode,
 
 		if (b != boxes) {
 			op.clip = box;
-			etnaviv_blit_start(etnaviv, &op);
+			etnaviv_batch_start(etnaviv, &op);
 			etnaviv_de_op(etnaviv, &op, boxes, b - boxes);
 			etnaviv_de_end(etnaviv);
 		}
@@ -833,7 +832,7 @@ Bool etnaviv_accel_PolySegment(DrawablePtr pDrawable, GCPtr pGC, int nseg,
 
 		if (b != boxes) {
 			op.clip = box;
-			etnaviv_blit_start(etnaviv, &op);
+			etnaviv_batch_start(etnaviv, &op);
 			etnaviv_de_op(etnaviv, &op, boxes, b - boxes);
 			etnaviv_de_end(etnaviv);
 		}
@@ -866,7 +865,7 @@ Bool etnaviv_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 	op.clip = RegionExtents(clip);
 	op.cmd = VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT;
 
-	etnaviv_blit_start(etnaviv, &op);
+	etnaviv_batch_start(etnaviv, &op);
 
 	chunk = VIVANTE_MAX_2D_RECTS;
 	nb = 0;
@@ -947,7 +946,7 @@ Bool etnaviv_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 
 			op.clip = pBox;
 
-			etnaviv_blit_start(etnaviv, &op);
+			etnaviv_batch_start(etnaviv, &op);
 
 			dst_y = pBox->y1;
 			height = pBox->y2 - dst_y;
@@ -1117,7 +1116,7 @@ static Bool etnaviv_fill_single(struct etnaviv *etnaviv,
 
 	op.dst = INIT_BLIT_PIX(vPix, vPix->pict_format, ZERO_OFFSET);
 
-	etnaviv_blit_start(etnaviv, &op);
+	etnaviv_batch_start(etnaviv, &op);
 	etnaviv_de_op(etnaviv, &op, clip, 1);
 	etnaviv_de_end(etnaviv);
 
@@ -1146,7 +1145,7 @@ static Bool etnaviv_blend(struct etnaviv *etnaviv, const BoxRec *clip,
 	op.src = INIT_BLIT_PIX(vSrc, vSrc->pict_format, src_offset);
 	op.dst = INIT_BLIT_PIX(vDst, vDst->pict_format, dst_offset);
 
-	etnaviv_blit_start(etnaviv, &op);
+	etnaviv_batch_start(etnaviv, &op);
 	etnaviv_de_op(etnaviv, &op, pBox, nBox);
 	etnaviv_de_end(etnaviv);
 
@@ -1845,7 +1844,7 @@ int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
 			  "A-FDST%2.2x-%p", op, pDst);
 #endif
 
-		etnaviv_blit_start(etnaviv, &final_op);
+		etnaviv_batch_start(etnaviv, &final_op);
 		etnaviv_de_op(etnaviv, &final_op, RegionRects(&region),
 			      RegionNumRects(&region));
 		etnaviv_de_end(etnaviv);
@@ -1944,7 +1943,7 @@ Bool etnaviv_accel_Glyphs(CARD8 final_op, PicturePtr pSrc, PicturePtr pDst,
 
 			pCurrent = grp->picture;
 
-			etnaviv_blit_start(etnaviv, &op);
+			etnaviv_batch_start(etnaviv, &op);
 		}
 
 		prefetch(grp + 1);
@@ -2069,7 +2068,7 @@ void etnaviv_accel_glyph_upload(ScreenPtr pScreen, PicturePtr pDst,
 	op.cmd = VIVS_DE_DEST_CONFIG_COMMAND_BIT_BLT;
 	op.brush = FALSE;
 
-	etnaviv_blit_start(etnaviv, &op);
+	etnaviv_batch_start(etnaviv, &op);
 	etnaviv_de_op(etnaviv, &op, &box, 1);
 	etnaviv_de_end(etnaviv);
 }

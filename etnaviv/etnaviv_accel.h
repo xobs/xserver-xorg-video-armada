@@ -225,6 +225,8 @@ void etnaviv_finish_fences(struct etnaviv *etnaviv, uint32_t fence);
 void etnaviv_free_busy_vpix(struct etnaviv *etnaviv);
 
 void etnaviv_batch_wait_commit(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix);
+void etnaviv_batch_start(struct etnaviv *etnaviv,
+	const struct etnaviv_de_op *op);
 
 void etnaviv_accel_shutdown(struct etnaviv *);
 Bool etnaviv_accel_init(struct etnaviv *);
