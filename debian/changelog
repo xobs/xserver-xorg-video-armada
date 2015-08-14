@@ -1,3 +1,9 @@
+xf86-video-armada (0.0.1-r12) unstable; urgency=medium
+
+  * Pull upstream support for xvbos
+
+ -- Sean Cross <xobs@kosagi.com>  Fri, 14 Aug 2015 15:43:10 +0800
+
 xf86-video-armada (0.0.1-r11) unstable; urgency=medium
 
   * Pull newest upstream code
