@@ -19,6 +19,7 @@
 #include "bo-cache.h"
 #include "etnadrm.h"
 #include "etnaviv_drm.h"
+#include "etnaviv_compat.h"
 #include "compat-list.h"
 #include "utils.h"
 
@@ -435,16 +436,59 @@ struct etna_bo *etna_bo_new(struct viv_conn *conn, size_t bytes, uint32_t flags)
 struct etna_bo *etna_bo_from_dmabuf(struct viv_conn *conn, int fd, int prot)
 {
 	struct etna_bo *mem;
+	off_t size;
 	int err;
 
 	mem = etna_bo_alloc(conn);
 	if (!mem)
 		return NULL;
 
+	size = lseek(fd, 0, SEEK_END);
+	if (size == (off_t)-1) {
+		free(mem);
+		return NULL;
+	}
+
+	mem->size = size;
+
 	err = drmPrimeFDToHandle(conn->fd, fd, &mem->handle);
 	if (err) {
 		free(mem);
 		mem = NULL;
+	}
+	return mem;
+}
+
+int etna_bo_to_dmabuf(struct viv_conn *conn, struct etna_bo *mem)
+{
+	int err, fd;
+
+	err = drmPrimeHandleToFD(conn->fd, mem->handle, 0, &fd);
+	if (err < 0)
+		return -1;
+
+	return fd;
+}
+
+struct etna_bo *etna_bo_from_name(struct viv_conn *conn, uint32_t name)
+{
+	struct etna_bo *mem;
+	struct drm_gem_open req;
+	int err;
+
+	mem = etna_bo_alloc(conn);
+	if (!mem)
+		return NULL;
+
+	memset(&req, 0, sizeof(req));
+	req.name = name;
+	err = drmIoctl(conn->fd, DRM_IOCTL_GEM_OPEN, &req);
+	if (err < 0) {
+		free(mem);
+		mem = NULL;
+	} else {
+		mem->handle = req.handle;
+		mem->size = req.size;
 	}
 	return mem;
 }
@@ -490,6 +534,7 @@ struct etna_bo *etna_bo_from_usermem_prot(struct viv_conn *conn, void *memory, s
 		free(mem);
 		mem = NULL;
 	} else {
+		mem->size = size;
 		mem->handle = req.handle;
 		mem->is_usermem = TRUE;
 	}
@@ -525,6 +570,11 @@ uint32_t etna_bo_handle(struct etna_bo *bo)
 	 */
 	bo->cache.bucket = NULL;
 	return bo->handle;
+}
+
+uint32_t etna_bo_size(struct etna_bo *bo)
+{
+	return bo->size;
 }
 
 

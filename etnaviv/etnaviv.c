@@ -1028,6 +1028,7 @@ static Bool etnaviv_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 		} else if (!etnaviv_dri2_ScreenInit(pScreen, dri_fd, name)) {
 			xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
 				   "direct rendering: failed\n");
+			etnaviv->dri2_enabled = FALSE;
 		} else {
 			xf86DrvMsg(pScrn->scrnIndex, X_INFO,
 				   "direct rendering: DRI2 enabled\n");
@@ -1154,6 +1155,32 @@ static void etnaviv_attach_name(ScreenPtr pScreen, PixmapPtr pPixmap,
 		vPix->name = name;
 }
 
+static int etnaviv_export_name(ScreenPtr pScreen, uint32_t name)
+{
+	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
+	struct etna_bo *bo;
+	int fd;
+
+	bo = etna_bo_from_name(etnaviv->conn, name);
+	if (!bo) {
+		xf86DrvMsg(etnaviv->scrnIndex, X_ERROR,
+			   "etna_bo_from_name failed: 0x%08x: %s\n",
+			   name, strerror(errno));
+		return -1;
+	}
+
+	fd = etna_bo_to_dmabuf(etnaviv->conn, bo);
+	etna_bo_del(etnaviv->conn, bo, NULL);
+	if (fd < 0) {
+		xf86DrvMsg(etnaviv->scrnIndex, X_ERROR,
+			   "etna_bo_to_dmabuf failed: %s\n",
+			   strerror(errno));
+		return -1;
+	}
+
+	return fd;
+}
+
 const struct armada_accel_ops etnaviv_ops = {
 	.pre_init	= etnaviv_pre_init,
 	.screen_init	= etnaviv_ScreenInit,
@@ -1161,4 +1188,5 @@ const struct armada_accel_ops etnaviv_ops = {
 	.attach_name	= etnaviv_attach_name,
 	.free_pixmap	= etnaviv_free_pixmap,
 	.xv_init	= etnaviv_xv_init,
+	.export_name	= etnaviv_export_name,
 };

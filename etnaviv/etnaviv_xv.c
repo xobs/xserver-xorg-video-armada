@@ -30,6 +30,7 @@
 #include "xv_image_format.h"
 #include "xvbo.h"
 
+#include "armada_accel.h"
 #include "common_drm_helper.h"
 
 #include "etnaviv_accel.h"
@@ -456,7 +457,7 @@ static int etnaviv_PutImage(ScrnInfoPtr pScrn,
 	BoxRec dst;
 	xPoint dst_offset;
 	INT32 x1, x2, y1, y2;
-	Bool is_bo = id == FOURCC_XVBO;
+	Bool is_xvbo = id == FOURCC_XVBO;
 	int s_w, s_h, xoff;
 
 	dst.x1 = drw_x;
@@ -476,7 +477,7 @@ static int etnaviv_PutImage(ScrnInfoPtr pScrn,
 	if (!gal_prepare_gpu(etnaviv, vPix, GPU_ACCESS_RW))
 		return BadMatch;
 
-	if (is_bo)
+	if (is_xvbo)
 		/*
 		 * XVBO support allows applications to prepare the DRM
 		 * buffer object themselves, and pass a global name to
@@ -509,20 +510,19 @@ static int etnaviv_PutImage(ScrnInfoPtr pScrn,
 			crtc = NULL;
 	}
 
-	if (is_bo) {
+	if (is_xvbo) {
 		uint32_t name = ((uint32_t *)buf)[1];
 
-		/*
-		 * usr = etna_bo_from_name(etnaviv->conn, name);
-		 */
-		usr = NULL;
-		if (!usr || name)
+		usr = etna_bo_from_name(etnaviv->conn, name);
+		if (!usr)
 			return BadAlloc;
 
 		if (etna_bo_size(usr) < priv->size) {
 			etna_bo_del(etnaviv->conn, usr, NULL);
 			return BadAlloc;
 		}
+
+		xoff = 0;
 	} else {
 		/* The GPU alignment offset of the buffer. */
 		xoff = (uintptr_t)buf & 63;
@@ -795,7 +795,7 @@ static Bool etnaviv_xv_CloseScreen(CLOSE_SCREEN_ARGS_DECL)
 	return pScreen->CloseScreen(CLOSE_SCREEN_ARGS);
 }
 
-XF86VideoAdaptorPtr etnaviv_xv_init(ScreenPtr pScreen)
+XF86VideoAdaptorPtr etnaviv_xv_init(ScreenPtr pScreen, unsigned int *caps)
 {
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
@@ -805,6 +805,15 @@ XF86VideoAdaptorPtr etnaviv_xv_init(ScreenPtr pScreen)
 	DevUnion *devUnions;
 	Bool has_yuy2;
 	unsigned nports = 16, i, num_images;
+
+#ifdef HAVE_DRI2
+	if (etnaviv->dri2_enabled) {
+		if (etnaviv->dri2_armada)
+			*caps = XVBO_CAP_KMS_DRM;
+		else
+			*caps = XVBO_CAP_GPU_DRM;
+	}
+#endif
 
 	etnaviv_init_filter_kernel();
 
@@ -832,6 +841,10 @@ XF86VideoAdaptorPtr etnaviv_xv_init(ScreenPtr pScreen)
 
 		/* Omit formats the hardware is unable to process */
 		if (f && !etnaviv_src_format_valid(etnaviv, *f))
+			continue;
+
+		if (fmt->xv_image.format == FOURCC_XVBO &&
+		    !etnaviv->dri2_enabled)
 			continue;
 
 		images[num_images++] = fmt->xv_image;
