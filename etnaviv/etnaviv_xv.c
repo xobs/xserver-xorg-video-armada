@@ -163,7 +163,7 @@ static XF86AttributeRec etnaviv_xv_attributes[] = {
 	[attr_encoding] = {
 		.flags = XvSettable | XvGettable,
 		.min_value = 0,
-		.max_value = 0,
+		.max_value = 1,
 		.name = "XV_ENCODING",
 	},
 	[attr_pipe] = {

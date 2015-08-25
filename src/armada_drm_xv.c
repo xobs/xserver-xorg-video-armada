@@ -237,7 +237,7 @@ static int armada_drm_get_ignore(ScrnInfoPtr pScrn,
  * seems not many drivers follow that requirement.
  */
 static XF86AttributeRec OverlayAttributes[] = {
-	{ XvSettable | XvGettable, 0,      0,          "XV_ENCODING" },
+	{ XvSettable | XvGettable, 0,      1,          "XV_ENCODING" },
 	{ XvSettable | XvGettable, -16384, 16383,      "XV_SATURATION" },
 	{ XvSettable | XvGettable, -256,   255,        "XV_BRIGHTNESS" },
 	{ XvSettable | XvGettable, -16384, 16383,      "XV_CONTRAST" },
