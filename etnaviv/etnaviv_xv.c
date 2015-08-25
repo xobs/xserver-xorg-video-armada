@@ -133,9 +133,9 @@ static uint32_t xv_filter_kernel[KERNEL_STATE_SZ];
 
 enum {
 	attr_sync_to_vblank,
-	attr_last_prop,
-	attr_pipe = attr_last_prop,
 	attr_encoding,
+	attr_pipe,
+	attr_last_prop,
 };
 
 struct etnaviv_xv_priv {
