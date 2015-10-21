@@ -27,6 +27,7 @@ struct etna_viv_conn {
 	struct viv_conn conn;
 	struct bo_cache cache;
 	unsigned int etnadrm_pipe;
+	unsigned int api_date;
 };
 
 static struct etna_viv_conn *to_etna_viv_conn(struct viv_conn *conn)
@@ -180,12 +181,14 @@ int viv_open(enum viv_hw_type hw_type, struct viv_conn **out)
 		 version->date);
 
 	/*
-	 * Check the date code.  We have two differing APIs, and their
-	 * only identifying feature is the date code.  20150302 is
-	 * Pengutronix's version.
+	 * Read the driver date code, which will tell us which API to use.
+	 * We have three APIs at present, which can be identified via the
+	 * date code:
+	 *   20130625 and earlier are the original APIs
+	 *   20150302 is revision 1 of Pengutronix's API
+	 *   20150910 is revision 2 of Pengutronix's API
 	 */
-	if (strcmp(version->date, ETNAVIV_DATE_STR))
-		goto error;
+	ec->api_date = atoi(version->date);
 
 	conn->base_address = 0;
 
@@ -593,7 +596,7 @@ struct _gcoCMDBUF {
 	unsigned offset;
 	unsigned num_relocs;
 	unsigned max_relocs;
-	struct drm_etnaviv_gem_submit_reloc *relocs;
+	void *relocs;
 	unsigned num_bos;
 	unsigned max_bos;
 	struct drm_etnaviv_gem_submit_bo *bos;
@@ -632,20 +635,37 @@ int etna_create(struct viv_conn *conn, struct etna_ctx **out)
 	ctx->cur_buf = ETNA_NO_BUFFER;
 
 	for (i = 0; i < NUM_COMMAND_BUFFERS; i++) {
+		ctx->cmdbuf[i] = calloc(1, sizeof *ctx->cmdbuf[i]);
+		if (!ctx->cmdbuf[i])
+			goto error;
+		xorg_list_init(&ctx->cmdbuf[i]->bo_head);
+	}
+
+	if (to_etna_viv_conn(ctx->conn)->api_date < ETNAVIV_DATE_PENGUTRONIX2) {
 		void *buf;
 
-		ctx->cmdbuf[i] = calloc(1, sizeof *ctx->cmdbuf[i]);
-		ctx->cmdbufi[i].bo = etna_bo_new(conn, COMMAND_BUFFER_SIZE,
-						 DRM_ETNA_GEM_TYPE_CMD);
-		if (!ctx->cmdbuf[i] || !ctx->cmdbufi[i].bo)
-			goto error;
+		for (i = 0; i < NUM_COMMAND_BUFFERS; i++) {
+			ctx->cmdbufi[i].bo = etna_bo_new(conn, COMMAND_BUFFER_SIZE,
+							 DRM_ETNA_GEM_TYPE_CMD);
+			if (!ctx->cmdbufi[i].bo)
+				goto error;
 
-		buf = etna_bo_map(ctx->cmdbufi[i].bo);
-		if (!buf)
-			goto error;
+			buf = etna_bo_map(ctx->cmdbufi[i].bo);
+			if (!buf)
+				goto error;
 
-		ctx->cmdbuf[i]->logical = buf;
-		xorg_list_init(&ctx->cmdbuf[i]->bo_head);
+			ctx->cmdbuf[i]->logical = buf;
+		}
+	} else {
+		void *buf;
+
+		for (i = 0; i < NUM_COMMAND_BUFFERS; i++) {
+			buf = malloc(COMMAND_BUFFER_SIZE);
+			if (!buf)
+				goto error;
+
+			ctx->cmdbuf[i]->logical = buf;
+		}
 	}
 
 	*out = ctx;
@@ -729,28 +749,19 @@ static int etna_reloc_bo_index(struct etna_ctx *ctx, struct etna_bo *mem,
 	return mem->bo_idx;
 }
 
-int etna_flush(struct etna_ctx *ctx, uint32_t *fence_out)
+static int etna_do_flush_r20130625(struct etna_ctx *ctx, uint32_t *fence_out)
 {
-	struct drm_etnaviv_gem_submit_cmd cmd;
+	struct drm_etnaviv_gem_submit_cmd_r20130625 cmd;
+	struct drm_etnaviv_gem_submit_r20130625 req;
 	struct _gcoCMDBUF *buf;
-	struct drm_etnaviv_gem_submit req;
-	struct etna_bo *i, *n;
 	int index, ret;
-
-	if (!ctx)
-		return ETNA_INVALID_ADDR;
-
-	if (ctx->cur_buf == ETNA_CTX_BUFFER)
-		return ETNA_INTERNAL_ERROR;
-	if (ctx->cur_buf == ETNA_NO_BUFFER)
-		return 0;
-
-	buf = ctx->cmdbuf[ctx->cur_buf];
 
 	index = etna_reloc_bo_index(ctx, ctx->cmdbufi[ctx->cur_buf].bo,
 				    ETNA_SUBMIT_BO_READ);
 	if (index < 0)
 		return ETNA_INTERNAL_ERROR;
+
+	buf = ctx->cmdbuf[ctx->cur_buf];
 
 	memset(&cmd, 0, sizeof(cmd));
 	cmd.type = ETNA_SUBMIT_CMD_BUF;
@@ -762,9 +773,6 @@ int etna_flush(struct etna_ctx *ctx, uint32_t *fence_out)
 
 	memset(&req, 0, sizeof(req));
 	req.pipe = to_etna_viv_conn(ctx->conn)->etnadrm_pipe;
-#if ETNAVIV_DATE == ETNAVIV_DATE_PENGUTRONIX
-	req.exec_state = ETNADRM_PIPE_2D;
-#endif
 	req.cmds = (uintptr_t)&cmd;
 	req.nr_cmds = 1;
 	req.bos = (uintptr_t)buf->bos;
@@ -772,15 +780,107 @@ int etna_flush(struct etna_ctx *ctx, uint32_t *fence_out)
 
 	ret = drmCommandWriteRead(ctx->conn->fd, DRM_ETNAVIV_GEM_SUBMIT,
 				  &req, sizeof(req));
+
+	if (ret == 0 && fence_out)
+		*fence_out = req.fence;
+
+	return ret;
+}
+
+static int etna_do_flush_r20150302(struct etna_ctx *ctx, uint32_t *fence_out)
+{
+	struct drm_etnaviv_gem_submit_cmd_r20150302 cmd;
+	struct drm_etnaviv_gem_submit_r20150302 req;
+	struct _gcoCMDBUF *buf;
+	int ret, index;
+
+	index = etna_reloc_bo_index(ctx, ctx->cmdbufi[ctx->cur_buf].bo,
+				    ETNA_SUBMIT_BO_READ);
+	if (index < 0)
+		return ETNA_INTERNAL_ERROR;
+
+	buf = ctx->cmdbuf[ctx->cur_buf];
+
+	memset(&cmd, 0, sizeof(cmd));
+	cmd.type = ETNA_SUBMIT_CMD_BUF;
+	cmd.submit_idx = index;
+	cmd.submit_offset = buf->offset;
+	cmd.size = ctx->offset * 4 - buf->offset;
+	cmd.relocs = (uintptr_t)buf->relocs;
+	cmd.nr_relocs = buf->num_relocs;
+
+	memset(&req, 0, sizeof(req));
+	req.pipe = to_etna_viv_conn(ctx->conn)->etnadrm_pipe;
+	req.exec_state = ETNADRM_PIPE_2D;
+	req.cmds = (uintptr_t)&cmd;
+	req.nr_cmds = 1;
+	req.bos = (uintptr_t)buf->bos;
+	req.nr_bos = buf->num_bos;
+
+	ret = drmCommandWriteRead(ctx->conn->fd, DRM_ETNAVIV_GEM_SUBMIT,
+				  &req, sizeof(req));
+	if (ret == 0 && fence_out)
+		*fence_out = req.fence;
+
+	return ret;
+}
+
+static int etna_do_flush_r20150910(struct etna_ctx *ctx, uint32_t *fence_out)
+{
+	struct drm_etnaviv_gem_submit_r20150910 req;
+	struct _gcoCMDBUF *buf;
+	int ret;
+
+	buf = ctx->cmdbuf[ctx->cur_buf];
+
+	memset(&req, 0, sizeof(req));
+	req.pipe = to_etna_viv_conn(ctx->conn)->etnadrm_pipe;
+	req.exec_state = ETNADRM_PIPE_2D;
+	req.nr_bos = buf->num_bos;
+	req.nr_relocs = buf->num_relocs;
+	req.stream_size = ctx->offset * 4 - buf->offset;
+	req.bos = (uintptr_t)buf->bos;
+	req.relocs = (uintptr_t)buf->relocs;
+	req.stream = (uintptr_t)buf->logical + buf->offset;
+
+	ret = drmCommandWriteRead(ctx->conn->fd, DRM_ETNAVIV_GEM_SUBMIT,
+				  &req, sizeof(req));
+	if (ret == 0 && fence_out)
+		*fence_out = req.fence;
+
+	return ret;
+}
+
+int etna_flush(struct etna_ctx *ctx, uint32_t *fence_out)
+{
+	struct _gcoCMDBUF *buf;
+	struct etna_bo *i, *n;
+	unsigned int api_date;
+	int ret;
+
+	if (!ctx)
+		return ETNA_INVALID_ADDR;
+
+	if (ctx->cur_buf == ETNA_CTX_BUFFER)
+		return ETNA_INTERNAL_ERROR;
+	if (ctx->cur_buf == ETNA_NO_BUFFER)
+		return 0;
+
+	api_date = to_etna_viv_conn(ctx->conn)->api_date;
+	if (api_date < ETNAVIV_DATE_PENGUTRONIX)
+		ret = etna_do_flush_r20130625(ctx, fence_out);
+	else if (api_date < ETNAVIV_DATE_PENGUTRONIX2)
+		ret = etna_do_flush_r20150302(ctx, fence_out);
+	else
+		ret = etna_do_flush_r20150910(ctx, fence_out);
+
 	if (ret) {
 		fprintf(stderr, "drmCommandWriteRead failed: %s\n",
 			strerror(errno));
 		return ETNA_INTERNAL_ERROR;
 	}
 
-	if (fence_out)
-		*fence_out = req.fence;
-
+	buf = ctx->cmdbuf[ctx->cur_buf];
 	xorg_list_for_each_entry_safe(i, n, &buf->bo_head, node) {
 		xorg_list_del(&i->node);
 		i->bo_idx = -1;
@@ -860,29 +960,54 @@ int _etna_reserve_internal(struct etna_ctx *ctx, size_t n)
 void etna_emit_reloc(struct etna_ctx *ctx, uint32_t buf_offset,
 	struct etna_bo *mem, uint32_t offset, Bool write)
 {
+	unsigned int api_date = to_etna_viv_conn(ctx->conn)->api_date;
 	struct _gcoCMDBUF *buf = ctx->cmdbuf[ctx->cur_buf];
-	struct drm_etnaviv_gem_submit_reloc *r;
+	union reloc {
+		struct drm_etnaviv_gem_submit_reloc latest;
+		struct drm_etnaviv_gem_submit_reloc_r20130625 r20130625;
+	} reloc;
 	uint32_t flags;
-	int index;
-
-	if (++buf->num_relocs > buf->max_relocs) {
-		if (buf->max_relocs)
-			buf->max_relocs += 16;
-		else
-			buf->max_relocs = 8;
-		r = realloc(buf->relocs, buf->max_relocs * sizeof *r);
-		assert(r != NULL);
-		buf->relocs = r;
-	}
+	size_t size;
+	int index, n;
 
 	flags = write ? ETNA_SUBMIT_BO_WRITE : ETNA_SUBMIT_BO_READ;
 
 	index = etna_reloc_bo_index(ctx, mem, flags);
 	assert(index >= 0);
 
-	r = &buf->relocs[buf->num_relocs - 1];
-	memset(r, 0, sizeof(*r));
-	r->reloc_idx = index;
-	r->reloc_offset = offset;
-	r->submit_offset = buf_offset * 4;
+	if (api_date < ETNAVIV_DATE_PENGUTRONIX) {
+		size = sizeof(reloc.r20130625);
+		memset(&reloc, 0, size);
+		reloc.r20130625.reloc_idx = index;
+		reloc.r20130625.reloc_offset = offset;
+		reloc.r20130625.submit_offset = buf_offset * 4;
+	} else  if (api_date < ETNAVIV_DATE_PENGUTRONIX2) {
+		size = sizeof(reloc.latest);
+		memset(&reloc, 0, size);
+		reloc.latest.reloc_idx = index;
+		reloc.latest.reloc_offset = offset;
+		reloc.latest.submit_offset = buf_offset * 4;
+	} else {
+		size = sizeof(reloc.latest);
+		memset(&reloc, 0, size);
+		reloc.latest.reloc_idx = index;
+		reloc.latest.reloc_offset = offset;
+		reloc.latest.submit_offset = buf_offset * 4 - buf->offset;
+	}
+
+	n = buf->num_relocs++;
+	if (buf->num_relocs > buf->max_relocs) {
+		void *r;
+
+		if (buf->max_relocs)
+			buf->max_relocs += 16;
+		else
+			buf->max_relocs = 8;
+
+		r = realloc(buf->relocs, buf->max_relocs * size);
+		assert(r != NULL);
+		buf->relocs = r;
+	}
+
+	memcpy((char *)buf->relocs + n * size, &reloc, size);
 }
