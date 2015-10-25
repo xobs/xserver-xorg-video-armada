@@ -38,3 +38,7 @@ armada_drv_la_SOURCES += \
 			common_drm_dri2.c \
 			common_drm_dri2.h
 endif
+
+if HAVE_PRESENT
+armada_drv_la_SOURCES += common_present.c
+endif

@@ -105,4 +105,7 @@ void common_drm_LeaveVT(VT_FUNC_ARGS_DECL);
 
 void common_drm_FreeScreen(FREE_SCREEN_ARGS_DECL);
 
+/* Present extension support */
+Bool common_present_init(ScreenPtr pScreen);
+
 #endif

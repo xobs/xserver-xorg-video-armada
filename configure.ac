@@ -205,6 +205,11 @@ AC_ARG_ENABLE(dri2, AC_HELP_STRING([--disable-dri2],
 		[DRI2="$enableval"],
 		[DRI2=auto])
 
+AC_ARG_ENABLE(present, AC_HELP_STRING([--disable-present],
+		[Disable PRESENT support [[default=auto]]]),
+		[PRESENT="$enableval"],
+		[PRESENT=auto])
+
 # Checks for pkg-config packages
 PKG_CHECK_MODULES(XORG, [xorg-server >= 1.9.99.1 xproto fontsproto])
 sdkdir=$(pkg-config --variable=sdkdir xorg-server)
@@ -241,6 +246,21 @@ AC_MSG_RESULT([$DRI2])
 if test x$DRI2 = xyes; then
    AC_DEFINE(HAVE_DRI2,1,[Enable DRI2 driver support])
 fi
+
+PKG_CHECK_MODULES(PRESENT, [presentproto >= 1.0], , PRESENT=no)
+if test x$PRESENT != xno; then
+   save_CFLAGS=$CFLAGS
+   CFLAGS="$XORG_CFLAGS $PRESENT_CFLAGS"
+   AC_CHECK_HEADERS([present.h], PRESENT=yes, PRESENT=no, [#include <dixstruct.h>])
+   CFLAGS=$save_CFLAGS
+fi
+AC_MSG_CHECKING([whether to include PRESENT support])
+AM_CONDITIONAL(HAVE_PRESENT, test x$PRESENT = xyes)
+AC_MSG_RESULT([$PRESENT])
+if test x$PRESENT = xyes; then
+   AC_DEFINE(HAVE_PRESENT,1,[Enable PRESENT driver support])
+fi
+
 
 # Checks for header files.
 AC_HEADER_STDC

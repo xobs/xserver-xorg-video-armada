@@ -36,11 +36,13 @@
 enum {
 	OPTION_HW_CURSOR,
 	OPTION_HOTPLUG,
+	OPTION_PRESENT,
 };
 
 const OptionInfoRec common_drm_options[] = {
 	{ OPTION_HW_CURSOR,	"HWcursor",	OPTV_BOOLEAN, {0}, FALSE },
 	{ OPTION_HOTPLUG,	"HotPlug",	OPTV_BOOLEAN, {0}, TRUE  },
+	{ OPTION_PRESENT,	"Present",	OPTV_BOOLEAN, {0}, FALSE },
 	{ -1,			NULL,		OPTV_NONE,    {0}, FALSE }
 };
 
@@ -1155,6 +1157,11 @@ Bool common_drm_PostScreenInit(ScreenPtr pScreen)
 {
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
+
+#ifdef HAVE_PRESENT
+	if (xf86ReturnOptValBool(drm->Options, OPTION_PRESENT, TRUE))
+		common_present_init(pScreen);
+#endif
 
 	pScreen->SaveScreen = xf86SaveScreen;
 
