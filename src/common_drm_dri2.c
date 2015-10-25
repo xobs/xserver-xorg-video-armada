@@ -245,10 +245,7 @@ void common_dri2_DestroyBuffer(DrawablePtr pDraw, DRI2Buffer2Ptr buffer)
 _X_EXPORT
 int common_dri2_GetMSC(DrawablePtr draw, CARD64 *ust, CARD64 *msc)
 {
-	ScrnInfoPtr pScrn = xf86ScreenToScrn(draw->pScreen);
 	xf86CrtcPtr crtc = common_drm_drawable_covering_crtc(draw);
-	drmVBlank vbl;
-	int ret;
 
 	/* Drawable not displayed, make up a value */
 	if (!crtc) {
@@ -257,14 +254,7 @@ int common_dri2_GetMSC(DrawablePtr draw, CARD64 *ust, CARD64 *msc)
 		return TRUE;
 	}
 
-	ret = common_drm_vblank_get(pScrn, crtc, &vbl, __FUNCTION__);
-	if (ret)
-		return FALSE;
-
-	*ust = ((CARD64)vbl.reply.tval_sec * 1000000) + vbl.reply.tval_usec;
-	*msc = vbl.reply.sequence;
-
-	return TRUE;
+	return common_drm_get_msc(crtc, ust, msc) == Success;
 }
 
 static void common_dri2_waitmsc(struct common_dri2_wait *wait,

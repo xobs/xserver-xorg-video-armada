@@ -1374,6 +1374,22 @@ int common_drm_vblank_get(ScrnInfoPtr pScrn, xf86CrtcPtr crtc,
 }
 
 _X_EXPORT
+int common_drm_get_msc(xf86CrtcPtr crtc, uint64_t *ust, uint64_t *msc)
+{
+	drmVBlank vbl;
+	int ret;
+
+	ret = common_drm_vblank_get(crtc->scrn, crtc, &vbl, __FUNCTION__);
+	if (ret)
+		return BadMatch;
+
+	*ust = ((CARD64)vbl.reply.tval_sec * 1000000) + vbl.reply.tval_usec;
+	*msc = vbl.reply.sequence;
+
+	return Success;
+}
+
+_X_EXPORT
 int common_drm_vblank_queue_event(ScrnInfoPtr pScrn, xf86CrtcPtr crtc,
 	drmVBlank *vbl, const char *func, Bool nextonmiss, void *signal)
 {

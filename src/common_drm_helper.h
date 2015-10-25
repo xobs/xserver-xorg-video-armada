@@ -13,6 +13,8 @@ xf86CrtcPtr common_drm_drawable_covering_crtc(DrawablePtr pDraw);
 int common_drm_vblank_get(ScrnInfoPtr pScrn, xf86CrtcPtr crtc,
 	drmVBlank *vbl, const char *func);
 
+int common_drm_get_msc(xf86CrtcPtr crtc, uint64_t *ust, uint64_t *msc);
+
 int common_drm_vblank_queue_event(ScrnInfoPtr pScrn, xf86CrtcPtr crtc,
 	drmVBlank *vbl, const char *func, Bool nextonmiss, void *signal);
 
