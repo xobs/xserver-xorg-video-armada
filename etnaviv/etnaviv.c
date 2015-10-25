@@ -40,6 +40,7 @@
 
 #include "etnaviv_accel.h"
 #include "etnaviv_dri2.h"
+#include "etnaviv_dri3.h"
 #include "etnaviv_render.h"
 #include "etnaviv_utils.h"
 #include "etnaviv_xv.h"
@@ -49,11 +50,13 @@ etnaviv_Key etnaviv_screen_index;
 int etnaviv_private_index = -1;
 
 enum {
-	OPTION_DRI,
+	OPTION_DRI2,
+	OPTION_DRI3,
 };
 
 const OptionInfoRec etnaviv_options[] = {
-	{ OPTION_DRI,		"DRI",		OPTV_BOOLEAN, {0}, TRUE },
+	{ OPTION_DRI2,		"DRI",		OPTV_BOOLEAN, {0}, TRUE },
+	{ OPTION_DRI3,		"DRI3",		OPTV_BOOLEAN, {0}, TRUE },
 	{ -1,			NULL,		OPTV_NONE,    {0}, FALSE }
 };
 
@@ -866,7 +869,17 @@ static Bool etnaviv_pre_init(ScrnInfoPtr pScrn, int drm_fd)
 	xf86ProcessOptions(pScrn->scrnIndex, pScrn->options, options);
 
 #ifdef HAVE_DRI2
-	etnaviv->dri2_enabled = xf86ReturnOptValBool(options, OPTION_DRI, TRUE);
+	etnaviv->dri2_enabled = xf86ReturnOptValBool(options, OPTION_DRI2,
+						     TRUE);
+#endif
+#ifdef HAVE_DRI3
+	/*
+	 * We default to DRI3 disabled, as we are unable to support
+	 * flips with etnaviv-allocated buffer objects, whereas DRI2
+	 * can (and does) provide support for this.
+	 */
+	etnaviv->dri3_enabled = xf86ReturnOptValBool(options, OPTION_DRI3,
+						     FALSE);
 #endif
 
 	etnaviv->scrnIndex = pScrn->scrnIndex;
@@ -910,7 +923,7 @@ static Bool etnaviv_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 #ifdef HAVE_DRI2
 	if (!etnaviv->dri2_enabled) {
 		xf86DrvMsg(pScrn->scrnIndex, X_CONFIG,
-			   "direct rendering: disabled\n");
+			   "direct rendering: %s %s\n", "DRI2", "disabled");
 	} else {
 		const char *name;
 		drmVersionPtr version;
@@ -939,12 +952,26 @@ static Bool etnaviv_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 				   "direct rendering: unusuable devices\n");
 		} else if (!etnaviv_dri2_ScreenInit(pScreen, dri_fd, name)) {
 			xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
-				   "direct rendering: failed\n");
+				   "direct rendering: %s %s\n", "DRI2",
+				   "failed");
 			etnaviv->dri2_enabled = FALSE;
 		} else {
 			xf86DrvMsg(pScrn->scrnIndex, X_INFO,
-				   "direct rendering: DRI2 enabled\n");
+				   "direct rendering: %s %s\n", "DRI2",
+				   "enabled");
 		}
+	}
+#endif
+#ifdef HAVE_DRI3
+	if (!etnaviv->dri3_enabled) {
+		xf86DrvMsg(pScrn->scrnIndex, X_CONFIG,
+			   "direct rendering: %s %s\n", "DRI3", "disabled");
+	} else if (!etnaviv_dri3_ScreenInit(pScreen)) {
+		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+			   "direct rendering: %s %s\n", "DRI3", "failed");
+	} else {
+		xf86DrvMsg(pScrn->scrnIndex, X_INFO,
+			   "direct rendering: %s %s\n", "DRI3", "enabled");
 	}
 #endif
 
@@ -978,47 +1005,97 @@ fail_accel:
 	return FALSE;
 }
 
-/* Scanout pixmaps are never tiled. */
-static Bool etnaviv_import_dmabuf(ScreenPtr pScreen, PixmapPtr pPixmap, int fd)
+static Bool etnaviv_format(struct etnaviv_format *fmt, unsigned int depth,
+	unsigned int bpp)
 {
-	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
-	struct etnaviv_format fmt = { .swizzle = DE_SWIZZLE_ARGB, };
-	struct etnaviv_pixmap *vpix;
-	struct etna_bo *bo;
-
-	etnaviv_free_pixmap(pPixmap);
-
-	switch (pPixmap->drawable.bitsPerPixel) {
+	static const struct etnaviv_format template =
+		{ .swizzle = DE_SWIZZLE_ARGB, };
+	*fmt = template;
+	switch (bpp) {
 	case 16:
-		if (pPixmap->drawable.depth == 15)
-			fmt.format = DE_FORMAT_A1R5G5B5;
+		if (depth == 15)
+			fmt->format = DE_FORMAT_A1R5G5B5;
 		else
-			fmt.format = DE_FORMAT_R5G6B5;
-		break;
+			fmt->format = DE_FORMAT_R5G6B5;
+		return TRUE;
 
 	case 32:
-		fmt.format = DE_FORMAT_A8R8G8B8;
-		break;
+		fmt->format = DE_FORMAT_A8R8G8B8;
+		return TRUE;
 
 	default:
-		return TRUE;
+		return FALSE;
 	}
+}
+
+static struct etnaviv_pixmap *etnaviv_pixmap_attach_dmabuf(
+	struct etnaviv *etnaviv, PixmapPtr pixmap, struct etnaviv_format fmt,
+	int fd)
+{
+	struct etnaviv_pixmap *vpix;
+	struct etna_bo *bo;
 
 	bo = etna_bo_from_dmabuf(etnaviv->conn, fd, PROT_READ | PROT_WRITE);
 	if (!bo) {
 		xf86DrvMsg(etnaviv->scrnIndex, X_ERROR,
 			   "etnaviv: gpu dmabuf map failed: %s\n",
 			   strerror(errno));
-		return FALSE;
+		return NULL;
 	}
 
-	vpix = etnaviv_alloc_pixmap(pPixmap, fmt);
+	vpix = etnaviv_alloc_pixmap(pixmap, fmt);
 	if (!vpix) {
 		etna_bo_del(etnaviv->conn, bo, NULL);
-		return FALSE;
+		return NULL;
 	}
 
 	vpix->etna_bo = bo;
+
+	etnaviv_set_pixmap_priv(pixmap, vpix);
+
+	return vpix;
+}
+
+PixmapPtr etnaviv_pixmap_from_dmabuf(ScreenPtr pScreen, int fd,
+        CARD16 width, CARD16 height, CARD16 stride, CARD8 depth, CARD8 bpp)
+{
+	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
+	struct etnaviv_format fmt;
+	PixmapPtr pixmap;
+
+	if (!etnaviv_format(&fmt, depth, bpp))
+		return NullPixmap;
+
+	pixmap = etnaviv->CreatePixmap(pScreen, 0, 0, depth, 0);
+	if (pixmap == NullPixmap)
+		return pixmap;
+
+	pScreen->ModifyPixmapHeader(pixmap, width, height, 0, 0, stride, NULL);
+
+	if (!etnaviv_pixmap_attach_dmabuf(etnaviv, pixmap, fmt, fd)) {
+		etnaviv->DestroyPixmap(pixmap);
+		return NullPixmap;
+	}
+
+	return pixmap;
+}
+
+/* Scanout pixmaps are never tiled. */
+static Bool etnaviv_import_dmabuf(ScreenPtr pScreen, PixmapPtr pPixmap, int fd)
+{
+	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
+	struct etnaviv_pixmap *vpix;
+	struct etnaviv_format fmt;
+
+	etnaviv_free_pixmap(pPixmap);
+
+	if (!etnaviv_format(&fmt, pPixmap->drawable.depth,
+			    pPixmap->drawable.bitsPerPixel))
+		return TRUE;
+
+	vpix = etnaviv_pixmap_attach_dmabuf(etnaviv, pPixmap, fmt, fd);
+	if (!vpix)
+		return FALSE;
 
 	/*
 	 * Pixmaps imported via dmabuf are write-combining, so don't
@@ -1027,15 +1104,14 @@ static Bool etnaviv_import_dmabuf(ScreenPtr pScreen, PixmapPtr pPixmap, int fd)
 	 */
 	vpix->state |= ST_DMABUF;
 
-	etnaviv_set_pixmap_priv(pPixmap, vpix);
-
 #ifdef DEBUG_PIXMAP
 	dbg("Pixmap %p: vPix=%p etna_bo=%p format=%u/%u/%u\n",
-	    pixmap, vPix, bo, fmt.format, fmt.swizzle, fmt.tile);
+	    pixmap, vPix, vPix->etna_bo, fmt.format, fmt.swizzle, fmt.tile);
 #endif
 
 	return TRUE;
 }
+
 
 static void etnaviv_attach_name(ScreenPtr pScreen, PixmapPtr pPixmap,
 	uint32_t name)

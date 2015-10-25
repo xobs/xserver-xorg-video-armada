@@ -42,6 +42,12 @@ ETNA_COMMON_SOURCES += \
 ETNA_COMMON_LIBADD += $(DRI_LIBS)
 endif
 
+if HAVE_DRI3
+ETNA_COMMON_SOURCES += \
+	etnaviv_dri3.c \
+	etnaviv_dri3.h
+endif
+
 if HAVE_ACCEL_ETNAVIV
 etnaviv_gpu_la_LTLIBRARIES = etnaviv_gpu.la
 etnaviv_gpu_la_LDFLAGS = -module -avoid-version

@@ -205,6 +205,11 @@ AC_ARG_ENABLE(dri2, AC_HELP_STRING([--disable-dri2],
 		[DRI2="$enableval"],
 		[DRI2=auto])
 
+AC_ARG_ENABLE(dri3, AC_HELP_STRING([--disable-dri3],
+		[Disable DRI3 support [[default=auto]]]),
+		[DRI3="$enableval"],
+		[DRI3=auto])
+
 AC_ARG_ENABLE(present, AC_HELP_STRING([--disable-present],
 		[Disable PRESENT support [[default=auto]]]),
 		[PRESENT="$enableval"],
@@ -245,6 +250,20 @@ AM_CONDITIONAL(HAVE_DRI2, test x$DRI2 = xyes)
 AC_MSG_RESULT([$DRI2])
 if test x$DRI2 = xyes; then
    AC_DEFINE(HAVE_DRI2,1,[Enable DRI2 driver support])
+fi
+
+PKG_CHECK_MODULES(DRI3, [dri3proto >= 1.0], , DRI3=no)
+if test x$DRI3 != xno; then
+   save_CFLAGS=$CFLAGS
+   CFLAGS="$XORG_CFLAGS $DRM_CFLAGS $DRI_CFLAGS $DRI2_CFLAGS $DRI3_CFLAGS"
+   AC_CHECK_HEADERS([dri3.h], DRI3=yes, DRI3=no, [#include <dixstruct.h>])
+   CFLAGS=$save_CFLAGS
+fi
+AC_MSG_CHECKING([whether to include DRI3 support])
+AM_CONDITIONAL(HAVE_DRI3, test x$DRI3 = xyes)
+AC_MSG_RESULT([$DRI3])
+if test x$DRI3 = xyes; then
+   AC_DEFINE(HAVE_DRI3,1,[Enable DRI3 driver support])
 fi
 
 PKG_CHECK_MODULES(PRESENT, [presentproto >= 1.0], , PRESENT=no)

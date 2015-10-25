@@ -20,8 +20,8 @@ This is kernel mode setting front end driver, with modular acceleration
 backends.  The following framebuffer depths are supported: 8, 15, 16, 24.
 All visual types are supported for depth 8, and TrueColor visual is
 supported for the other depths.  The driver has preliminary support for
-the Direct Rendering Infrastructure (DRI).  Multi-head configurations
-are supported.
+the Direct Rendering Infrastructure (DRI) version 2 and version 3.
+Multi-head configurations are supported.
 .PP
 Acceleration support is dependent on a separate acceleration module.  See
 the "GPU ACCELERATION MODULES" section below for additional information.

@@ -88,6 +88,10 @@ struct etnaviv {
 	Bool dri2_armada;
 	struct etnaviv_dri2_info *dri2;
 #endif
+#ifdef HAVE_DRI3
+	Bool dri3_enabled;
+	const char *render_node;
+#endif
 
 	uint32_t batch[MAX_BATCH_SIZE];
 	unsigned int batch_setup_size;
@@ -256,6 +260,9 @@ static inline void etnaviv_set_screen_priv(ScreenPtr pScreen, struct etnaviv *g)
 	extern etnaviv_Key etnaviv_screen_index;
 	dixSetPrivate(&pScreen->devPrivates, &etnaviv_screen_index, g);
 }
+
+PixmapPtr etnaviv_pixmap_from_dmabuf(ScreenPtr pScreen, int fd,
+	CARD16 width, CARD16 height, CARD16 stride, CARD8 depth, CARD8 bpp);
 
 Bool etnaviv_pixmap_flink(PixmapPtr pixmap, uint32_t *name);
 
