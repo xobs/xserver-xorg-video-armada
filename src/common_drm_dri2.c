@@ -105,27 +105,6 @@ void common_dri2_wait_free(struct common_dri2_wait *wait)
 }
 
 _X_EXPORT
-xf86CrtcPtr common_dri2_drawable_crtc(DrawablePtr pDraw)
-{
-	ScrnInfoPtr pScrn = xf86ScreenToScrn(pDraw->pScreen);
-	xf86CrtcPtr crtc;
-	BoxRec box, crtcbox;
-
-	box.x1 = pDraw->x;
-	box.y1 = pDraw->y;
-	box.x2 = box.x1 + pDraw->width;
-	box.y2 = box.y1 + pDraw->height;
-
-	crtc = common_drm_covering_crtc(pScrn, &box, NULL, &crtcbox);
-
-	/* Make sure the CRTC is valid and this is the real front buffer */
-	if (crtc && crtc->rotatedData)
-		crtc = NULL;
-
-	return crtc;
-}
-
-_X_EXPORT
 Bool common_dri2_can_flip(DrawablePtr pDraw, struct common_dri2_wait *wait)
 {
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pDraw->pScreen);
@@ -267,7 +246,7 @@ _X_EXPORT
 int common_dri2_GetMSC(DrawablePtr draw, CARD64 *ust, CARD64 *msc)
 {
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(draw->pScreen);
-	xf86CrtcPtr crtc = common_dri2_drawable_crtc(draw);
+	xf86CrtcPtr crtc = common_drm_drawable_covering_crtc(draw);
 	drmVBlank vbl;
 	int ret;
 
@@ -315,7 +294,7 @@ Bool common_dri2_ScheduleWaitMSC(ClientPtr client, DrawablePtr draw,
 	divisor &= 0xffffffff;
 	remainder &= 0xffffffff;
 
-	crtc = common_dri2_drawable_crtc(draw);
+	crtc = common_drm_drawable_covering_crtc(draw);
 	if (!crtc)
 		goto complete;
 

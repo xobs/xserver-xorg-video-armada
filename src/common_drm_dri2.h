@@ -71,8 +71,6 @@ static inline struct common_dri2_wait *common_dri2_wait_alloc(ClientPtr client,
 
 void common_dri2_wait_free(struct common_dri2_wait *wait);
 
-xf86CrtcPtr common_dri2_drawable_crtc(DrawablePtr pDraw);
-
 Bool common_dri2_can_flip(DrawablePtr pDraw, struct common_dri2_wait *wait);
 Bool common_dri2_may_flip(DrawablePtr pDraw, unsigned int attachment);
 

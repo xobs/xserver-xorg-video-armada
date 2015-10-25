@@ -206,7 +206,7 @@ static int etnaviv_dri2_ScheduleSwap(ClientPtr client, DrawablePtr draw,
 	xf86CrtcPtr crtc;
 	int ret;
 
-	crtc = common_dri2_drawable_crtc(draw);
+	crtc = common_drm_drawable_covering_crtc(draw);
 
 	/* Drawable not displayed... just complete */
 	if (!crtc)

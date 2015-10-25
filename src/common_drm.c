@@ -1320,6 +1320,27 @@ xf86CrtcPtr common_drm_covering_crtc(ScrnInfoPtr pScrn, BoxPtr box,
 	return best_crtc;
 }
 
+_X_EXPORT
+xf86CrtcPtr common_drm_drawable_covering_crtc(DrawablePtr pDraw)
+{
+	ScrnInfoPtr pScrn = xf86ScreenToScrn(pDraw->pScreen);
+	xf86CrtcPtr crtc;
+	BoxRec box, crtcbox;
+
+	box.x1 = pDraw->x;
+	box.y1 = pDraw->y;
+	box.x2 = box.x1 + pDraw->width;
+	box.y2 = box.y1 + pDraw->height;
+
+	crtc = common_drm_covering_crtc(pScrn, &box, NULL, &crtcbox);
+
+	/* Make sure the CRTC is valid and this is the real front buffer */
+	if (crtc && crtc->rotatedData)
+		crtc = NULL;
+
+	return crtc;
+}
+
 static inline uint32_t req_crtc(xf86CrtcPtr crtc)
 {
 	struct common_crtc_info *drmc = common_crtc(crtc);

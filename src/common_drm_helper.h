@@ -8,6 +8,8 @@
 xf86CrtcPtr common_drm_covering_crtc(ScrnInfoPtr pScrn, BoxPtr box,
 	xf86CrtcPtr desired, BoxPtr box_ret);
 
+xf86CrtcPtr common_drm_drawable_covering_crtc(DrawablePtr pDraw);
+
 int common_drm_vblank_get(ScrnInfoPtr pScrn, xf86CrtcPtr crtc,
 	drmVBlank *vbl, const char *func);
 

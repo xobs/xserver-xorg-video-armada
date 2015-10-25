@@ -211,7 +211,7 @@ vivante_dri2_ScheduleSwap(ClientPtr client, DrawablePtr draw,
 	CARD64 cur_msc;
 	int ret;
 
-	crtc = common_dri2_drawable_crtc(draw);
+	crtc = common_drm_drawable_covering_crtc(draw);
 
 	/* Drawable not displayed... just complete */
 	if (!crtc)
