@@ -21,16 +21,24 @@ AM_CFLAGS = $(filter-out -Wnested-externs -Wcast-qual -Wredundant-decls \
 ETNA_COMMON_SOURCES = \
 	etnaviv.c \
 	etnaviv_accel.c \
+	etnaviv_accel.h \
+	etnaviv_compat.h \
 	etnaviv_op.c \
+	etnaviv_op.h \
 	etnaviv_render.c \
+	etnaviv_render.h \
 	etnaviv_utils.c \
-	etnaviv_xv.c
+	etnaviv_utils.h \
+	etnaviv_xv.c \
+	etnaviv_xv.h
 ETNA_COMMON_LIBADD = \
 	$(DRMARMADA_LIBS) \
 	$(top_builddir)/common/libcommon.la
 
 if HAVE_DRI2
-ETNA_COMMON_SOURCES += etnaviv_dri2.c
+ETNA_COMMON_SOURCES += \
+	etnaviv_dri2.c \
+	etnaviv_dri2.h
 ETNA_COMMON_LIBADD += $(DRI_LIBS)
 endif
 
@@ -58,5 +66,7 @@ etnadrm_gpu_la_SOURCES = \
 	$(ETNA_COMMON_SOURCES) \
 	etnadrm_emit.c \
 	etnadrm_module.c \
-	etnadrm.c
+	etnadrm.c \
+	etnadrm.h \
+	etnaviv_drm.h
 endif
