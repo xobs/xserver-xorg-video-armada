@@ -1329,6 +1329,10 @@ xf86CrtcPtr common_drm_covering_crtc(ScrnInfoPtr pScrn, BoxPtr box,
 	BoxRec crtc_box, cover_box;
 	int coverage, best_coverage, c;
 
+	/* If we do not own the VT, we do not own the CRTC */
+	if (!pScrn->vtSema)
+		return NULL;
+
 	best_crtc = NULL;
 	best_coverage = 0;
 	box_ret->x1 = box_ret->x2 = box_ret->y1 = box_ret->y2 = 0;
