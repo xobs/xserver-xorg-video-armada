@@ -64,7 +64,7 @@ static Bool common_dri2_add_reslist(XID id, RESTYPE type,
 	return TRUE;
 }
 
-static void common_dri2_event(struct common_drm_event *event, unsigned frame,
+static void common_dri2_event(struct common_drm_event *event, uint64_t msc,
 	unsigned tv_sec, unsigned tv_usec)
 {
 	struct common_dri2_wait *wait = container_of(event, struct common_dri2_wait, base);
@@ -74,7 +74,7 @@ static void common_dri2_event(struct common_drm_event *event, unsigned frame,
 	    dixLookupDrawable(&draw, wait->drawable_id, serverClient, M_ANY,
 			      DixWriteAccess) == Success) {
 		if (wait->event_func) {
-			wait->event_func(wait, draw, frame, tv_sec, tv_usec);
+			wait->event_func(wait, draw, msc, tv_sec, tv_usec);
 			return;
 		}
 
@@ -282,10 +282,10 @@ int common_dri2_GetMSC(DrawablePtr draw, CARD64 *ust, CARD64 *msc)
 }
 
 static void common_dri2_waitmsc(struct common_dri2_wait *wait,
-	DrawablePtr draw, unsigned frame, unsigned tv_sec, unsigned tv_usec)
+	DrawablePtr draw, uint64_t msc, unsigned tv_sec, unsigned tv_usec)
 {
 	if (wait->client)
-		DRI2WaitMSCComplete(wait->client, draw, frame, tv_sec, tv_usec);
+		DRI2WaitMSCComplete(wait->client, draw, msc, tv_sec, tv_usec);
 	common_dri2_wait_free(wait);
 }
 
@@ -296,8 +296,7 @@ Bool common_dri2_ScheduleWaitMSC(ClientPtr client, DrawablePtr draw,
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(draw->pScreen);
 	xf86CrtcPtr crtc;
 	struct common_dri2_wait *wait;
-	drmVBlank vbl;
-	CARD64 cur_msc;
+	CARD64 cur_msc, cur_ust;
 	int ret;
 
 	/*
@@ -319,11 +318,8 @@ Bool common_dri2_ScheduleWaitMSC(ClientPtr client, DrawablePtr draw,
 	wait->event_func = common_dri2_waitmsc;
 
 	/* Get current count */
-	ret = common_drm_vblank_get(pScrn, crtc, &vbl, __FUNCTION__);
-	if (ret)
+	if (common_drm_get_msc(crtc, &cur_ust, &cur_msc) != Success)
 		goto del_wait;
-
-	cur_msc = vbl.reply.sequence;
 
 	/*
 	 * If the divisor is zero, or cur_msc is smaller than target_msc, we
@@ -332,15 +328,13 @@ Bool common_dri2_ScheduleWaitMSC(ClientPtr client, DrawablePtr draw,
 	if (divisor == 0 || cur_msc < target_msc) {
 		if (cur_msc >= target_msc)
 			target_msc = cur_msc;
-
-		vbl.request.sequence = target_msc;
 	} else {
 		/*
 		 * If we get here, target_msc has already passed or we
 		 * don't have one, so queue an event that will satisfy
 		 * the divisor/remainder equation.
 		 */
-		vbl.request.sequence = cur_msc - (cur_msc % divisor) + remainder;
+		target_msc = cur_msc - (cur_msc % divisor) + remainder;
 
 		/*
 		 * If calculated remainder is larger than requested
@@ -349,15 +343,15 @@ Bool common_dri2_ScheduleWaitMSC(ClientPtr client, DrawablePtr draw,
 		 * the next time that will happen.
 		 */
 		if ((cur_msc & divisor) >= remainder)
-			vbl.request.sequence += divisor;
+			target_msc += divisor;
 	}
 
-	ret = common_drm_vblank_queue_event(pScrn, crtc, &vbl, __FUNCTION__,
-					    FALSE, &wait->base);
+	ret = common_drm_queue_msc_event(pScrn, crtc, &target_msc, __FUNCTION__,
+					 FALSE, &wait->base);
 	if (ret)
 		goto del_wait;
 
-	wait->frame = vbl.reply.sequence;
+	wait->frame = target_msc;
 	DRI2BlockClient(client, draw);
 	return TRUE;
 

@@ -33,7 +33,7 @@ struct common_dri2_wait {
 
 	struct common_dri2_wait *next;
 	void (*event_func)(struct common_dri2_wait *wait, DrawablePtr draw,
-			   unsigned frame, unsigned tv_sec, unsigned tv_usec);
+			   uint64_t msc, unsigned tv_sec, unsigned tv_usec);
 	enum common_dri2_event_type type;
 	int frame;
 

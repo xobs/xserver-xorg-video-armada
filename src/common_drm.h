@@ -34,9 +34,9 @@ struct common_drm_info {
 	struct common_drm_event *flip_event;
 	xf86CrtcPtr flip_ref_crtc;
 	unsigned int flip_count;
-	unsigned int flip_frame;
 	unsigned int flip_tv_sec;
 	unsigned int flip_tv_usec;
+	uint64_t flip_msc;
 	uint32_t flip_old_fb_id;
 
 	Bool has_hw_cursor;
@@ -59,7 +59,7 @@ struct common_drm_info {
 struct common_drm_event {
 	struct common_drm_info *drm;
 	xf86CrtcPtr crtc;
-	void (*handler)(struct common_drm_event *, unsigned int frame,
+	void (*handler)(struct common_drm_event *, uint64_t msc,
 			unsigned int tv_sec, unsigned int tv_usec);
 };
 

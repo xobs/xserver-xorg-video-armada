@@ -112,6 +112,16 @@ static void drmmode_ConvertFromKMode(ScrnInfoPtr pScrn,
 	xf86SetModeCrtc (mode, pScrn->adjustFlags);
 }
 
+static uint64_t common_drm_frame_to_msc(xf86CrtcPtr crtc, uint32_t seq)
+{
+	return seq;
+}
+
+static uint32_t common_drm_msc_to_frame(xf86CrtcPtr crtc, uint64_t msc)
+{
+	return msc;
+}
+
 static drmModePropertyPtr common_drm_conn_find_property(
 	struct common_conn_info *conn, const char *name, uint32_t *blob)
 {
@@ -726,8 +736,9 @@ static void common_drm_event(int fd, unsigned int frame, unsigned int tv_sec,
 	unsigned int tv_usec, void *event_data)
 {
 	struct common_drm_event *event = event_data;
+	uint64_t msc = common_drm_frame_to_msc(event->crtc, frame);
 
-	event->handler(event, frame, tv_sec, tv_usec);
+	event->handler(event, msc, tv_sec, tv_usec);
 }
 
 Bool common_drm_init_mode_resources(ScrnInfoPtr pScrn,
@@ -783,12 +794,12 @@ Bool common_drm_init_mode_resources(ScrnInfoPtr pScrn,
 }
 
 static void common_drm_flip_handler(struct common_drm_event *event,
-	unsigned int frame, unsigned int tv_sec, unsigned int tv_usec)
+	uint64_t msc, unsigned int tv_sec, unsigned int tv_usec)
 {
 	struct common_drm_info *drm = event->drm;
 
 	if (drm->flip_ref_crtc == event->crtc) {
-		drm->flip_frame = frame;
+		drm->flip_msc = msc;
 		drm->flip_tv_sec = tv_sec;
 		drm->flip_tv_usec = tv_usec;
 	}
@@ -803,7 +814,7 @@ static void common_drm_flip_handler(struct common_drm_event *event,
 	/* Now pass the event on to the flip complete event handler */
 	event = drm->flip_event;
 	if (event)
-		event->handler(event, drm->flip_frame, drm->flip_tv_sec,
+		event->handler(event, drm->flip_msc, drm->flip_tv_sec,
 			       drm->flip_tv_usec);
 }
 
@@ -863,7 +874,7 @@ Bool common_drm_flip(ScrnInfoPtr pScrn, PixmapPtr pixmap,
 	if (drm->flip_count) {
 		drm->flip_event = event;
 		drm->flip_ref_crtc = ref_crtc;
-		drm->flip_frame = 0;
+		drm->flip_msc = 0;
 		drm->flip_tv_sec = 0;
 		drm->flip_tv_usec = 0;
 		drm->flip_old_fb_id = old_fb_id;
@@ -1389,31 +1400,35 @@ int common_drm_get_msc(xf86CrtcPtr crtc, uint64_t *ust, uint64_t *msc)
 		return BadMatch;
 
 	*ust = ((CARD64)vbl.reply.tval_sec * 1000000) + vbl.reply.tval_usec;
-	*msc = vbl.reply.sequence;
+	*msc = common_drm_frame_to_msc(crtc, vbl.reply.sequence);
 
 	return Success;
 }
 
 _X_EXPORT
-int common_drm_vblank_queue_event(ScrnInfoPtr pScrn, xf86CrtcPtr crtc,
-	drmVBlank *vbl, const char *func, Bool nextonmiss,
+int common_drm_queue_msc_event(ScrnInfoPtr pScrn, xf86CrtcPtr crtc,
+	uint64_t *msc, const char *func, Bool nextonmiss,
 	struct common_drm_event *event)
 {
 	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
+	drmVBlank vbl;
 	int ret;
 
-	vbl->request.type = DRM_VBLANK_ABSOLUTE | DRM_VBLANK_EVENT |
+	vbl.request.type = DRM_VBLANK_ABSOLUTE | DRM_VBLANK_EVENT |
 				req_crtc(crtc);
-	vbl->request.signal = (unsigned long)event;
+	vbl.request.sequence = common_drm_msc_to_frame(crtc, *msc);
+	vbl.request.signal = (unsigned long)event;
 
 	if (nextonmiss)
-		vbl->request.type |= DRM_VBLANK_NEXTONMISS;
+		vbl.request.type |= DRM_VBLANK_NEXTONMISS;
 
-	ret = drmWaitVBlank(drm->fd, vbl);
+	ret = drmWaitVBlank(drm->fd, &vbl);
 	if (ret)
 		xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
 			   "%s: %s failed: %s\n", func,
 			   __FUNCTION__, strerror(errno));
+	else
+		*msc = common_drm_frame_to_msc(crtc, vbl.reply.sequence);
 
 	return ret;
 }
