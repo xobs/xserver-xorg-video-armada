@@ -19,7 +19,6 @@
 #include "boxutil.h"
 
 #include "common_drm.h"
-#include "common_drm_dri2.h"
 #include "common_drm_helper.h"
 #include "xf86_OSproc.h"
 #include "xf86Crtc.h"
@@ -723,12 +722,24 @@ static Bool common_drm_crtc_init(ScrnInfoPtr pScrn, unsigned num,
 	return TRUE;
 }
 
+static void common_drm_event(int fd, unsigned int frame, unsigned int tv_sec,
+	unsigned int tv_usec, void *event_data)
+{
+	struct common_drm_event *event = event_data;
+
+	event->handler(event, frame, tv_sec, tv_usec);
+}
+
 Bool common_drm_init_mode_resources(ScrnInfoPtr pScrn,
 	const xf86CrtcFuncsRec *funcs)
 {
 	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
 	Gamma zeros = { 0.0, 0.0, 0.0 };
 	int i;
+
+	drm->event_context.version = DRM_EVENT_CONTEXT_VERSION;
+	drm->event_context.vblank_handler = common_drm_event;
+	drm->event_context.page_flip_handler = common_drm_event;
 
 	drm->mode_res = drmModeGetResources(drm->fd);
 	if (!drm->mode_res) {
@@ -771,14 +782,34 @@ Bool common_drm_init_mode_resources(ScrnInfoPtr pScrn,
 	return TRUE;
 }
 
-struct common_crtc_flip {
-	struct common_drm_info *drm;
-	Bool ref;
-};
+static void common_drm_flip_handler(struct common_drm_event *event,
+	unsigned int frame, unsigned int tv_sec, unsigned int tv_usec)
+{
+	struct common_drm_info *drm = event->drm;
+
+	if (drm->flip_ref_crtc == event->crtc) {
+		drm->flip_frame = frame;
+		drm->flip_tv_sec = tv_sec;
+		drm->flip_tv_usec = tv_usec;
+	}
+
+	free(event);
+
+	if (--drm->flip_count)
+		return;
+
+	drmModeRmFB(drm->fd, drm->flip_old_fb_id);
+
+	/* Now pass the event on to the flip complete event handler */
+	event = drm->flip_event;
+	if (event)
+		event->handler(event, drm->flip_frame, drm->flip_tv_sec,
+			       drm->flip_tv_usec);
+}
 
 _X_EXPORT
 Bool common_drm_flip(ScrnInfoPtr pScrn, PixmapPtr pixmap,
-	struct common_dri2_wait *flip_info, xf86CrtcPtr ref_crtc)
+	struct common_drm_event *event, xf86CrtcPtr ref_crtc)
 {
 	xf86CrtcConfigPtr xf86_config = XF86_CRTC_CONFIG_PTR(pScrn);
 	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
@@ -801,35 +832,37 @@ Bool common_drm_flip(ScrnInfoPtr pScrn, PixmapPtr pixmap,
 	for (i = 0; i < xf86_config->num_crtc; i++) {
 		xf86CrtcPtr crtc = xf86_config->crtc[i];
 		struct common_crtc_info *drmc;
-		struct common_crtc_flip *flip;
+		struct common_drm_event *event;
 
 		if (!crtc->enabled)
 			continue;
 
-		flip = calloc(1, sizeof *flip);
-		if (!flip) {
+		event = calloc(1, sizeof *event);
+		if (!event) {
 			xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
 				   "page flip: malloc failed\n");
 			continue;
 		}
 
-		flip->drm = drm;
-		flip->ref = ref_crtc == crtc;
+		event->crtc = crtc;
+		event->drm = drm;
+		event->handler = common_drm_flip_handler;
 
 		drmc = common_crtc(crtc);
 		if (drmModePageFlip(drm->fd, drmc->mode_crtc->crtc_id,
 				    drm->fb_id, DRM_MODE_PAGE_FLIP_EVENT,
-				    flip)) {
+				    event)) {
 			xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
 				   "page flip: queue failed: %s\n", strerror(errno));
-			free(flip);
+			free(event);
 			continue;
 		}
 		drm->flip_count++;
 	}
 
 	if (drm->flip_count) {
-		drm->flip_info = flip_info;
+		drm->flip_event = event;
+		drm->flip_ref_crtc = ref_crtc;
 		drm->flip_frame = 0;
 		drm->flip_tv_sec = 0;
 		drm->flip_tv_usec = 0;
@@ -841,34 +874,6 @@ Bool common_drm_flip(ScrnInfoPtr pScrn, PixmapPtr pixmap,
 	drm->fb_id = old_fb_id;
  err:
 	return FALSE;
-}
-
-void common_drm_flip_handler(int fd, unsigned int frame, unsigned int tv_sec,
-	unsigned int tv_usec, void *event_data)
-{
-	struct common_crtc_flip *flip = event_data;
-	struct common_drm_info *drm = flip->drm;
-
-	if (flip->ref) {
-		drm->flip_frame = frame;
-		drm->flip_tv_sec = tv_sec;
-		drm->flip_tv_usec = tv_usec;
-	}
-
-	free(flip);
-
-	if (--drm->flip_count)
-		return;
-
-	drmModeRmFB(drm->fd, drm->flip_old_fb_id);
-
-#ifdef HAVE_DRI2
-	if (drm->flip_info) {
-		common_dri2_event(fd, drm->flip_frame, drm->flip_tv_sec,
-				  drm->flip_tv_usec, drm->flip_info);
-		drm->flip_info = NULL;
-	}
-#endif
 }
 
 void common_drm_flip_pixmap(ScreenPtr pScreen, PixmapPtr front, PixmapPtr b)
@@ -1391,14 +1396,15 @@ int common_drm_get_msc(xf86CrtcPtr crtc, uint64_t *ust, uint64_t *msc)
 
 _X_EXPORT
 int common_drm_vblank_queue_event(ScrnInfoPtr pScrn, xf86CrtcPtr crtc,
-	drmVBlank *vbl, const char *func, Bool nextonmiss, void *signal)
+	drmVBlank *vbl, const char *func, Bool nextonmiss,
+	struct common_drm_event *event)
 {
 	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
 	int ret;
 
 	vbl->request.type = DRM_VBLANK_ABSOLUTE | DRM_VBLANK_EVENT |
 				req_crtc(crtc);
-	vbl->request.signal = (unsigned long)signal;
+	vbl->request.signal = (unsigned long)event;
 
 	if (nextonmiss)
 		vbl->request.type |= DRM_VBLANK_NEXTONMISS;

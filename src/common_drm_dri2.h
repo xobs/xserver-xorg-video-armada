@@ -25,6 +25,7 @@ enum common_dri2_event_type {
 };
 
 struct common_dri2_wait {
+	struct common_drm_event base;
 	struct xorg_list drawable_list;
 	struct xorg_list client_list;
 	XID drawable_id;
@@ -34,7 +35,6 @@ struct common_dri2_wait {
 	void (*event_func)(struct common_dri2_wait *wait, DrawablePtr draw,
 			   unsigned frame, unsigned tv_sec, unsigned tv_usec);
 	enum common_dri2_event_type type;
-	xf86CrtcPtr crtc;
 	int frame;
 
 	/* For swaps/flips */
@@ -60,12 +60,13 @@ static inline DrawablePtr common_dri2_get_drawable(DRI2BufferPtr buffer,
 
 
 struct common_dri2_wait *__common_dri2_wait_alloc(ClientPtr client,
-	DrawablePtr draw, enum common_dri2_event_type type, size_t size);
+	DrawablePtr draw, xf86CrtcPtr crtc, enum common_dri2_event_type type,
+	size_t size);
 
 static inline struct common_dri2_wait *common_dri2_wait_alloc(ClientPtr client,
-	DrawablePtr draw, enum common_dri2_event_type type)
+	DrawablePtr draw, xf86CrtcPtr crtc, enum common_dri2_event_type type)
 {
-	return __common_dri2_wait_alloc(client, draw, type,
+	return __common_dri2_wait_alloc(client, draw, crtc, type,
 					sizeof(struct common_dri2_wait));
 }
 
@@ -86,9 +87,6 @@ void common_dri2_DestroyBuffer(DrawablePtr pDraw, DRI2Buffer2Ptr buffer);
 int common_dri2_GetMSC(DrawablePtr draw, CARD64 *ust, CARD64 *msc);
 Bool common_dri2_ScheduleWaitMSC(ClientPtr client, DrawablePtr draw,
 	CARD64 target_msc, CARD64 divisor, CARD64 remainder);
-
-void common_dri2_event(int fd, unsigned frame, unsigned tv_sec,
-	unsigned tv_usec, void *event);
 
 Bool common_dri2_ScreenInit(ScreenPtr pScreen);
 

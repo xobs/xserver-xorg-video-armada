@@ -64,9 +64,31 @@ static Bool common_dri2_add_reslist(XID id, RESTYPE type,
 	return TRUE;
 }
 
+static void common_dri2_event(struct common_drm_event *event, unsigned frame,
+	unsigned tv_sec, unsigned tv_usec)
+{
+	struct common_dri2_wait *wait = container_of(event, struct common_dri2_wait, base);
+	DrawablePtr draw;
+
+	if (wait->drawable_id &&
+	    dixLookupDrawable(&draw, wait->drawable_id, serverClient, M_ANY,
+			      DixWriteAccess) == Success) {
+		if (wait->event_func) {
+			wait->event_func(wait, draw, frame, tv_sec, tv_usec);
+			return;
+		}
+
+		xf86DrvMsg(xf86ScreenToScrn(draw->pScreen)->scrnIndex,
+			   X_WARNING, "%s: unknown vblank event received\n",
+			   __FUNCTION__);
+	}
+	common_dri2_wait_free(wait);
+}
+
 _X_EXPORT
 struct common_dri2_wait *__common_dri2_wait_alloc(ClientPtr client,
-	DrawablePtr draw, enum common_dri2_event_type type, size_t size)
+	DrawablePtr draw, xf86CrtcPtr crtc, enum common_dri2_event_type type,
+	size_t size)
 {
 	struct common_dri2_wait *wait;
 
@@ -75,6 +97,8 @@ struct common_dri2_wait *__common_dri2_wait_alloc(ClientPtr client,
 
 	wait = calloc(1, size);
 	if (wait) {
+		wait->base.crtc = crtc;
+		wait->base.handler = common_dri2_event;
 		wait->drawable_id = draw->id;
 		wait->client = client;
 		wait->type = type;
@@ -288,7 +312,7 @@ Bool common_dri2_ScheduleWaitMSC(ClientPtr client, DrawablePtr draw,
 	if (!crtc)
 		goto complete;
 
-	wait = common_dri2_wait_alloc(client, draw, DRI2_WAITMSC);
+	wait = common_dri2_wait_alloc(client, draw, crtc, DRI2_WAITMSC);
 	if (!wait)
 		goto complete;
 
@@ -329,7 +353,7 @@ Bool common_dri2_ScheduleWaitMSC(ClientPtr client, DrawablePtr draw,
 	}
 
 	ret = common_drm_vblank_queue_event(pScrn, crtc, &vbl, __FUNCTION__,
-					    FALSE, wait);
+					    FALSE, &wait->base);
 	if (ret)
 		goto del_wait;
 
@@ -344,28 +368,6 @@ Bool common_dri2_ScheduleWaitMSC(ClientPtr client, DrawablePtr draw,
 	DRI2WaitMSCComplete(client, draw, target_msc, 0, 0);
 
 	return TRUE;
-}
-
-_X_EXPORT
-void common_dri2_event(int fd, unsigned frame, unsigned tv_sec,
-	unsigned tv_usec, void *event)
-{
-	struct common_dri2_wait *wait = event;
-	DrawablePtr draw;
-
-	if (wait->drawable_id &&
-	    dixLookupDrawable(&draw, wait->drawable_id, serverClient, M_ANY,
-			      DixWriteAccess) == Success) {
-		if (wait->event_func) {
-			wait->event_func(wait, draw, frame, tv_sec, tv_usec);
-			return;
-		}
-
-		xf86DrvMsg(xf86ScreenToScrn(draw->pScreen)->scrnIndex,
-			   X_WARNING, "%s: unknown vblank event received\n",
-			   __FUNCTION__);
-	}
-	common_dri2_wait_free(wait);
 }
 
 static int common_dri2_client_gone(void *data, XID id)

@@ -16,7 +16,8 @@ int common_drm_vblank_get(ScrnInfoPtr pScrn, xf86CrtcPtr crtc,
 int common_drm_get_msc(xf86CrtcPtr crtc, uint64_t *ust, uint64_t *msc);
 
 int common_drm_vblank_queue_event(ScrnInfoPtr pScrn, xf86CrtcPtr crtc,
-	drmVBlank *vbl, const char *func, Bool nextonmiss, void *signal);
+	drmVBlank *vbl, const char *func, Bool nextonmiss,
+	struct common_drm_event *event);
 
 int common_drm_vblank_wait(ScrnInfoPtr pScrn, xf86CrtcPtr crtc,
 	drmVBlank *vbl, const char *func, Bool nextonmiss);

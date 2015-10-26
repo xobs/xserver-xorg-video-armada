@@ -18,7 +18,6 @@
 #include "armada_accel.h"
 #include "armada_drm.h"
 #include "common_drm.h"
-#include "common_drm_dri2.h"
 #include "xf86_OSproc.h"
 #include "xf86Crtc.h"
 #include "xf86cmap.h"
@@ -603,11 +602,6 @@ static Bool armada_drm_open_master(ScrnInfoPtr pScrn)
 	drm->common.cursor_max_width = CURSOR_MAX_WIDTH;
 	drm->common.cursor_max_height = CURSOR_MAX_HEIGHT;
 	drm->common.private = &drm->armada;
-	drm->common.event_context.version = DRM_EVENT_CONTEXT_VERSION;
-#ifdef HAVE_DRI2
-	drm->common.event_context.vblank_handler = common_dri2_event;
-	drm->common.event_context.page_flip_handler = common_drm_flip_handler;
-#endif
 
 	for (i = 0; i < ARRAY_SIZE(drm_module_names); i++) {
 		drm->common.fd = drmOpen(drm_module_names[i], busid);

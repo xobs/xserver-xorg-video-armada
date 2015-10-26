@@ -168,7 +168,7 @@ static Bool etnaviv_dri2_ScheduleFlip(DrawablePtr drawable,
 
 	assert(front == to_common_dri2_buffer(wait->front)->pixmap);
 
-	if (common_drm_flip(pScrn, back, wait, wait->crtc)) {
+	if (common_drm_flip(pScrn, back, &wait->base, wait->base.crtc)) {
 		struct etnaviv_pixmap *f_pix = etnaviv_get_pixmap_priv(front);
 		struct etnaviv_pixmap *b_pix = etnaviv_get_pixmap_priv(back);
 
@@ -216,12 +216,11 @@ static int etnaviv_dri2_ScheduleSwap(ClientPtr client, DrawablePtr draw,
 	divisor &= 0xffffffff;
 	remainder &= 0xffffffff;
 
-	wait = common_dri2_wait_alloc(client, draw, DRI2_SWAP);
+	wait = common_dri2_wait_alloc(client, draw, crtc, DRI2_SWAP);
 	if (!wait)
 		goto blit;
 
 	wait->event_func = etnaviv_dri2_swap;
-	wait->crtc = crtc;
 	wait->swap_func = func;
 	wait->swap_data = data;
 	wait->front = front;
@@ -294,7 +293,8 @@ static int etnaviv_dri2_ScheduleSwap(ClientPtr client, DrawablePtr draw,
 	}
 
 	ret = common_drm_vblank_queue_event(pScrn, crtc, &vbl, __FUNCTION__,
-					    wait->type != DRI2_FLIP, wait);
+					    wait->type != DRI2_FLIP,
+					    &wait->base);
 	if (ret)
 		goto blit_free;
 
