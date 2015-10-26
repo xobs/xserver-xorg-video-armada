@@ -216,10 +216,6 @@ vivante_dri2_ScheduleSwap(ClientPtr client, DrawablePtr draw,
 	if (!crtc)
 		goto blit;
 
-	*target_msc &= 0xffffffff;
-	divisor &= 0xffffffff;
-	remainder &= 0xffffffff;
-
 	wait = common_dri2_wait_alloc(client, draw, crtc, DRI2_SWAP);
 	if (!wait)
 		goto blit;

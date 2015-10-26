@@ -114,12 +114,23 @@ static void drmmode_ConvertFromKMode(ScrnInfoPtr pScrn,
 
 static uint64_t common_drm_frame_to_msc(xf86CrtcPtr crtc, uint32_t seq)
 {
-	return seq;
+	struct common_crtc_info *drmc = common_crtc(crtc);
+
+	if (seq < drmc->last_seq) {
+		if ((int32_t)(drmc->last_seq - seq) > 0x40000000)
+			drmc->last_msc += 0x100000000ULL;
+		else
+			seq = drmc->last_seq;
+	}
+	drmc->last_seq = seq;
+	return drmc->last_msc + seq;
 }
 
 static uint32_t common_drm_msc_to_frame(xf86CrtcPtr crtc, uint64_t msc)
 {
-	return msc;
+	struct common_crtc_info *drmc = common_crtc(crtc);
+
+	return msc - drmc->last_msc;
 }
 
 static drmModePropertyPtr common_drm_conn_find_property(

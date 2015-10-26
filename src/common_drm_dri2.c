@@ -299,14 +299,6 @@ Bool common_dri2_ScheduleWaitMSC(ClientPtr client, DrawablePtr draw,
 	CARD64 cur_msc, cur_ust;
 	int ret;
 
-	/*
-	 * Truncate to match kernel interfaces; means occasional
-	 * overflow misses, but that's generally not a big deal.
-	 */
-	target_msc &= 0xffffffff;
-	divisor &= 0xffffffff;
-	remainder &= 0xffffffff;
-
 	crtc = common_drm_drawable_covering_crtc(draw);
 	if (!crtc)
 		goto complete;
