@@ -839,9 +839,12 @@ XF86VideoAdaptorPtr etnaviv_xv_init(ScreenPtr pScreen, unsigned int *caps)
 		if (f && !etnaviv_src_format_valid(etnaviv, *f))
 			continue;
 
-		if (fmt->xv_image.format == FOURCC_XVBO &&
-		    !etnaviv->dri2_enabled)
-			continue;
+		if (fmt->xv_image.format == FOURCC_XVBO) {
+#ifdef HAVE_DRI2
+			if(!etnaviv->dri2_enabled)
+#endif
+				continue;
+		}
 
 		images[num_images++] = fmt->xv_image;
 	}
