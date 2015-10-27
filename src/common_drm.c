@@ -749,7 +749,11 @@ static void common_drm_event(int fd, unsigned int frame, unsigned int tv_sec,
 	unsigned int tv_usec, void *event_data)
 {
 	struct common_drm_event *event = event_data;
+	struct common_crtc_info *drmc = common_crtc(event->crtc);
 	uint64_t msc = common_drm_frame_to_msc(event->crtc, frame);
+
+	drmc->swap_msc = msc;
+	drmc->swap_ust = ((CARD64)tv_sec * 1000000) + tv_usec;
 
 	event->handler(event, msc, tv_sec, tv_usec);
 }
@@ -1395,34 +1399,30 @@ int common_drm_vblank_get(ScrnInfoPtr pScrn, xf86CrtcPtr crtc,
 	drmVBlank *vbl, const char *func)
 {
 	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
-	static int limit = 5;
-	int ret;
 
 	vbl->request.type = DRM_VBLANK_RELATIVE | req_crtc(crtc);
 	vbl->request.sequence = 0;
 
-	ret = drmWaitVBlank(drm->fd, vbl);
-	if (ret && limit) {
-		xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
-			   "%s: get vblank counter failed: %s\n",
-			   func, strerror(errno));
-		limit--;
-	}
-	return ret;
+	return drmWaitVBlank(drm->fd, vbl);
 }
 
 _X_EXPORT
 int common_drm_get_msc(xf86CrtcPtr crtc, uint64_t *ust, uint64_t *msc)
 {
+	struct common_crtc_info *drmc = common_crtc(crtc);
 	drmVBlank vbl;
 	int ret;
 
 	ret = common_drm_vblank_get(crtc->scrn, crtc, &vbl, __FUNCTION__);
-	if (ret)
-		return BadMatch;
+	if (ret == 0) {
+		drmc->swap_msc = common_drm_frame_to_msc(crtc,
+							 vbl.reply.sequence);
+		drmc->swap_ust = ((CARD64)vbl.reply.tval_sec * 1000000) +
+				 vbl.reply.tval_usec;
+	}
 
-	*ust = ((CARD64)vbl.reply.tval_sec * 1000000) + vbl.reply.tval_usec;
-	*msc = common_drm_frame_to_msc(crtc, vbl.reply.sequence);
+	*ust = drmc->swap_ust;
+	*msc = drmc->swap_msc;
 
 	return Success;
 }

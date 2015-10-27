@@ -16,6 +16,8 @@ struct common_crtc_info {
 	uint32_t rotate_fb_id;
 	uint32_t last_seq;
 	uint64_t last_msc;
+	uint64_t swap_msc;
+	uint64_t swap_ust;
 };
 #define common_crtc(crtc) \
 	((struct common_crtc_info *)(crtc)->driver_private)
