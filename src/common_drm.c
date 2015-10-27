@@ -1277,12 +1277,16 @@ Bool common_drm_EnterVT(VT_FUNC_ARGS_DECL)
 	xf86CrtcConfigPtr xf86_config = XF86_CRTC_CONFIG_PTR(pScrn);
 	int i;
 
-	if (drmSetMaster(drm->fd))
+	if (!common_drm_get_master(drm->dev)) {
 		xf86DrvMsg(pScrn->scrnIndex, X_WARNING,
 			   "[drm] set master failed: %s\n", strerror(errno));
-
-	if (!xf86SetDesiredModes(pScrn))
 		return FALSE;
+	}
+
+	if (!xf86SetDesiredModes(pScrn)) {
+		common_drm_put_master(drm->dev);
+		return FALSE;
+	}
 
 	/* Disable unused CRTCs */
 	for (i = 0; i < xf86_config->num_crtc; i++) {
@@ -1306,7 +1310,7 @@ void common_drm_LeaveVT(VT_FUNC_ARGS_DECL)
 
 	xf86_hide_cursors(pScrn);
 
-	drmDropMaster(drm->fd);
+	common_drm_put_master(drm->dev);
 }
 
 void common_drm_FreeScreen(FREE_SCREEN_ARGS_DECL)
@@ -1474,4 +1478,84 @@ int common_drm_vblank_wait(ScrnInfoPtr pScrn, xf86CrtcPtr crtc,
 			   __FUNCTION__, strerror(errno));
 
 	return ret;
+}
+
+
+static int common_entity_key = -1;
+
+struct common_drm_device *common_entity_get_dev(int entity_num)
+{
+	if (common_entity_key == -1)
+		common_entity_key = xf86AllocateEntityPrivateIndex();
+	if (common_entity_key == -1)
+		return NULL;
+
+	return xf86GetEntityPrivate(entity_num, common_entity_key)->ptr;
+}
+
+static void common_entity_set_dev(int entity_num, struct common_drm_device *dev)
+{
+	if (common_entity_key == -1)
+		common_entity_key = xf86AllocateEntityPrivateIndex();
+
+	xf86GetEntityPrivate(entity_num, common_entity_key)->ptr = dev;
+}
+
+struct common_drm_device *common_alloc_dev(int entity_num, int fd,
+	const char *path, Bool ddx_managed_master)
+{
+	struct common_drm_device *drm_dev;
+
+	drm_dev = malloc(sizeof *drm_dev);
+	if (!drm_dev)
+		return NULL;
+
+	drm_dev->fd = fd;
+	drm_dev->master_count = !ddx_managed_master;
+
+	if (path) {
+		drm_dev->kms_path = strdup(path);
+		if (!drm_dev->kms_path) {
+			free(drm_dev);
+			return NULL;
+		}
+	} else {
+		drm_dev->kms_path = NULL;
+	}
+
+	common_entity_set_dev(entity_num, drm_dev);
+
+	return drm_dev;
+}
+
+/*
+ * Check that what we opened was a master or a master-capable FD
+ * by setting the version of the interface we'll use to talk to it.
+ */
+Bool common_drm_fd_is_master(int fd)
+{
+	drmSetVersion sv;
+
+	sv.drm_di_major = 1;
+	sv.drm_di_minor = 1;
+	sv.drm_dd_major = -1;
+	sv.drm_dd_minor = -1;
+
+	return drmSetInterfaceVersion(fd, &sv) == 0;
+}
+
+Bool common_drm_get_master(struct common_drm_device *drm_dev)
+{
+	if (drm_dev->master_count++)
+		return TRUE;
+
+	return drmSetMaster(drm_dev->fd) ? FALSE : TRUE;
+}
+
+void common_drm_put_master(struct common_drm_device *drm_dev)
+{
+	assert(drm_dev->master_count);
+
+	if (--drm_dev->master_count == 0)
+		drmDropMaster(drm_dev->fd);
 }
