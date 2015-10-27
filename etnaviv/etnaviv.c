@@ -1005,6 +1005,12 @@ fail_accel:
 	return FALSE;
 }
 
+static void etnaviv_align_bo_size(ScreenPtr pScreen, int *width, int *height,
+	int bpp)
+{
+	*width = etnaviv_pitch(*width, bpp) * 8 / bpp;
+}
+
 static Bool etnaviv_format(struct etnaviv_format *fmt, unsigned int depth,
 	unsigned int bpp)
 {
@@ -1155,6 +1161,7 @@ static int etnaviv_export_name(ScreenPtr pScreen, uint32_t name)
 const struct armada_accel_ops etnaviv_ops = {
 	.pre_init	= etnaviv_pre_init,
 	.screen_init	= etnaviv_ScreenInit,
+	.align_bo_size	= etnaviv_align_bo_size,
 	.import_dmabuf	= etnaviv_import_dmabuf,
 	.attach_name	= etnaviv_attach_name,
 	.free_pixmap	= etnaviv_free_pixmap,

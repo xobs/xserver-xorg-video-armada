@@ -108,6 +108,10 @@ static struct drm_armada_bo *armada_bo_alloc_framebuffer(ScrnInfoPtr pScrn,
 	struct drm_armada_bo *bo;
 	int ret;
 
+	if (arm->accel_ops && arm->accel_ops->align_bo_size)
+		arm->accel_ops->align_bo_size(pScrn->pScreen, &width,
+					      &height, bpp);
+
 	bo = drm_armada_bo_dumb_create(arm->bufmgr, width, height, bpp);
 	if (!bo) {
 		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
