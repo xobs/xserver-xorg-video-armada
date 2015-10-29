@@ -64,6 +64,19 @@ static inline size_t etnaviv_tile_height(unsigned height)
 	return ALIGN(height, ETNAVIV_TILE_HEIGHT) / ETNAVIV_TILE_HEIGHT;
 }
 
+#define ETNAVIV_3D_WIDTH_ALIGN	16
+#define ETNAVIV_3D_HEIGHT_ALIGN	8
+
+static inline unsigned int etnaviv_3d_pitch(unsigned width, unsigned bpp)
+{
+	return etnaviv_pitch(ALIGN(width, ETNAVIV_3D_WIDTH_ALIGN), bpp);
+}
+
+static inline size_t etnaviv_3d_size(unsigned int pitch, unsigned int height)
+{
+	return pitch * ALIGN(height, ETNAVIV_3D_HEIGHT_ALIGN);
+}
+
 static inline uint32_t scale16(uint32_t val, int bits)
 {
 	val <<= (16 - bits);

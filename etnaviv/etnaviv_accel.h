@@ -49,6 +49,7 @@ struct etnaviv_dri2_info;
 enum {
 	CREATE_PIXMAP_USAGE_TILE = 0x80000000,
 	CREATE_PIXMAP_USAGE_GPU = 0x40000000,	/* Must be vpix backed */
+	CREATE_PIXMAP_USAGE_3D = 0x20000000,	/* 3D has restrictions */
 };
 
 /* Workarounds for hardware bugs */

@@ -64,7 +64,8 @@ static DRI2Buffer2Ptr etnaviv_dri2_CreateBuffer(DrawablePtr drawable,
 
 	if (pixmap == NULL) {
 		pixmap = common_dri2_create_pixmap(drawable, attachment, format,
-						   CREATE_PIXMAP_USAGE_GPU);
+						   CREATE_PIXMAP_USAGE_GPU |
+						   CREATE_PIXMAP_USAGE_3D);
 		if (!pixmap)
 			goto err;
 	}

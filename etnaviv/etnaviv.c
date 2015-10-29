@@ -663,6 +663,13 @@ static Bool etnaviv_alloc_etna_bo(ScreenPtr pScreen, struct etnaviv *etnaviv,
 		pitch = etnaviv_tile_pitch(w, bpp);
 		size = pitch * etnaviv_tile_height(h);
 		fmt.tile = 1;
+	} else if (usage_hint & CREATE_PIXMAP_USAGE_3D) {
+		/*
+		 * The Vivante 3D resolve engine requires the
+		 * width and height to be appropriately aligned.
+		 */
+		pitch = etnaviv_3d_pitch(w, bpp);
+		size = etnaviv_3d_size(pitch, h);
 	} else {
 		pitch = etnaviv_pitch(w, bpp);
 		size = pitch * h;
