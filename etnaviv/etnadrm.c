@@ -482,6 +482,19 @@ int etna_bo_to_dmabuf(struct viv_conn *conn, struct etna_bo *mem)
 	return fd;
 }
 
+int etna_bo_flink(struct etna_bo *bo, uint32_t *name)
+{
+	struct drm_gem_flink flink = {
+		.handle = etna_bo_handle(bo),
+	};
+
+	if (drmIoctl(bo->conn->fd, DRM_IOCTL_GEM_FLINK, &flink))
+		return -1;
+
+	*name = flink.name;
+	return 0;
+}
+
 struct etna_bo *etna_bo_from_name(struct viv_conn *conn, uint32_t name)
 {
 	struct etna_bo *mem;

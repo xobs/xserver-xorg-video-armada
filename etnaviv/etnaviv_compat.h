@@ -27,5 +27,7 @@
 struct etna_bo *etna_bo_from_name(struct viv_conn *conn, uint32_t name);
 #define etna_bo_to_dmabuf my_etna_bo_to_dmabuf
 int etna_bo_to_dmabuf(struct viv_conn *conn, struct etna_bo *bo);
+#define etna_bo_flink my_etna_bo_flink
+int etna_bo_flink(struct etna_bo *bo, uint32_t *name);
 
 #endif
