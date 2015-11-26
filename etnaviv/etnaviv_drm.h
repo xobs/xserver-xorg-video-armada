@@ -21,6 +21,7 @@
 #define ETNAVIV_DATE_RMK		20130625
 #define ETNAVIV_DATE_PENGUTRONIX	20150302
 #define ETNAVIV_DATE_PENGUTRONIX2	20150910
+#define ETNAVIV_DATE_PENGUTRONIX3	20151126
 #define ETNAVIV_DATE			ETNAVIV_DATE_PENGUTRONIX
 
 #include <stddef.h>
@@ -254,9 +255,18 @@ struct drm_etnaviv_gem_submit_r20130625 {
  * mainly just exists as a way to implement the gallium pipe_fence
  * APIs without requiring a dummy bo to synchronize on.
  */
-struct drm_etnaviv_wait_fence {
+struct drm_etnaviv_wait_fence_r20130625 {
 	uint32_t pipe;           /* in, ETNA_PIPE_x */
 	uint32_t fence;          /* in */
+	struct drm_etnaviv_timespec timeout;   /* in */
+};
+
+#define ETNA_WAIT_NONBLOCK      0x01
+struct drm_etnaviv_wait_fence_r20151126 {
+	__u32 pipe;           /* in */
+	__u32 fence;          /* in */
+	__u32 flags;          /* in, mask of ETNA_WAIT_x */
+	__u32 pad;
 	struct drm_etnaviv_timespec timeout;   /* in */
 };
 
@@ -269,9 +279,17 @@ struct drm_etnaviv_gem_userptr {
 	uint32_t handle;	/* out, non-zero handle */
 };
 
-struct drm_etnaviv_gem_wait {
+struct drm_etnaviv_gem_wait_r20130625 {
 	__u32 pipe;				/* in */
 	__u32 handle;				/* in, bo to be waited for */
+	struct drm_etnaviv_timespec timeout;	/* in */
+};
+
+struct drm_etnaviv_gem_wait_r20151126 {
+	__u32 pipe;				/* in */
+	__u32 handle;				/* in, bo to be waited for */
+	__u32 flags;				/* in, mask of ETNA_WAIT_x  */
+	__u32 pad;
 	struct drm_etnaviv_timespec timeout;	/* in */
 };
 

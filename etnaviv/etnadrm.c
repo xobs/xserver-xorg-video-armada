@@ -182,11 +182,12 @@ int viv_open(enum viv_hw_type hw_type, struct viv_conn **out)
 
 	/*
 	 * Read the driver date code, which will tell us which API to use.
-	 * We have three APIs at present, which can be identified via the
+	 * We have four APIs at present, which can be identified via the
 	 * date code:
 	 *   20130625 and earlier are the original APIs
 	 *   20150302 is revision 1 of Pengutronix's API
 	 *   20150910 is revision 2 of Pengutronix's API
+	 *   20151126 is revision 3 of Pengutronix's API
 	 */
 	ec->api_date = atoi(version->date);
 
@@ -281,16 +282,29 @@ static void etnadrm_convert_timeout(struct drm_etnaviv_timespec *ts,
 
 int viv_fence_finish(struct viv_conn *conn, uint32_t fence, uint32_t timeout)
 {
-	struct drm_etnaviv_wait_fence req = {
-		.pipe = to_etna_viv_conn(conn)->etnadrm_pipe,
-		.fence = fence,
-	};
+	unsigned int api_date = to_etna_viv_conn(conn)->api_date;
+	union req {
+		struct drm_etnaviv_wait_fence_r20151126 r20151126;
+		struct drm_etnaviv_wait_fence_r20130625 r20130625;
+	} req;
 	int ret;
 
-	etnadrm_convert_timeout(&req.timeout, timeout);
+	if (api_date < ETNAVIV_DATE_PENGUTRONIX3) {
+		memset(&req, 0, sizeof(req.r20130625));
+		req.r20130625.pipe = to_etna_viv_conn(conn)->etnadrm_pipe;
+		req.r20130625.fence = fence;
+		etnadrm_convert_timeout(&req.r20130625.timeout, timeout);
+		ret = drmCommandWrite(conn->fd, DRM_ETNAVIV_WAIT_FENCE,
+				      &req.r20130625, sizeof(req.r20130625));
+	} else {
+		memset(&req, 0, sizeof(req.r20151126));
+		req.r20151126.pipe = to_etna_viv_conn(conn)->etnadrm_pipe;
+		req.r20151126.fence = fence;
+		etnadrm_convert_timeout(&req.r20151126.timeout, timeout);
+		ret = drmCommandWrite(conn->fd, DRM_ETNAVIV_WAIT_FENCE,
+				      &req.r20151126, sizeof(req.r20151126));
+	}
 
-	ret = drmCommandWrite(conn->fd, DRM_ETNAVIV_WAIT_FENCE, &req,
-			      sizeof(req));
 	if (ret == 0)
 		conn->last_fence_id = fence;
 
@@ -312,15 +326,28 @@ struct etna_bo {
 static int etna_bo_gem_wait(struct etna_bo *bo, uint32_t timeout)
 {
 	struct viv_conn *conn = bo->conn;
-	struct drm_etnaviv_gem_wait req = {
-		.pipe = to_etna_viv_conn(conn)->etnadrm_pipe,
-		.handle = bo->handle,
-	};
+	unsigned int api_date = to_etna_viv_conn(conn)->api_date;
 
-	etnadrm_convert_timeout(&req.timeout, timeout);
+	union req {
+		struct drm_etnaviv_gem_wait_r20151126 r20151126;
+		struct drm_etnaviv_gem_wait_r20130625 r20130625;
+	} req;
 
-	return drmCommandWrite(conn->fd, DRM_ETNAVIV_GEM_WAIT,
-			       &req, sizeof(req));
+	if (api_date < ETNAVIV_DATE_PENGUTRONIX3) {
+		memset(&req, 0, sizeof(req.r20130625));
+		req.r20130625.pipe = to_etna_viv_conn(conn)->etnadrm_pipe;
+		req.r20130625.handle = bo->handle;
+		etnadrm_convert_timeout(&req.r20130625.timeout, timeout);
+		return drmCommandWrite(conn->fd, DRM_ETNAVIV_GEM_WAIT,
+				       &req.r20130625, sizeof(req.r20130625));
+	} else {
+		memset(&req, 0, sizeof(req.r20151126));
+		req.r20151126.pipe = to_etna_viv_conn(conn)->etnadrm_pipe;
+		req.r20151126.handle = bo->handle;
+		etnadrm_convert_timeout(&req.r20151126.timeout, timeout);
+		return drmCommandWrite(conn->fd, DRM_ETNAVIV_GEM_WAIT,
+				       &req.r20151126, sizeof(req.r20151126));
+	}
 }
 
 static void etna_bo_free(struct etna_bo *bo)
