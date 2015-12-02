@@ -13,6 +13,15 @@
 #include <etnaviv/state.xml.h>
 #include <etnaviv/state_2d.xml.h>
 
+#define LOADSTATE(st, num)						\
+	(VIV_FE_LOAD_STATE_HEADER_OP_LOAD_STATE |			\
+	 VIV_FE_LOAD_STATE_HEADER_COUNT(num) |				\
+	 VIV_FE_LOAD_STATE_HEADER_OFFSET((st) >> 2))
+
+#define DRAW2D(count)							\
+	(VIV_FE_DRAW_2D_HEADER_OP_DRAW_2D |				\
+	 VIV_FE_DRAW_2D_HEADER_COUNT(count))
+
 #define BATCH_SETUP_START(etp)						\
 	do {								\
 		struct etnaviv *_et = etp;				\
@@ -45,10 +54,7 @@
 #define EMIT_RELOC(etp, _bo, _off, _wr)					\
 	do {								\
 		struct etnaviv *__et = etp;				\
-		struct etnaviv_reloc *r = &__et->reloc[__et->reloc_size++]; \
-		r->bo = _bo;						\
-		r->batch_index = __et->batch_size;			\
-		r->write = _wr;						\
+		etnaviv_add_reloc(__et, _bo, _wr, __et->batch_size);	\
 		EMIT(__et, _off);					\
 	} while (0)
 
@@ -56,17 +62,14 @@
 	do {								\
 		struct etnaviv *__et = etp;				\
 		assert(!(__et->batch_size & 1));			\
-		EMIT(__et, VIV_FE_LOAD_STATE_HEADER_OP_LOAD_STATE |	\
-			   VIV_FE_LOAD_STATE_HEADER_COUNT(num) |	\
-			   VIV_FE_LOAD_STATE_HEADER_OFFSET((st) >> 2));	\
+		EMIT(__et, LOADSTATE(st, num));				\
 	} while (0)
 
 #define EMIT_DRAW_2D(etp, count)					\
 	do {								\
 		struct etnaviv *__et = etp;				\
 		assert(!(__et->batch_size & 1));			\
-		EMIT(__et, VIV_FE_DRAW_2D_HEADER_OP_DRAW_2D |		\
-			   VIV_FE_DRAW_2D_HEADER_COUNT(count));		\
+		EMIT(__et, DRAW2D(count));				\
 		/* next word is unused */				\
 		__et->batch_size ++;					\
 	} while (0)
@@ -93,6 +96,16 @@
 		struct etnaviv *__et = etp;				\
 		__et->batch_size += __et->batch_size & 1;		\
 	} while (0)
+
+static void etnaviv_add_reloc(struct etnaviv *etnaviv, struct etna_bo *bo,
+	int write, unsigned int batch_index)
+{
+	struct etnaviv_reloc *r = &etnaviv->reloc[etnaviv->reloc_size++];
+
+	r->bo = bo;
+	r->batch_index = batch_index;
+	r->write = write;
+}
 
 static inline uint32_t etnaviv_src_config(struct etnaviv_format fmt,
 	Bool relative)
