@@ -44,57 +44,42 @@
 		__et->reloc_size = __et->reloc_setup_size;		\
 	} while (0)
 
-#define EMIT(etp, val)							\
+#define EL_START(etp, max_sz)						\
 	do {								\
 		struct etnaviv *_et = etp;				\
-		assert(_et->batch_size < MAX_BATCH_SIZE);		\
-		_et->batch[_et->batch_size++] = val;			\
+		unsigned int _batch_size = _et->batch_size;		\
+		unsigned int _batch_max = _batch_size + 4 * max_sz;	\
+		uint32_t *_batch = &_et->batch[_batch_size];		\
+		assert(_batch_max <= MAX_BATCH_SIZE)
+
+#define EL_END()							\
+		_batch_size = _batch - _et->batch;			\
+		_batch_size += _batch_size & 1;				\
+		assert(_batch_size <= _batch_max);			\
+		_et->batch_size = _batch_size;				\
 	} while (0)
 
-#define EMIT_RELOC(etp, _bo, _off, _wr)					\
+#define EL_ALIGN()	_batch += (_batch - _et->batch) & 1
+#define EL_SKIP()	_batch++
+#define EL(val)		*_batch++ = val
+
+#define EL_RELOC(_bo, _off, _wr)					\
 	do {								\
-		struct etnaviv *__et = etp;				\
-		etnaviv_add_reloc(__et, _bo, _wr, __et->batch_size);	\
-		EMIT(__et, _off);					\
+		etnaviv_add_reloc(_et, _bo, _wr, _batch - _et->batch);	\
+		EL(_off);						\
 	} while (0)
 
-#define EMIT_LOADSTATE(etp, st, num)					\
+#define EL_NOP()							\
 	do {								\
-		struct etnaviv *__et = etp;				\
-		assert(!(__et->batch_size & 1));			\
-		EMIT(__et, LOADSTATE(st, num));				\
+		EL(VIV_FE_NOP_HEADER_OP_NOP);				\
+		EL_SKIP();						\
 	} while (0)
 
-#define EMIT_DRAW_2D(etp, count)					\
+#define EL_STALL(_from, _to)						\
 	do {								\
-		struct etnaviv *__et = etp;				\
-		assert(!(__et->batch_size & 1));			\
-		EMIT(__et, DRAW2D(count));				\
-		/* next word is unused */				\
-		__et->batch_size ++;					\
-	} while (0)
-
-#define EMIT_STALL(etp, from, to)					\
-	do {								\
-		struct etnaviv *__et = etp;				\
-		assert(!(__et->batch_size & 1));			\
-		EMIT(__et, VIV_FE_STALL_HEADER_OP_STALL);		\
-		EMIT(__et, VIV_FE_STALL_TOKEN_FROM(from) |		\
-			   VIV_FE_STALL_TOKEN_TO(to));			\
-	} while (0)
-
-#define EMIT_NOP(etp)							\
-	do {								\
-		struct etnaviv *__et = etp;				\
-		assert(!(__et->batch_size & 1));			\
-		EMIT(__et, VIV_FE_NOP_HEADER_OP_NOP);			\
-		EMIT(__et, 0);						\
-	} while (0)
-
-#define EMIT_ALIGN(etp)							\
-	do {								\
-		struct etnaviv *__et = etp;				\
-		__et->batch_size += __et->batch_size & 1;		\
+		EL(VIV_FE_STALL_HEADER_OP_STALL);			\
+		EL(VIV_FE_STALL_TOKEN_FROM(_from) |			\
+		   VIV_FE_STALL_TOKEN_TO(_to));				\
 	} while (0)
 
 static void etnaviv_add_reloc(struct etnaviv *etnaviv, struct etna_bo *bo,
@@ -134,14 +119,15 @@ static void etnaviv_set_source_bo(struct etnaviv *etnaviv,
 	uint32_t src_cfg = etnaviv_src_config(buf->format, src_origin_mode ==
 					       SRC_ORIGIN_RELATIVE);
 
-	EMIT_LOADSTATE(etnaviv, VIVS_DE_SRC_ADDRESS, 5);
-	EMIT_RELOC(etnaviv, buf->bo, 0, FALSE);
-	EMIT(etnaviv, VIVS_DE_SRC_STRIDE_STRIDE(buf->pitch));
-	EMIT(etnaviv, VIVS_DE_SRC_ROTATION_CONFIG_ROTATION_DISABLE);
-	EMIT(etnaviv, src_cfg);
-	EMIT(etnaviv, VIVS_DE_SRC_ORIGIN_X(buf->offset.x) |
-		      VIVS_DE_SRC_ORIGIN_Y(buf->offset.y));
-	EMIT_ALIGN(etnaviv);
+	EL_START(etnaviv, 6);
+	EL(LOADSTATE(VIVS_DE_SRC_ADDRESS, 5));
+	EL_RELOC(buf->bo, 0, FALSE);
+	EL(VIVS_DE_SRC_STRIDE_STRIDE(buf->pitch));
+	EL(VIVS_DE_SRC_ROTATION_CONFIG_ROTATION_DISABLE);
+	EL(src_cfg);
+	EL(VIVS_DE_SRC_ORIGIN_X(buf->offset.x) |
+	   VIVS_DE_SRC_ORIGIN_Y(buf->offset.y));
+	EL_END();
 }
 
 static void etnaviv_set_dest_bo(struct etnaviv *etnaviv,
@@ -155,71 +141,79 @@ static void etnaviv_set_dest_bo(struct etnaviv *etnaviv,
 	if (buf->format.tile)
 		dst_cfg |= VIVS_DE_DEST_CONFIG_TILED_ENABLE;
 
-	EMIT_LOADSTATE(etnaviv, VIVS_DE_DEST_ADDRESS, 4);
-	EMIT_RELOC(etnaviv, buf->bo, 0, TRUE);
-	EMIT(etnaviv, VIVS_DE_DEST_STRIDE_STRIDE(buf->pitch));
-	EMIT(etnaviv, VIVS_DE_DEST_ROTATION_CONFIG_ROTATION_DISABLE);
-	EMIT(etnaviv, dst_cfg);
-	EMIT_ALIGN(etnaviv);
+	EL_START(etnaviv, 6);
+	EL(LOADSTATE(VIVS_DE_DEST_ADDRESS, 4));
+	EL_RELOC(buf->bo, 0, TRUE);
+	EL(VIVS_DE_DEST_STRIDE_STRIDE(buf->pitch));
+	EL(VIVS_DE_DEST_ROTATION_CONFIG_ROTATION_DISABLE);
+	EL(dst_cfg);
+	EL_END();
 }
 
 static void etnaviv_emit_rop_clip(struct etnaviv *etnaviv, unsigned fg_rop,
 	unsigned bg_rop, const BoxRec *clip, xPoint offset)
 {
-	EMIT_LOADSTATE(etnaviv, VIVS_DE_ROP, clip ? 3 : 1);
-	EMIT(etnaviv, VIVS_DE_ROP_ROP_FG(fg_rop) |
-		      VIVS_DE_ROP_ROP_BG(bg_rop) |
-		      VIVS_DE_ROP_TYPE_ROP4);
+	EL_START(etnaviv, 4);
+	EL(LOADSTATE(VIVS_DE_ROP, clip ? 3 : 1));
+	EL(VIVS_DE_ROP_ROP_FG(fg_rop) |
+	   VIVS_DE_ROP_ROP_BG(bg_rop) |
+	   VIVS_DE_ROP_TYPE_ROP4);
 	if (clip) {
-		EMIT(etnaviv,
-		     VIVS_DE_CLIP_TOP_LEFT_X(clip->x1 + offset.x) |
-		     VIVS_DE_CLIP_TOP_LEFT_Y(clip->y1 + offset.y));
-		EMIT(etnaviv,
-		     VIVS_DE_CLIP_BOTTOM_RIGHT_X(clip->x2 + offset.x) |
-		     VIVS_DE_CLIP_BOTTOM_RIGHT_Y(clip->y2 + offset.y));
+		EL(VIVS_DE_CLIP_TOP_LEFT_X(clip->x1 + offset.x) |
+		   VIVS_DE_CLIP_TOP_LEFT_Y(clip->y1 + offset.y));
+		EL(VIVS_DE_CLIP_BOTTOM_RIGHT_X(clip->x2 + offset.x) |
+		   VIVS_DE_CLIP_BOTTOM_RIGHT_Y(clip->y2 + offset.y));
 	}
+	EL_END();
 }
 
 static void etnaviv_emit_brush(struct etnaviv *etnaviv, uint32_t fg)
 {
-	EMIT_LOADSTATE(etnaviv, VIVS_DE_PATTERN_MASK_LOW, 4);
-	EMIT(etnaviv, ~0);
-	EMIT(etnaviv, ~0);
-	EMIT(etnaviv, 0);
-	EMIT(etnaviv, fg);
-	EMIT_ALIGN(etnaviv);
-	EMIT_LOADSTATE(etnaviv, VIVS_DE_PATTERN_CONFIG, 1);
-	EMIT(etnaviv, VIVS_DE_PATTERN_CONFIG_INIT_TRIGGER(3));
+	EL_START(etnaviv, 8);
+	EL(LOADSTATE(VIVS_DE_PATTERN_MASK_LOW, 4));
+	EL(~0);
+	EL(~0);
+	EL(0);
+	EL(fg);
+	EL_ALIGN();
+	EL(LOADSTATE(VIVS_DE_PATTERN_CONFIG, 1));
+	EL(VIVS_DE_PATTERN_CONFIG_INIT_TRIGGER(3));
+	EL_END();
 }
 
 static void etnaviv_set_blend(struct etnaviv *etnaviv,
 	const struct etnaviv_blend_op *op)
 {
+	EL_START(etnaviv, 8);
 	if (!op) {
-		EMIT_LOADSTATE(etnaviv, VIVS_DE_ALPHA_CONTROL, 1);
-		EMIT(etnaviv, VIVS_DE_ALPHA_CONTROL_ENABLE_OFF);
+		EL(LOADSTATE(VIVS_DE_ALPHA_CONTROL, 1));
+		EL(VIVS_DE_ALPHA_CONTROL_ENABLE_OFF);
 	} else {
 		Bool pe20 = VIV_FEATURE(etnaviv->conn, chipMinorFeatures0, 2DPE20);
 
-		EMIT_LOADSTATE(etnaviv, VIVS_DE_ALPHA_CONTROL, 2);
-		EMIT(etnaviv,
-		     VIVS_DE_ALPHA_CONTROL_ENABLE_ON |
-		     VIVS_DE_ALPHA_CONTROL_PE10_GLOBAL_SRC_ALPHA(op->src_alpha) |
-		     VIVS_DE_ALPHA_CONTROL_PE10_GLOBAL_DST_ALPHA(op->dst_alpha));
-		EMIT(etnaviv, op->alpha_mode);
-		EMIT_ALIGN(etnaviv);
+		EL(LOADSTATE(VIVS_DE_ALPHA_CONTROL, 2));
+		EL(VIVS_DE_ALPHA_CONTROL_ENABLE_ON |
+		   VIVS_DE_ALPHA_CONTROL_PE10_GLOBAL_SRC_ALPHA(op->src_alpha) |
+		   VIVS_DE_ALPHA_CONTROL_PE10_GLOBAL_DST_ALPHA(op->dst_alpha));
+		EL(op->alpha_mode);
+		EL_ALIGN();
 
 		if (pe20) {
-			EMIT_LOADSTATE(etnaviv, VIVS_DE_GLOBAL_SRC_COLOR, 3);
-			EMIT(etnaviv, op->src_alpha << 24);
-			EMIT(etnaviv, op->dst_alpha << 24);
-			EMIT(etnaviv,
-			     VIVS_DE_COLOR_MULTIPLY_MODES_SRC_PREMULTIPLY_DISABLE |
-			     VIVS_DE_COLOR_MULTIPLY_MODES_DST_PREMULTIPLY_DISABLE |
-			     VIVS_DE_COLOR_MULTIPLY_MODES_SRC_GLOBAL_PREMULTIPLY_DISABLE |
-			     VIVS_DE_COLOR_MULTIPLY_MODES_DST_DEMULTIPLY_DISABLE);
+			EL(LOADSTATE(VIVS_DE_GLOBAL_SRC_COLOR, 3));
+			EL(op->src_alpha << 24);
+			EL(op->dst_alpha << 24);
+			EL(VIVS_DE_COLOR_MULTIPLY_MODES_SRC_PREMULTIPLY_DISABLE |
+			   VIVS_DE_COLOR_MULTIPLY_MODES_DST_PREMULTIPLY_DISABLE |
+			   VIVS_DE_COLOR_MULTIPLY_MODES_SRC_GLOBAL_PREMULTIPLY_DISABLE |
+			   VIVS_DE_COLOR_MULTIPLY_MODES_DST_DEMULTIPLY_DISABLE);
 		}
 	}
+	EL_END();
+}
+
+static size_t etnaviv_size_2d_draw(struct etnaviv *etnaviv, size_t n)
+{
+	return 2 + 2 * n;
 }
 
 static void etnaviv_emit_2d_draw(struct etnaviv *etnaviv, const BoxRec *pbox,
@@ -227,21 +221,17 @@ static void etnaviv_emit_2d_draw(struct etnaviv *etnaviv, const BoxRec *pbox,
 {
 	size_t i;
 
-	EMIT_DRAW_2D(etnaviv, n == 256 ? 0 : n);
+	EL_START(etnaviv, etnaviv_size_2d_draw(etnaviv, n));
+	EL(DRAW2D(n & 255));
+	EL_SKIP();
 
 	for (i = 0; i < n; i++, pbox++) {
-		EMIT(etnaviv,
-		     VIV_FE_DRAW_2D_TOP_LEFT_X(offset.x + pbox->x1) |
-		     VIV_FE_DRAW_2D_TOP_LEFT_Y(offset.y + pbox->y1));
-		EMIT(etnaviv,
-		     VIV_FE_DRAW_2D_BOTTOM_RIGHT_X(offset.x + pbox->x2) |
-		     VIV_FE_DRAW_2D_BOTTOM_RIGHT_Y(offset.y + pbox->y2));
+		EL(VIV_FE_DRAW_2D_TOP_LEFT_X(offset.x + pbox->x1) |
+		   VIV_FE_DRAW_2D_TOP_LEFT_Y(offset.y + pbox->y1));
+		EL(VIV_FE_DRAW_2D_BOTTOM_RIGHT_X(offset.x + pbox->x2) |
+		   VIV_FE_DRAW_2D_BOTTOM_RIGHT_Y(offset.y + pbox->y2));
 	}
-}
-
-static size_t etnaviv_size_2d_draw(struct etnaviv *etnaviv, size_t n)
-{
-	return 2 + 2 * n;
+	EL_END();
 }
 
 void etnaviv_de_start(struct etnaviv *etnaviv, const struct etnaviv_de_op *op)
@@ -276,19 +266,21 @@ void etnaviv_de_end(struct etnaviv *etnaviv)
 	}
 
 	/* Append a flush, semaphore and stall to ensure that the FE */
-	EMIT_LOADSTATE(etnaviv, VIVS_GL_FLUSH_CACHE, 1);
-	EMIT(etnaviv, VIVS_GL_FLUSH_CACHE_PE2D);
-	EMIT_LOADSTATE(etnaviv, VIVS_GL_SEMAPHORE_TOKEN, 1);
-	EMIT(etnaviv, VIVS_GL_SEMAPHORE_TOKEN_FROM(SYNC_RECIPIENT_FE) |
-		      VIVS_GL_SEMAPHORE_TOKEN_TO(SYNC_RECIPIENT_PE));
-	EMIT_STALL(etnaviv, SYNC_RECIPIENT_FE, SYNC_RECIPIENT_PE);
+	EL_START(etnaviv, 46);
+	EL(LOADSTATE(VIVS_GL_FLUSH_CACHE, 1));
+	EL(VIVS_GL_FLUSH_CACHE_PE2D);
+	EL(LOADSTATE(VIVS_GL_SEMAPHORE_TOKEN, 1));
+	EL(VIVS_GL_SEMAPHORE_TOKEN_FROM(SYNC_RECIPIENT_FE) |
+	   VIVS_GL_SEMAPHORE_TOKEN_TO(SYNC_RECIPIENT_PE));
+	EL_STALL(SYNC_RECIPIENT_FE, SYNC_RECIPIENT_PE);
 
 	if (etnaviv->gc320_etna_bo) {
 		int i;
 
 		for (i = 0; i < 20; i++)
-			EMIT_NOP(etnaviv);
+			EL_NOP();
 	}
+	EL_END();
 
 	etnaviv_emit(etnaviv);
 }
@@ -305,22 +297,23 @@ void etnaviv_de_op_src_origin(struct etnaviv *etnaviv,
 		BATCH_OP_START(etnaviv);
 	}
 
-	EMIT_LOADSTATE(etnaviv, VIVS_DE_SRC_ORIGIN, 1);
-	EMIT(etnaviv, VIVS_DE_SRC_ORIGIN_X(src_origin.x) |
-		      VIVS_DE_SRC_ORIGIN_Y(src_origin.y));
-	EMIT_DRAW_2D(etnaviv, 1);
-	EMIT(etnaviv,
-	     VIV_FE_DRAW_2D_TOP_LEFT_X(offset.x + dest->x1) |
-	     VIV_FE_DRAW_2D_TOP_LEFT_Y(offset.y + dest->y1));
-	EMIT(etnaviv,
-	     VIV_FE_DRAW_2D_BOTTOM_RIGHT_X(offset.x + dest->x2) |
-	     VIV_FE_DRAW_2D_BOTTOM_RIGHT_Y(offset.y + dest->y2));
-	EMIT_LOADSTATE(etnaviv, 4, 1);
-	EMIT(etnaviv, 0);
-	EMIT_LOADSTATE(etnaviv, 4, 1);
-	EMIT(etnaviv, 0);
-	EMIT_LOADSTATE(etnaviv, 4, 1);
-	EMIT(etnaviv, 0);
+	EL_START(etnaviv, 12);
+	EL(LOADSTATE(VIVS_DE_SRC_ORIGIN, 1));
+	EL(VIVS_DE_SRC_ORIGIN_X(src_origin.x) |
+	   VIVS_DE_SRC_ORIGIN_Y(src_origin.y));
+	EL(DRAW2D(1));
+	EL_SKIP();
+	EL(VIV_FE_DRAW_2D_TOP_LEFT_X(offset.x + dest->x1) |
+	   VIV_FE_DRAW_2D_TOP_LEFT_Y(offset.y + dest->y1));
+	EL(VIV_FE_DRAW_2D_BOTTOM_RIGHT_X(offset.x + dest->x2) |
+	   VIV_FE_DRAW_2D_BOTTOM_RIGHT_Y(offset.y + dest->y2));
+	EL(LOADSTATE(4, 1));
+	EL(0);
+	EL(LOADSTATE(4, 1));
+	EL(0);
+	EL(LOADSTATE(4, 1));
+	EL(0);
+	EL_END();
 }
 
 void etnaviv_de_op(struct etnaviv *etnaviv, const struct etnaviv_de_op *op,
@@ -341,15 +334,22 @@ void etnaviv_de_op(struct etnaviv *etnaviv, const struct etnaviv_de_op *op,
 				BATCH_OP_START(etnaviv);
 			}
 
-			etnaviv_emit_2d_draw(etnaviv, pBox++, 1, offset);
-
-			EMIT_LOADSTATE(etnaviv, 4, 1);
-			EMIT(etnaviv, 0);
-			EMIT_LOADSTATE(etnaviv, 4, 1);
-			EMIT(etnaviv, 0);
-			EMIT_LOADSTATE(etnaviv, 4, 1);
-			EMIT(etnaviv, 0);
-		}		
+			EL_START(etnaviv, 10);
+			EL(DRAW2D(1));
+			EL_SKIP();
+			EL(VIV_FE_DRAW_2D_TOP_LEFT_X(offset.x + pBox->x1) |
+			   VIV_FE_DRAW_2D_TOP_LEFT_Y(offset.y + pBox->y1));
+			EL(VIV_FE_DRAW_2D_BOTTOM_RIGHT_X(offset.x + pBox->x2) |
+			   VIV_FE_DRAW_2D_BOTTOM_RIGHT_Y(offset.y + pBox->y2));
+			EL(LOADSTATE(4, 1));
+			EL(0);
+			EL(LOADSTATE(4, 1));
+			EL(0);
+			EL(LOADSTATE(4, 1));
+			EL(0);
+			EL_END();
+			pBox++;
+		}
 	} else {
 		unsigned int n;
 
@@ -373,12 +373,14 @@ void etnaviv_de_op(struct etnaviv *etnaviv, const struct etnaviv_de_op *op,
 			pBox += n;
 			nBox -= n;
 
-			EMIT_LOADSTATE(etnaviv, 4, 1);
-			EMIT(etnaviv, 0);
-			EMIT_LOADSTATE(etnaviv, 4, 1);
-			EMIT(etnaviv, 0);
-			EMIT_LOADSTATE(etnaviv, 4, 1);
-			EMIT(etnaviv, 0);
+			EL_START(etnaviv, 6);
+			EL(LOADSTATE(4, 1));
+			EL(0);
+			EL(LOADSTATE(4, 1));
+			EL(0);
+			EL(LOADSTATE(4, 1));
+			EL(0);
+			EL_END();
 		} while (nBox);
 	}
 }
@@ -394,43 +396,44 @@ void etnaviv_vr_op(struct etnaviv *etnaviv, struct etnaviv_vr_op *op,
 	pitch = op->src_pitches ? op->src_pitches[0] : op->src.pitch;
 
 	BATCH_SETUP_START(etnaviv);
-	EMIT_LOADSTATE(etnaviv, VIVS_DE_SRC_ADDRESS, 4);
-	EMIT_RELOC(etnaviv, op->src.bo, offset, FALSE);
-	EMIT(etnaviv, VIVS_DE_SRC_STRIDE_STRIDE(pitch));
-	EMIT(etnaviv, VIVS_DE_SRC_ROTATION_CONFIG_ROTATION_DISABLE);
-	EMIT(etnaviv, cfg);
-	EMIT_ALIGN(etnaviv);
+	EL_START(etnaviv, 12);
+	EL(LOADSTATE(VIVS_DE_SRC_ADDRESS, 4));
+	EL_RELOC(op->src.bo, offset, FALSE);
+	EL(VIVS_DE_SRC_STRIDE_STRIDE(pitch));
+	EL(VIVS_DE_SRC_ROTATION_CONFIG_ROTATION_DISABLE);
+	EL(cfg);
+	EL_ALIGN();
 
 	if (op->src.format.planes > 1) {
 		unsigned u = op->src.format.u;
 		unsigned v = op->src.format.v;
 
-		EMIT_LOADSTATE(etnaviv, VIVS_DE_UPLANE_ADDRESS, 4);
-		EMIT_RELOC(etnaviv, op->src.bo, op->src_offsets[u], FALSE);
-		EMIT(etnaviv, VIVS_DE_UPLANE_STRIDE_STRIDE(op->src_pitches[u]));
-		EMIT_RELOC(etnaviv, op->src.bo, op->src_offsets[v], FALSE);
-		EMIT(etnaviv, VIVS_DE_VPLANE_STRIDE_STRIDE(op->src_pitches[v]));
-		EMIT_ALIGN(etnaviv);
+		EL(LOADSTATE(VIVS_DE_UPLANE_ADDRESS, 4));
+		EL_RELOC(op->src.bo, op->src_offsets[u], FALSE);
+		EL(VIVS_DE_UPLANE_STRIDE_STRIDE(op->src_pitches[u]));
+		EL_RELOC(op->src.bo, op->src_offsets[v], FALSE);
+		EL(VIVS_DE_VPLANE_STRIDE_STRIDE(op->src_pitches[v]));
+		EL_ALIGN();
 	}
+	EL_END();
 
 	etnaviv_set_dest_bo(etnaviv, &op->dst, op->cmd);
 
-	EMIT_LOADSTATE(etnaviv, VIVS_DE_ALPHA_CONTROL, 1);
-	EMIT(etnaviv, VIVS_DE_ALPHA_CONTROL_ENABLE_OFF);
+	EL_START(etnaviv, 10 * 8 * n);
+	EL(LOADSTATE(VIVS_DE_ALPHA_CONTROL, 1));
+	EL(VIVS_DE_ALPHA_CONTROL_ENABLE_OFF);
 
-	EMIT_LOADSTATE(etnaviv, VIVS_DE_STRETCH_FACTOR_LOW, 2);
-	EMIT(etnaviv, op->h_scale);
-	EMIT(etnaviv, op->v_scale);
-	EMIT_ALIGN(etnaviv);
+	EL(LOADSTATE(VIVS_DE_STRETCH_FACTOR_LOW, 2));
+	EL(op->h_scale);
+	EL(op->v_scale);
+	EL_ALIGN();
 
-	EMIT_LOADSTATE(etnaviv, VIVS_DE_VR_SOURCE_IMAGE_LOW, 2);
-	EMIT(etnaviv,
-	     VIVS_DE_VR_SOURCE_IMAGE_LOW_LEFT(op->src_bounds.x1) |
-	     VIVS_DE_VR_SOURCE_IMAGE_LOW_TOP(op->src_bounds.y1));
-	EMIT(etnaviv,
-	     VIVS_DE_VR_SOURCE_IMAGE_HIGH_RIGHT(op->src_bounds.x2) |
-	     VIVS_DE_VR_SOURCE_IMAGE_HIGH_BOTTOM(op->src_bounds.y2));
-	EMIT_ALIGN(etnaviv);
+	EL(LOADSTATE(VIVS_DE_VR_SOURCE_IMAGE_LOW, 2));
+	EL(VIVS_DE_VR_SOURCE_IMAGE_LOW_LEFT(op->src_bounds.x1) |
+	   VIVS_DE_VR_SOURCE_IMAGE_LOW_TOP(op->src_bounds.y1));
+	EL(VIVS_DE_VR_SOURCE_IMAGE_HIGH_RIGHT(op->src_bounds.x2) |
+	   VIVS_DE_VR_SOURCE_IMAGE_HIGH_BOTTOM(op->src_bounds.y2));
+	EL_ALIGN();
 
 	while (n--) {
 		BoxRec box = *boxes++;
@@ -446,22 +449,20 @@ void etnaviv_vr_op(struct etnaviv *etnaviv, struct etnaviv_vr_op *op,
 		box.y2 += op->dst.offset.y;
 
 		/* 6 */
-		EMIT_LOADSTATE(etnaviv, VIVS_DE_VR_SOURCE_ORIGIN_LOW, 4);
-		EMIT(etnaviv, VIVS_DE_VR_SOURCE_ORIGIN_LOW_X(x));
-		EMIT(etnaviv, VIVS_DE_VR_SOURCE_ORIGIN_HIGH_Y(y));
-
-		EMIT(etnaviv,
-		     VIVS_DE_VR_TARGET_WINDOW_LOW_LEFT(box.x1) |
-		     VIVS_DE_VR_TARGET_WINDOW_LOW_TOP(box.y1));
-		EMIT(etnaviv,
-		     VIVS_DE_VR_TARGET_WINDOW_HIGH_RIGHT(box.x2) |
-		     VIVS_DE_VR_TARGET_WINDOW_HIGH_BOTTOM(box.y2));
-		EMIT_ALIGN(etnaviv);
+		EL(LOADSTATE(VIVS_DE_VR_SOURCE_ORIGIN_LOW, 4));
+		EL(VIVS_DE_VR_SOURCE_ORIGIN_LOW_X(x));
+		EL(VIVS_DE_VR_SOURCE_ORIGIN_HIGH_Y(y));
+		EL(VIVS_DE_VR_TARGET_WINDOW_LOW_LEFT(box.x1) |
+		   VIVS_DE_VR_TARGET_WINDOW_LOW_TOP(box.y1));
+		EL(VIVS_DE_VR_TARGET_WINDOW_HIGH_RIGHT(box.x2) |
+		   VIVS_DE_VR_TARGET_WINDOW_HIGH_BOTTOM(box.y2));
+		EL_ALIGN();
 
 		/* 2 */
-		EMIT_LOADSTATE(etnaviv, VIVS_DE_VR_CONFIG, 1);
-		EMIT(etnaviv, op->vr_op);
+		EL(LOADSTATE(VIVS_DE_VR_CONFIG, 1));
+		EL(op->vr_op);
 	}
+	EL_END();
 
 	etnaviv_emit(etnaviv);
 }
