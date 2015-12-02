@@ -49,8 +49,10 @@ static const OptionInfoRec * const options[] = {
 };
 
 static const char *armada_drm_accelerators[] = {
-#ifdef HAVE_ACCEL_ETNAVIV
+#ifdef HAVE_ACCEL_ETNADRM
 	"etnadrm_gpu",
+#endif
+#ifdef HAVE_ACCEL_ETNAVIV
 	"etnaviv_gpu",
 #endif
 #ifdef HAVE_ACCEL_GALCORE
