@@ -300,6 +300,8 @@ int viv_fence_finish(struct viv_conn *conn, uint32_t fence, uint32_t timeout)
 		memset(&req, 0, sizeof(req.r20151126));
 		req.r20151126.pipe = to_etna_viv_conn(conn)->etnadrm_pipe;
 		req.r20151126.fence = fence;
+		if (timeout == 0)
+			req.r20151126.flags |= ETNA_WAIT_NONBLOCK;
 		etnadrm_convert_timeout(&req.r20151126.timeout, timeout);
 		ret = drmCommandWrite(conn->fd, DRM_ETNAVIV_WAIT_FENCE,
 				      &req.r20151126, sizeof(req.r20151126));
@@ -344,6 +346,8 @@ static int etna_bo_gem_wait(struct etna_bo *bo, uint32_t timeout)
 		memset(&req, 0, sizeof(req.r20151126));
 		req.r20151126.pipe = to_etna_viv_conn(conn)->etnadrm_pipe;
 		req.r20151126.handle = bo->handle;
+		if (timeout == 0)
+			req.r20151126.flags |= ETNA_WAIT_NONBLOCK;
 		etnadrm_convert_timeout(&req.r20151126.timeout, timeout);
 		return drmCommandWrite(conn->fd, DRM_ETNAVIV_GEM_WAIT,
 				       &req.r20151126, sizeof(req.r20151126));
