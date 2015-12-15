@@ -1007,7 +1007,8 @@ void etna_emit_reloc(struct etna_ctx *ctx, uint32_t buf_offset,
 	unsigned int api_date = to_etna_viv_conn(ctx->conn)->api_date;
 	struct _gcoCMDBUF *buf = ctx->cmdbuf[ctx->cur_buf];
 	union reloc {
-		struct drm_etnaviv_gem_submit_reloc latest;
+		struct drm_etnaviv_gem_submit_reloc_r20151214 r20151214;
+		struct drm_etnaviv_gem_submit_reloc_r20150302 r20150302;
 		struct drm_etnaviv_gem_submit_reloc_r20130625 r20130625;
 	} reloc;
 	uint32_t flags;
@@ -1026,17 +1027,23 @@ void etna_emit_reloc(struct etna_ctx *ctx, uint32_t buf_offset,
 		reloc.r20130625.reloc_offset = offset;
 		reloc.r20130625.submit_offset = buf_offset * 4;
 	} else  if (api_date < ETNAVIV_DATE_PENGUTRONIX2) {
-		size = sizeof(reloc.latest);
+		size = sizeof(reloc.r20150302);
 		memset(&reloc, 0, size);
-		reloc.latest.reloc_idx = index;
-		reloc.latest.reloc_offset = offset;
-		reloc.latest.submit_offset = buf_offset * 4;
+		reloc.r20150302.reloc_idx = index;
+		reloc.r20150302.reloc_offset = offset;
+		reloc.r20150302.submit_offset = buf_offset * 4;
+	} else if (api_date < ETNAVIV_DATE_PENGUTRONIX4) {
+		size = sizeof(reloc.r20150302);
+		memset(&reloc, 0, size);
+		reloc.r20150302.reloc_idx = index;
+		reloc.r20150302.reloc_offset = offset;
+		reloc.r20150302.submit_offset = buf_offset * 4 - buf->offset;
 	} else {
-		size = sizeof(reloc.latest);
+		size = sizeof(reloc.r20151214);
 		memset(&reloc, 0, size);
-		reloc.latest.reloc_idx = index;
-		reloc.latest.reloc_offset = offset;
-		reloc.latest.submit_offset = buf_offset * 4 - buf->offset;
+		reloc.r20151214.reloc_idx = index;
+		reloc.r20151214.reloc_offset = offset;
+		reloc.r20151214.submit_offset = buf_offset * 4 - buf->offset;
 	}
 
 	n = buf->num_relocs++;

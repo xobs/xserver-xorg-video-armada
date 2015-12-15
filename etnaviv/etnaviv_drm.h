@@ -22,6 +22,7 @@
 #define ETNAVIV_DATE_PENGUTRONIX	20150302
 #define ETNAVIV_DATE_PENGUTRONIX2	20150910
 #define ETNAVIV_DATE_PENGUTRONIX3	20151126
+#define ETNAVIV_DATE_PENGUTRONIX4	20151214
 #define ETNAVIV_DATE			ETNAVIV_DATE_PENGUTRONIX
 
 #include <stddef.h>
@@ -142,7 +143,14 @@ struct drm_etnaviv_gem_cpu_fini {
  * NOTE that reloc's must be sorted by order of increasing submit_offset,
  * otherwise EINVAL.
  */
-struct drm_etnaviv_gem_submit_reloc {
+struct drm_etnaviv_gem_submit_reloc_r20151214 {
+	uint32_t submit_offset;  /* in, offset from submit_bo */
+	uint32_t reloc_idx;      /* in, index of reloc_bo buffer */
+	uint64_t reloc_offset;   /* in, offset from start of reloc_bo */
+	uint32_t flags;          /* in, placeholder for now */
+};
+
+struct drm_etnaviv_gem_submit_reloc_r20150302 {
 	uint32_t submit_offset;  /* in, offset from submit_bo */
 	uint32_t reloc_idx;      /* in, index of reloc_bo buffer */
 	uint64_t reloc_offset;   /* in, offset from start of reloc_bo */
