@@ -28,7 +28,7 @@ static size_t bucket_size[NUM_BUCKETS] = {
 	 655360,	 786432,	 917504,
 	1310720,	1572864,	1835008,
 	2621440,	3145728,	3670016,
-	3686400,	8294400,
+	3686400,	8294400,	8388608,
 };
 
 void bo_cache_init(struct bo_cache *cache, void (*free)(struct bo_entry *))

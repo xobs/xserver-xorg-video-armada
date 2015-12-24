@@ -7,7 +7,7 @@
 #include "compat-list.h"
 
 /* Number of buckets in the BO cache */
-#define NUM_BUCKETS		(3*9 + 2)
+#define NUM_BUCKETS		(3*9 + 3)
 
 struct bo_cache;
 struct bo_entry;
