@@ -31,7 +31,7 @@ static size_t bucket_size[NUM_BUCKETS] = {
 	3686400,	8294400,	8388608,
 };
 
-void bo_cache_init(struct bo_cache *cache, void (*free)(struct bo_entry *))
+void bo_cache_init(struct bo_cache *cache, bo_free_fn_t *free)
 {
 	struct timespec time;
 	unsigned i;
