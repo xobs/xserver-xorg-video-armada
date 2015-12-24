@@ -12,7 +12,7 @@
 struct bo_cache;
 struct bo_entry;
 
-typedef void bo_free_fn_t(struct bo_entry *);
+typedef void bo_free_fn_t(struct bo_cache *, struct bo_entry *);
 
 struct bo_bucket {
 	struct xorg_list head;

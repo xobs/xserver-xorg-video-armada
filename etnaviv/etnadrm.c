@@ -35,7 +35,7 @@ static struct etna_viv_conn *to_etna_viv_conn(struct viv_conn *conn)
 	return container_of(conn, struct etna_viv_conn, conn);
 }
 
-static void etna_bo_cache_free(struct bo_entry *be);
+static void etna_bo_cache_free(struct bo_cache *bc, struct bo_entry *be);
 
 struct chip_specs {
 	uint32_t param;
@@ -371,7 +371,7 @@ static void etna_bo_free(struct etna_bo *bo)
 	free(bo);
 }
 
-static void etna_bo_cache_free(struct bo_entry *be)
+static void etna_bo_cache_free(struct bo_cache *bc, struct bo_entry *be)
 {
 	etna_bo_free(container_of(be, struct etna_bo, cache));
 }

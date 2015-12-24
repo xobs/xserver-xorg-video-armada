@@ -105,7 +105,7 @@ void bo_cache_clean(struct bo_cache *cache, time_t time)
 		xorg_list_del(&entry->bucket_node);
 		xorg_list_del(&entry->free_node);
 
-		cache->free(entry);
+		cache->free(cache, entry);
 	}
 }
 
