@@ -11,6 +11,7 @@
 #include <errno.h>
 #include <stdint.h>
 #include <stdlib.h>
+#include <sys/stat.h>
 #include <xf86drm.h>
 #include <xf86drmMode.h>
 
