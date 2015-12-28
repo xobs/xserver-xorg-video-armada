@@ -66,6 +66,13 @@ enum {
 #define MAX_BATCH_SIZE	1024
 #define MAX_RELOC_SIZE	8
 
+/* The size of the cache flush workaround, non-GC320 case */
+#define BATCH_WA_FLUSH_SIZE	(2 + 2 + 2 + 2 * BATCH_WA_FLUSH_NOPS)
+#define BATCH_WA_FLUSH_NOPS	20
+
+/* The size of the additional blit for GC320 */
+#define BATCH_WA_GC320_SIZE	(6 + 6 + 2 + 4 + 4)
+
 struct etnaviv {
 	struct viv_conn *conn;
 	struct etna_ctx *ctx;

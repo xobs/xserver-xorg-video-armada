@@ -266,7 +266,7 @@ void etnaviv_de_end(struct etnaviv *etnaviv)
 	}
 
 	/* Append a flush, semaphore and stall to ensure that the FE */
-	EL_START(etnaviv, 46);
+	EL_START(etnaviv, BATCH_WA_FLUSH_SIZE);
 	EL(LOADSTATE(VIVS_GL_FLUSH_CACHE, 1));
 	EL(VIVS_GL_FLUSH_CACHE_PE2D);
 	EL(LOADSTATE(VIVS_GL_SEMAPHORE_TOKEN, 1));
@@ -277,7 +277,7 @@ void etnaviv_de_end(struct etnaviv *etnaviv)
 	if (etnaviv->gc320_etna_bo) {
 		int i;
 
-		for (i = 0; i < 20; i++)
+		for (i = 0; i < BATCH_WA_FLUSH_NOPS; i++)
 			EL_NOP();
 	}
 	EL_END();

@@ -1036,7 +1036,7 @@ Bool etnaviv_accel_init(struct etnaviv *etnaviv)
 	 * We need room for a flush, semaphore, stall, and 20 NOPs
 	 * (46 words.)
 	 */
-	etnaviv->batch_de_high_watermark = MAX_BATCH_SIZE - (6 + 20 * 2);
+	etnaviv->batch_de_high_watermark = MAX_BATCH_SIZE - BATCH_WA_FLUSH_SIZE;
 
 	/*
 	 * GC320 at least seems to have a problem with corruption of
@@ -1053,7 +1053,7 @@ Bool etnaviv_accel_init(struct etnaviv *etnaviv)
 		etnaviv->gc320_wa_dst = INIT_BLIT_BO(bo, 64, fmt, ZERO_OFFSET);
 
 		/* reserve some additional batch space */
-		etnaviv->batch_de_high_watermark -= 22;
+		etnaviv->batch_de_high_watermark -= BATCH_WA_GC320_SIZE;
 
 		etnaviv_enable_bugfix(etnaviv, BUGFIX_SINGLE_BITBLT_DRAW_OP);
 	}
