@@ -297,7 +297,7 @@ void etnaviv_de_op_src_origin(struct etnaviv *etnaviv,
 		BATCH_OP_START(etnaviv);
 	}
 
-	EL_START(etnaviv, 12);
+	EL_START(etnaviv, op_size);
 	EL(LOADSTATE(VIVS_DE_SRC_ORIGIN, 1));
 	EL(VIVS_DE_SRC_ORIGIN_X(src_origin.x) |
 	   VIVS_DE_SRC_ORIGIN_Y(src_origin.y));
@@ -334,7 +334,7 @@ void etnaviv_de_op(struct etnaviv *etnaviv, const struct etnaviv_de_op *op,
 				BATCH_OP_START(etnaviv);
 			}
 
-			EL_START(etnaviv, 10);
+			EL_START(etnaviv, op_size);
 			EL(DRAW2D(1));
 			EL_SKIP();
 			EL(VIV_FE_DRAW_2D_TOP_LEFT_X(offset.x + pBox->x1) |
