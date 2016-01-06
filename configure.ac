@@ -176,12 +176,15 @@ AS_IF([test x$ACCEL_ETNAVIV != xno || test x$ACCEL_ETNADRM != xno],
                 [AS_IF([test x$ACCEL_ETNAVIV = xauto], [ACCEL_ETNAVIV=yes])
 		 AS_IF([test x$ACCEL_ETNADRM = xauto], [ACCEL_ETNADRM=yes])],
                 [ACCEL_ETNAVIV=no ACCEL_ETNADRM=no])
-   AC_CHECK_LIB([etnaviv], [etna_bo_from_dmabuf],
-                [DUMMY=y],
-                [AC_MSG_ERROR([etnaviv support requires etna_bo_from_dmabuf()])])
-   AC_CHECK_LIB([etnaviv], [etna_bo_from_usermem_prot],
-                [DUMMY=y],
-                [AC_MSG_ERROR([etnaviv support requires etna_bo_from_usermem_prot()])])
+   AS_IF([test x$ACCEL_ETNAVIV != xno],
+         [
+      AC_CHECK_LIB([etnaviv], [etna_bo_from_dmabuf],
+                   [DUMMY=y],
+                   [AC_MSG_ERROR([etnaviv support requires etna_bo_from_dmabuf()])])
+      AC_CHECK_LIB([etnaviv], [etna_bo_from_usermem_prot],
+                   [DUMMY=y],
+                   [AC_MSG_ERROR([etnaviv support requires etna_bo_from_usermem_prot()])])
+   ])
    LDFLAGS="$saved_LDFLAGS"
    CFLAGS="$saved_CFLAGS"
    AS_IF([test x$PKGCFG_ETNAVIV != xyes], [ETNAVIV_LIBS+=" -letnaviv"])
