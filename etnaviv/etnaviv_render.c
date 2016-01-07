@@ -477,7 +477,14 @@ static Bool etnaviv_compute_composite_region(RegionPtr region,
 
 	return miComputeCompositeRegion(region, pSrc, pMask, pDst,
 					xSrc, ySrc, xMask, yMask,
-					xDst, yDst, width, height);
+					xDst, yDst, width, height) &&
+		/* Xorg 1.17 can return TRUE, despite the region being
+		 * empty, which goes against the comment immediately
+		 * above miComputeCompositeRegion().  It appears to be
+		 * a pixman bug, with pixman_region_intersect() returning
+		 * TRUE even though the resulting region is empty.
+		 */
+		RegionNotEmpty(region);
 }
 
 static Bool etnaviv_Composite_Clear(PicturePtr pDst, struct etnaviv_de_op *op)
