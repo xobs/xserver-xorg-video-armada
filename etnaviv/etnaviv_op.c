@@ -48,7 +48,7 @@
 	do {								\
 		struct etnaviv *_et = etp;				\
 		unsigned int _batch_size = _et->batch_size;		\
-		unsigned int _batch_max = _batch_size + 4 * max_sz;	\
+		unsigned int _batch_max = _batch_size + max_sz;		\
 		uint32_t *_batch = &_et->batch[_batch_size];		\
 		assert(_batch_max <= MAX_BATCH_SIZE)
 
