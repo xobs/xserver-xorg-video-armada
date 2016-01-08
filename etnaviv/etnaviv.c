@@ -940,11 +940,6 @@ static Bool etnaviv_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 
 			/* etnadrm fd, etnadrm buffer management */
 			dri_fd = etnaviv->conn->fd;
-			name = "etnadrm";
-		} else if (mgr) {
-			/* armada fd, armada buffer management */
-			dri_fd = GET_DRM_INFO(pScrn)->fd;
-			etnaviv->dri2_armada = TRUE;
 			name = "etnaviv";
 		}
 
