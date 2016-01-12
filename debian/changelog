@@ -1,3 +1,9 @@
+xf86-video-armada (0.0.1-r14) UNRELEASED; urgency=medium
+
+  * Add TV and eDP connector names
+
+ -- Sean Cross <xobs@kosagi.com>  Tue, 12 Jan 2016 15:51:11 +0800
+
 xf86-video-armada (0.0.1-r13) unstable; urgency=medium
 
   * Fix mplayer support by hacking XV_ENCODING
