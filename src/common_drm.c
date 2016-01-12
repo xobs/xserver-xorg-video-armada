@@ -579,7 +579,7 @@ static const xf86OutputFuncsRec drm_output_funcs = {
 
 static const char *const output_names[] = {
 	"None", "VGA", "DVI", "DVI", "DVI", "Composite", "TV",
-	"LVDS", "CTV", "DIN", "DP", "HDMI", "HDMI",
+	"LVDS", "CTV", "DIN", "DP", "HDMI", "HDMI", "TV", "eDP"
 };
 
 static const int subpixel_conv_table[] = {
