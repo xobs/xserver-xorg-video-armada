@@ -15,6 +15,8 @@
  *   (4096 << n) + (4096 << n) * 2 / 4
  *   (4096 << n) + (4096 << n) * 3 / 4
  * The reasoning being that powers of two are too wasteful in X.
+ *
+ * We also add in caches for 720p and 1080p too.
  */
 static size_t bucket_size[NUM_BUCKETS] = {
 	   4096,	   8192,	  12288,
@@ -26,9 +28,10 @@ static size_t bucket_size[NUM_BUCKETS] = {
 	 655360,	 786432,	 917504,
 	1310720,	1572864,	1835008,
 	2621440,	3145728,	3670016,
+	3686400,	8294400,	8388608,
 };
 
-void bo_cache_init(struct bo_cache *cache, void (*free)(struct bo_entry *))
+void bo_cache_init(struct bo_cache *cache, bo_free_fn_t *free)
 {
 	struct timespec time;
 	unsigned i;
@@ -94,15 +97,15 @@ void bo_cache_clean(struct bo_cache *cache, time_t time)
 	while (!xorg_list_is_empty(&cache->head)) {
 		struct bo_entry *entry;
 
-		entry = xorg_list_entry(&cache->head, struct bo_entry,
-					free_node);
+		entry = xorg_list_first_entry(&cache->head, struct bo_entry,
+					      free_node);
 		if (time - entry->free_time < BO_CACHE_MAX_AGE)
 			break;
 
 		xorg_list_del(&entry->bucket_node);
 		xorg_list_del(&entry->free_node);
 
-		cache->free(entry);
+		cache->free(cache, entry);
 	}
 }
 

@@ -7,7 +7,6 @@
  *  - does not use SRC_ORIGIN_FRACTION.
  *
  * Todo:
- *  - sort out gal_prepare_gpu() hack
  *  - sync with display (using drmWaitVBlank?)
  */
 #ifdef HAVE_CONFIG_H
@@ -40,9 +39,6 @@
 
 #include "etnaviv/etna_bo.h"
 #include "etnaviv/state_2d.xml.h"
-
-Bool gal_prepare_gpu(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix,
-	enum gpu_access access);
 
 /*
  * The Vivante GPU supports up to 32k x 32k, but that would be
@@ -133,9 +129,9 @@ static uint32_t xv_filter_kernel[KERNEL_STATE_SZ];
 
 enum {
 	attr_sync_to_vblank,
-	attr_encoding,
-	attr_pipe,
 	attr_last_prop,
+	attr_pipe = attr_last_prop,
+	attr_encoding,
 };
 
 struct etnaviv_xv_priv {
@@ -163,7 +159,7 @@ static XF86AttributeRec etnaviv_xv_attributes[] = {
 	[attr_encoding] = {
 		.flags = XvSettable | XvGettable,
 		.min_value = 0,
-		.max_value = 1,
+		.max_value = 0,
 		.name = "XV_ENCODING",
 	},
 	[attr_pipe] = {
@@ -474,7 +470,7 @@ static int etnaviv_PutImage(ScrnInfoPtr pScrn,
 	if (!vPix)
 		return BadMatch;
 
-	if (!gal_prepare_gpu(etnaviv, vPix, GPU_ACCESS_RW))
+	if (!etnaviv_map_gpu(etnaviv, vPix, GPU_ACCESS_RW))
 		return BadMatch;
 
 	if (is_xvbo)
@@ -843,9 +839,12 @@ XF86VideoAdaptorPtr etnaviv_xv_init(ScreenPtr pScreen, unsigned int *caps)
 		if (f && !etnaviv_src_format_valid(etnaviv, *f))
 			continue;
 
-		if (fmt->xv_image.format == FOURCC_XVBO &&
-		    !etnaviv->dri2_enabled)
-			continue;
+		if (fmt->xv_image.format == FOURCC_XVBO) {
+#ifdef HAVE_DRI2
+			if(!etnaviv->dri2_enabled)
+#endif
+				continue;
+		}
 
 		images[num_images++] = fmt->xv_image;
 	}

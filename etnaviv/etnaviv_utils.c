@@ -99,7 +99,14 @@ Bool etnaviv_map_gpu(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix,
 	uint32_t handle;
 
 #ifdef DEBUG_CHECK_DRAWABLE_USE
-	assert(vPix->in_use == 0);
+	if (vPix->in_use) {
+		fprintf(stderr, "Trying to accelerate: %p %p %u\n",
+				vPix,
+				vPix->etna_bo ? (void *)vPix->etna_bo :
+						(void *)vPix->bo,
+				vPix->in_use);
+		return FALSE;
+	}
 #endif
 
 	if (access == GPU_ACCESS_RO) {
@@ -237,64 +244,6 @@ void prepare_cpu_drawable(DrawablePtr pDrawable, int access)
 	}
 }
 
-#ifdef RENDER
-struct etnaviv_format etnaviv_pict_format(PictFormatShort format, Bool force)
-{
-	switch (format) {
-#define DE_FORMAT_UNKNOWN UNKNOWN_FORMAT
-#define C(pf,vf,af,sw) case PICT_##pf: \
-	return (struct etnaviv_format){ \
-			.format = force ? DE_FORMAT_##af : DE_FORMAT_##vf, \
-			.swizzle = DE_SWIZZLE_##sw, \
-		}
-
-	C(a8r8g8b8, 	A8R8G8B8,	A8R8G8B8,	ARGB);
-	C(x8r8g8b8, 	X8R8G8B8,	A8R8G8B8,	ARGB);
-	C(a8b8g8r8, 	A8R8G8B8,	A8R8G8B8,	ABGR);
-	C(x8b8g8r8, 	X8R8G8B8,	A8R8G8B8,	ABGR);
-	C(b8g8r8a8, 	A8R8G8B8,	A8R8G8B8,	BGRA);
-	C(b8g8r8x8, 	X8R8G8B8,	A8R8G8B8,	BGRA);
-	C(r5g6b5,	R5G6B5,		UNKNOWN,	ARGB);
-	C(b5g6r5,	R5G6B5,		UNKNOWN,	ABGR);
-	C(a1r5g5b5, 	A1R5G5B5,	A1R5G5B5,	ARGB);
-	C(x1r5g5b5, 	X1R5G5B5,	A1R5G5B5,	ARGB);
-	C(a1b5g5r5, 	A1R5G5B5,	A1R5G5B5,	ABGR);
-	C(x1b5g5r5, 	X1R5G5B5,	A1R5G5B5,	ABGR);
-	C(a4r4g4b4, 	A4R4G4B4,	A4R4G4B4,	ARGB);
-	C(x4r4g4b4, 	X4R4G4B4,	A4R4G4B4,	ARGB);
-	C(a4b4g4r4, 	A4R4G4B4,	A4R4G4B4,	ABGR);
-	C(x4b4g4r4, 	X4R4G4B4,	A4R4G4B4,	ABGR);
-	C(a8,		A8,		A8,		ARGB);
-	C(c8,		INDEX8,		INDEX8,		ARGB);
-
-/* The remainder we don't support */
-//	C(r8g8b8,	R8G8B8,		UNKNOWN,	ARGB);
-//	C(b8g8r8,	R8G8B8,		UNKNOWN,	ABGR);
-//	C(r3g3b2,	R3G3B2,		UNKNOWN);
-//	C(b2g3r3,	UNKNOWN,	UNKNOWN);
-//	C(a2r2g2b2, 	A2R2G2B2,	A2R2G2B2);
-//	C(a2b2g2r2, 	UNKNOWN,	A2R2G2B2);
-//	C(g8,		L8,		UNKNOWN);
-//	C(x4a4,		UNKNOWN,	UNKNOWN);
-//	C(x4c4,		UNKNOWN,	UNKNOWN); /* same value as c8 */
-//	C(x4g4,		UNKNOWN,	UNKNOWN); /* same value as g8 */
-//	C(a4,		A4,		A4);
-//	C(r1g2b1,	UNKNOWN,	UNKNOWN);
-//	C(b1g2r1,	UNKNOWN,	UNKNOWN);
-//	C(a1r1g1b1, 	UNKNOWN,	UNKNOWN);
-//	C(a1b1g1r1, 	UNKNOWN,	UNKNOWN);
-//	C(c4,		INDEX4,		UNKNOWN);
-//	C(g4,		L4,		UNKNOWN);
-//	C(a1,		A1,		A1);
-//	C(g1,		L1,		UNKNOWN);
-	default:
-		break;
-	}
-	return (struct etnaviv_format){ .format = UNKNOWN_FORMAT, .swizzle = 0 };
-#undef C
-}
-#endif
-
 Bool etnaviv_src_format_valid(struct etnaviv *etnaviv,
 	struct etnaviv_format fmt)
 {
@@ -313,6 +262,9 @@ Bool etnaviv_dst_format_valid(struct etnaviv *etnaviv,
 	/* Don't permit BGRA or RGBA formats on PE1.0 */
 	if (fmt.swizzle &&
 	    !VIV_FEATURE(etnaviv->conn, chipMinorFeatures0, 2DPE20))
+		return FALSE;
+	if (fmt.format == DE_FORMAT_A8 &&
+	    !VIV_FEATURE(etnaviv->conn, chipMinorFeatures0, 2D_A8_TARGET))
 		return FALSE;
 	return fmt.format != UNKNOWN_FORMAT;
 }

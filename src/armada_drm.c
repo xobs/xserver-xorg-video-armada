@@ -18,7 +18,6 @@
 #include "armada_accel.h"
 #include "armada_drm.h"
 #include "common_drm.h"
-#include "common_drm_dri2.h"
 #include "xf86_OSproc.h"
 #include "xf86Crtc.h"
 #include "xf86cmap.h"
@@ -34,13 +33,11 @@
 #define CURSOR_MAX_WIDTH	64
 #define CURSOR_MAX_HEIGHT	32
 
-#define DRM_MODULE_NAMES	"armada-drm", "imx-drm"
-#define DRM_DEFAULT_BUS_ID	NULL
-
 const OptionInfoRec armada_drm_options[] = {
 	{ OPTION_XV_ACCEL,	"XvAccel",	   OPTV_BOOLEAN, {0}, FALSE },
 	{ OPTION_XV_PREFEROVL,	"XvPreferOverlay", OPTV_BOOLEAN, {0}, TRUE  },
 	{ OPTION_USE_GPU,	"UseGPU",	   OPTV_BOOLEAN, {0}, FALSE },
+	{ OPTION_USE_KMS_BO,	"UseKMSBo",	   OPTV_BOOLEAN, {0}, FALSE },
 	{ OPTION_ACCEL_MODULE,	"AccelModule",	   OPTV_STRING,  {0}, FALSE },
 	{ -1,			NULL,		   OPTV_NONE,    {0}, FALSE }
 };
@@ -110,6 +107,10 @@ static struct drm_armada_bo *armada_bo_alloc_framebuffer(ScrnInfoPtr pScrn,
 	struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(pScrn);
 	struct drm_armada_bo *bo;
 	int ret;
+
+	if (arm->accel_ops && arm->accel_ops->align_bo_size)
+		arm->accel_ops->align_bo_size(pScrn->pScreen, &width,
+					      &height, bpp);
 
 	bo = drm_armada_bo_dumb_create(arm->bufmgr, width, height, bpp);
 	if (!bo) {
@@ -437,9 +438,10 @@ static Bool armada_drm_ScreenInit(SCREEN_INIT_ARGS_DECL)
 	struct common_drm_info *drm = GET_DRM_INFO(pScrn);
 	struct armada_drm_info *arm = GET_ARMADA_DRM_INFO(pScrn);
 	struct drm_armada_bo *bo;
+	Bool use_kms_bo;
 	Bool ret;
 
-	if (drmSetMaster(drm->fd)) {
+	if (!common_drm_get_master(drm->dev)) {
 		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
 			   "[drm] set master failed: %s\n", strerror(errno));
 		return FALSE;
@@ -472,14 +474,19 @@ static Bool armada_drm_ScreenInit(SCREEN_INIT_ARGS_DECL)
 	arm->CloseScreen = pScreen->CloseScreen;
 	pScreen->CloseScreen = armada_drm_CloseScreen;
 
+	/*
+	 * Only pass the armada-drm bo manager if we are really
+	 * driving armada-drm, other DRMs don't provide bo managers.
+	 */
+	use_kms_bo = arm->version && strstr(arm->version->name, "armada");
+	if (use_kms_bo)
+		use_kms_bo = xf86ReturnOptValBool(arm->Options,
+						  OPTION_USE_KMS_BO, TRUE);
+
 	if (arm->accel) {
 		struct drm_armada_bufmgr *mgr = arm->bufmgr;
 
-		/*
-		 * Only pass the armada-drm bo manager if we are really
-		 * driving armada-drm, other DRMs don't provide bo managers.
-		 */
-		if (!arm->version || !strstr(arm->version->name, "armada"))
+		if (!use_kms_bo)
 			mgr = NULL;
 
 		if (!arm->accel_ops->screen_init(pScreen, mgr)) {
@@ -566,28 +573,12 @@ static int armada_get_cap(int fd, uint64_t cap, uint64_t *val, int scrnIndex,
 	return err;
 }
 
-static const char *drm_module_names[] = { DRM_MODULE_NAMES };
-
-static Bool armada_drm_open_master(ScrnInfoPtr pScrn)
+static Bool armada_drm_alloc(ScrnInfoPtr pScrn,
+	struct common_drm_device *drm_dev)
 {
 	struct all_drm_info *drm;
-	EntityInfoPtr pEnt;
-	drmSetVersion sv;
-	const char *busid = DRM_DEFAULT_BUS_ID;
 	uint64_t val;
-	unsigned i;
 	int err;
-
-	pEnt = xf86GetEntityInfo(pScrn->entityList[0]);
-	if (pEnt) {
-		if (pEnt->device->busID)
-			busid = pEnt->device->busID;
-		free(pEnt);
-	}
-
-	if (busid)
-		xf86DrvMsg(pScrn->scrnIndex, X_INFO, "Using BusID \"%s\"\n",
-			   busid);
 
 	drm = calloc(1, sizeof *drm);
 	if (!drm)
@@ -596,64 +587,32 @@ static Bool armada_drm_open_master(ScrnInfoPtr pScrn)
 	drm->common.cursor_max_width = CURSOR_MAX_WIDTH;
 	drm->common.cursor_max_height = CURSOR_MAX_HEIGHT;
 	drm->common.private = &drm->armada;
-	drm->common.event_context.version = DRM_EVENT_CONTEXT_VERSION;
-#ifdef HAVE_DRI2
-	drm->common.event_context.vblank_handler = common_dri2_event;
-	drm->common.event_context.page_flip_handler = common_drm_flip_handler;
-#endif
-
-	for (i = 0; i < ARRAY_SIZE(drm_module_names); i++) {
-		drm->common.fd = drmOpen(drm_module_names[i], busid);
-		if (drm->common.fd >= 0)
-			break;
-	}
-
-	if (drm->common.fd < 0) {
-		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
-			   "[drm] Failed to open DRM device for %s: %s\n",
-			   busid, strerror(errno));
-		goto err_free;
-	}
-
-	/*
-	 * Check that what we opened was a master or a master-capable FD
-	 * by setting the version of the interface we'll use to talk to it.
-	 */
-	sv.drm_di_major = 1;
-	sv.drm_di_minor = 1;
-	sv.drm_dd_major = -1;
-	sv.drm_dd_minor = -1;
-	err = drmSetInterfaceVersion(drm->common.fd, &sv);
-	if (err) {
-		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
-			   "[drm] failed to set DRM interface version: %s\n",
-			   strerror(errno));
-		goto err_drm_close;
-	}
+	drm->common.fd = drm_dev->fd;
+	drm->common.dev = drm_dev;
 
 	if (armada_get_cap(drm->common.fd, DRM_CAP_PRIME, &val,
 			   pScrn->scrnIndex, "DRM_CAP_PRIME"))
-		goto err_drm_close;
+		goto err_free;
 	if (!(val & DRM_PRIME_CAP_EXPORT)) {
 		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
 			   "[drm] kernel doesn't support prime export.\n");
-		goto err_drm_close;
+		goto err_free;
 	}
 
 	if (armada_get_cap(drm->common.fd, DRM_CAP_DUMB_BUFFER, &val,
 			   pScrn->scrnIndex, "DRM_CAP_DUMB_BUFFER"))
-		goto err_drm_close;
+		goto err_free;
 	if (!val) {
 		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
 			   "[drm] kernel doesn't support dumb buffer.\n");
-		goto err_drm_close;
+		goto err_free;
 	}
 
 	err = drm_armada_init(drm->common.fd, &drm->armada.bufmgr);
 	if (err) {
 		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
 			   "[drm] failed to initialize Armada DRM manager.\n");
-		goto err_drm_close;
+		goto err_free;
 	}
 
 	SET_DRM_INFO(pScrn, &drm->common);
@@ -665,8 +624,6 @@ static Bool armada_drm_open_master(ScrnInfoPtr pScrn)
 
 	return TRUE;
 
- err_drm_close:
-	drmClose(drm->common.fd);
  err_free:
 	free(drm);
 	return FALSE;
@@ -690,6 +647,7 @@ static void armada_drm_FreeScreen(FREE_SCREEN_ARGS_DECL)
 
 static Bool armada_drm_PreInit(ScrnInfoPtr pScrn, int flags)
 {
+	struct common_drm_device *drm_dev;
 	rgb defaultWeight = { 0, 0, 0 };
 	int flags24;
 
@@ -699,11 +657,13 @@ static Bool armada_drm_PreInit(ScrnInfoPtr pScrn, int flags)
 	if (flags & PROBE_DETECT)
 		return FALSE;
 
-	if (!armada_drm_open_master(pScrn)) {
-		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
-			   "Failed to become DRM master.\n");
+	/* Get the device we detected at probe time */
+	drm_dev = common_entity_get_dev(pScrn->entityList[0]);
+	if (!drm_dev)
 		return FALSE;
-	}
+
+	if (!armada_drm_alloc(pScrn, drm_dev))
+		return FALSE;
 
 	/* Limit the maximum framebuffer size to 16MB */
 	pScrn->videoRam = 16 * 1048576;

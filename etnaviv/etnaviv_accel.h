@@ -49,6 +49,7 @@ struct etnaviv_dri2_info;
 enum {
 	CREATE_PIXMAP_USAGE_TILE = 0x80000000,
 	CREATE_PIXMAP_USAGE_GPU = 0x40000000,	/* Must be vpix backed */
+	CREATE_PIXMAP_USAGE_3D = 0x20000000,	/* 3D has restrictions */
 };
 
 /* Workarounds for hardware bugs */
@@ -64,6 +65,13 @@ enum {
  */
 #define MAX_BATCH_SIZE	1024
 #define MAX_RELOC_SIZE	8
+
+/* The size of the cache flush workaround, non-GC320 case */
+#define BATCH_WA_FLUSH_SIZE	(2 + 2 + 2 + 2 * BATCH_WA_FLUSH_NOPS)
+#define BATCH_WA_FLUSH_NOPS	20
+
+/* The size of the additional blit for GC320 */
+#define BATCH_WA_GC320_SIZE	(6 + 6 + 2 + 4 + 4)
 
 struct etnaviv {
 	struct viv_conn *conn;
@@ -87,6 +95,10 @@ struct etnaviv {
 	Bool dri2_enabled;
 	Bool dri2_armada;
 	struct etnaviv_dri2_info *dri2;
+#endif
+#ifdef HAVE_DRI3
+	Bool dri3_enabled;
+	const char *render_node;
 #endif
 
 	uint32_t batch[MAX_BATCH_SIZE];
@@ -135,7 +147,6 @@ struct etnaviv_pixmap {
 	struct xorg_list batch_node;
 	struct xorg_list busy_node;
 	uint32_t fence;
-	CARD32 free_time;
 	viv_usermem_t info;
 
 	uint8_t batch_state;
@@ -169,87 +180,6 @@ struct etnaviv_usermem_node {
 
 void etnaviv_add_freemem(struct etnaviv *etnaviv,
 	struct etnaviv_usermem_node *n);
-
-#define BATCH_SETUP_START(etp)						\
-	do {								\
-		struct etnaviv *_et = etp;				\
-		_et->batch_setup_size = 0;				\
-		_et->batch_size = 0;					\
-		_et->reloc_size = 0;					\
-	} while (0)
-
-#define BATCH_SETUP_END(etp)						\
-	do {								\
-		struct etnaviv *__et = etp;				\
-		__et->batch_setup_size = __et->batch_size;		\
-		__et->reloc_setup_size = __et->reloc_size;		\
-	} while (0)
-
-#define BATCH_OP_START(etp)						\
-	do {								\
-		struct etnaviv *__et = etp;				\
-		__et->batch_size = __et->batch_setup_size;		\
-		__et->reloc_size = __et->reloc_setup_size;		\
-	} while (0)
-
-#define EMIT(etp, val)							\
-	do {								\
-		struct etnaviv *_et = etp;				\
-		assert(_et->batch_size < MAX_BATCH_SIZE);		\
-		_et->batch[_et->batch_size++] = val;			\
-	} while (0)
-
-#define EMIT_RELOC(etp, _bo, _off, _wr)					\
-	do {								\
-		struct etnaviv *__et = etp;				\
-		struct etnaviv_reloc *r = &__et->reloc[__et->reloc_size++]; \
-		r->bo = _bo;						\
-		r->batch_index = __et->batch_size;			\
-		r->write = _wr;						\
-		EMIT(__et, _off);					\
-	} while (0)
-
-#define EMIT_LOADSTATE(etp, st, num)					\
-	do {								\
-		struct etnaviv *__et = etp;				\
-		assert(!(__et->batch_size & 1));			\
-		EMIT(__et, VIV_FE_LOAD_STATE_HEADER_OP_LOAD_STATE |	\
-			   VIV_FE_LOAD_STATE_HEADER_COUNT(num) |	\
-			   VIV_FE_LOAD_STATE_HEADER_OFFSET((st) >> 2));	\
-	} while (0)
-
-#define EMIT_DRAW_2D(etp, count)					\
-	do {								\
-		struct etnaviv *__et = etp;				\
-		assert(!(__et->batch_size & 1));			\
-		EMIT(__et, VIV_FE_DRAW_2D_HEADER_OP_DRAW_2D |		\
-			   VIV_FE_DRAW_2D_HEADER_COUNT(count));		\
-		/* next word is unused */				\
-		__et->batch_size ++;					\
-	} while (0)
-
-#define EMIT_STALL(etp, from, to)					\
-	do {								\
-		struct etnaviv *__et = etp;				\
-		assert(!(__et->batch_size & 1));			\
-		EMIT(__et, VIV_FE_STALL_HEADER_OP_STALL);		\
-		EMIT(__et, VIV_FE_STALL_TOKEN_FROM(from) |		\
-			   VIV_FE_STALL_TOKEN_TO(to));			\
-	} while (0)
-
-#define EMIT_NOP(etp)							\
-	do {								\
-		struct etnaviv *__et = etp;				\
-		assert(!(__et->batch_size & 1));			\
-		EMIT(__et, VIV_FE_NOP_HEADER_OP_NOP);			\
-		EMIT(__et, 0);						\
-	} while (0)
-
-#define EMIT_ALIGN(etp)							\
-	do {								\
-		struct etnaviv *__et = etp;				\
-		__et->batch_size += __et->batch_size & 1;		\
-	} while (0)
 
 static inline void etnaviv_enable_bugfix(struct etnaviv *etnaviv,
 	unsigned int bug)
@@ -291,22 +221,13 @@ Bool etnaviv_accel_PolyFillRectSolid(DrawablePtr pDrawable, GCPtr pGC, int n,
 Bool etnaviv_accel_PolyFillRectTiled(DrawablePtr pDrawable, GCPtr pGC, int n,
 	xRectangle * prect);
 
-void etnaviv_accel_glyph_upload(ScreenPtr, PicturePtr, GlyphPtr,
-				PicturePtr, unsigned, unsigned);
-
-/* 3D acceleration */
-int etnaviv_accel_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask,
-	PicturePtr pDst, INT16 xSrc, INT16 ySrc, INT16 xMask, INT16 yMask,
-	INT16 xDst, INT16 yDst, CARD16 width, CARD16 height);
-Bool etnaviv_accel_Glyphs(CARD8 op, PicturePtr pSrc, PicturePtr pDst,
-	PictFormatPtr maskFormat, INT16 xSrc, INT16 ySrc, int nlist,
-	GlyphListPtr list, GlyphPtr * glyphs);
-
 void etnaviv_commit(struct etnaviv *etnaviv, Bool stall, uint32_t *fence);
 void etnaviv_finish_fences(struct etnaviv *etnaviv, uint32_t fence);
 void etnaviv_free_busy_vpix(struct etnaviv *etnaviv);
 
 void etnaviv_batch_wait_commit(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix);
+void etnaviv_batch_start(struct etnaviv *etnaviv,
+	const struct etnaviv_de_op *op);
 
 void etnaviv_accel_shutdown(struct etnaviv *);
 Bool etnaviv_accel_init(struct etnaviv *);
@@ -321,6 +242,12 @@ static inline struct etnaviv_pixmap *etnaviv_drawable_offset(
 	DrawablePtr pDrawable, xPoint *offset)
 {
 	PixmapPtr pix = drawable_pixmap_offset(pDrawable, offset);
+	return etnaviv_get_pixmap_priv(pix);
+}
+
+static inline struct etnaviv_pixmap *etnaviv_drawable(DrawablePtr pDrawable)
+{
+	PixmapPtr pix = drawable_pixmap(pDrawable);
 	return etnaviv_get_pixmap_priv(pix);
 }
 
@@ -341,6 +268,9 @@ static inline void etnaviv_set_screen_priv(ScreenPtr pScreen, struct etnaviv *g)
 	extern etnaviv_Key etnaviv_screen_index;
 	dixSetPrivate(&pScreen->devPrivates, &etnaviv_screen_index, g);
 }
+
+PixmapPtr etnaviv_pixmap_from_dmabuf(ScreenPtr pScreen, int fd,
+	CARD16 width, CARD16 height, CARD16 stride, CARD8 depth, CARD8 bpp);
 
 Bool etnaviv_pixmap_flink(PixmapPtr pixmap, uint32_t *name);
 

@@ -122,9 +122,9 @@ vivante_dri2_CopyRegion(DrawablePtr drawable, RegionPtr pRegion,
 }
 
 static void vivante_dri2_flip_complete(struct common_dri2_wait *wait,
-	DrawablePtr draw, unsigned frame, unsigned tv_sec, unsigned tv_usec)
+	DrawablePtr draw, uint64_t msc, unsigned tv_sec, unsigned tv_usec)
 {
-	DRI2SwapComplete(wait->client, draw, frame, tv_sec, tv_usec,
+	DRI2SwapComplete(wait->client, draw, msc, tv_sec, tv_usec,
 			 DRI2_FLIP_COMPLETE,
 			 wait->client ? wait->swap_func : NULL,
 			 wait->swap_data);
@@ -142,7 +142,7 @@ static Bool vivante_dri2_ScheduleFlip(DrawablePtr drawable,
 
 	assert(front == to_common_dri2_buffer(wait->front)->pixmap);
 
-	if (common_drm_flip(pScrn, back, wait, wait->crtc)) {
+	if (common_drm_flip(pScrn, back, &wait->base, wait->base.crtc)) {
 		struct vivante_pixmap *f_pix = vivante_get_pixmap_priv(front);
 		struct vivante_pixmap *b_pix = vivante_get_pixmap_priv(back);
 
@@ -161,7 +161,7 @@ static Bool vivante_dri2_ScheduleFlip(DrawablePtr drawable,
 
 static void
 vivante_dri2_blit(ClientPtr client, DrawablePtr draw, DRI2BufferPtr front,
-	DRI2BufferPtr back, unsigned frame, unsigned tv_sec, unsigned tv_usec,
+	DRI2BufferPtr back, uint64_t msc, unsigned tv_sec, unsigned tv_usec,
 	DRI2SwapEventPtr func, void *data)
 {
 	RegionRec region;
@@ -175,28 +175,28 @@ vivante_dri2_blit(ClientPtr client, DrawablePtr draw, DRI2BufferPtr front,
 
 	vivante_dri2_CopyRegion(draw, &region, front, back);
 
-	DRI2SwapComplete(client, draw, frame, tv_sec, tv_usec,
+	DRI2SwapComplete(client, draw, msc, tv_sec, tv_usec,
 			 DRI2_BLIT_COMPLETE, func, data);
 }
 
 static void vivante_dri2_swap(struct common_dri2_wait *wait, DrawablePtr draw,
-	unsigned frame, unsigned tv_sec, unsigned tv_usec)
+	uint64_t msc, unsigned tv_sec, unsigned tv_usec)
 {
 	vivante_dri2_blit(wait->client, draw, wait->front, wait->back,
-			  frame, tv_sec, tv_usec,
+			  msc, tv_sec, tv_usec,
 			  wait->client ? wait->swap_func : NULL,
 			  wait->swap_data);
 	common_dri2_wait_free(wait);
 }
 
 static void vivante_dri2_flip(struct common_dri2_wait *wait, DrawablePtr draw,
-	unsigned frame, unsigned tv_sec, unsigned tv_usec)
+	uint64_t msc, unsigned tv_sec, unsigned tv_usec)
 {
 	if (common_dri2_can_flip(draw, wait) &&
 	    vivante_dri2_ScheduleFlip(draw, wait))
 		return;
 
-	vivante_dri2_swap(wait, draw, frame, tv_sec, tv_usec);
+	vivante_dri2_swap(wait, draw, msc, tv_sec, tv_usec);
 }
 
 static int
@@ -207,26 +207,20 @@ vivante_dri2_ScheduleSwap(ClientPtr client, DrawablePtr draw,
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(draw->pScreen);
 	struct common_dri2_wait *wait;
 	xf86CrtcPtr crtc;
-	drmVBlank vbl;
-	CARD64 cur_msc;
+	CARD64 cur_msc, cur_ust, tgt_msc;
 	int ret;
 
-	crtc = common_dri2_drawable_crtc(draw);
+	crtc = common_drm_drawable_covering_crtc(draw);
 
 	/* Drawable not displayed... just complete */
 	if (!crtc)
 		goto blit;
 
-	*target_msc &= 0xffffffff;
-	divisor &= 0xffffffff;
-	remainder &= 0xffffffff;
-
-	wait = common_dri2_wait_alloc(client, draw, DRI2_SWAP);
+	wait = common_dri2_wait_alloc(client, draw, crtc, DRI2_SWAP);
 	if (!wait)
 		goto blit;
 
 	wait->event_func = vivante_dri2_swap;
-	wait->crtc = crtc;
 	wait->swap_func = func;
 	wait->swap_data = data;
 	wait->front = front;
@@ -235,11 +229,8 @@ vivante_dri2_ScheduleSwap(ClientPtr client, DrawablePtr draw,
 	common_dri2_buffer_reference(front);
 	common_dri2_buffer_reference(back);
 
-	ret = common_drm_vblank_get(pScrn, crtc, &vbl, __FUNCTION__);
-	if (ret)
+	if (common_drm_get_msc(crtc, &cur_ust, &cur_msc) != Success)
 		goto blit_free;
-
-	cur_msc = vbl.reply.sequence;
 
 	/* Flips need to be submitted one frame before */
 	if (common_dri2_can_flip(draw, wait)) {
@@ -275,9 +266,9 @@ vivante_dri2_ScheduleSwap(ClientPtr client, DrawablePtr draw,
 		if (cur_msc > *target_msc)
 			*target_msc = cur_msc;
 
-		vbl.request.sequence = *target_msc;
+		tgt_msc = *target_msc;
 	} else {
-		vbl.request.sequence = cur_msc - (cur_msc % divisor) + remainder;
+		tgt_msc = cur_msc - (cur_msc % divisor) + remainder;
 
 		/*
 		 * If the calculated deadline sequence is smaller than or equal
@@ -290,20 +281,21 @@ vivante_dri2_ScheduleSwap(ClientPtr client, DrawablePtr draw,
 		 * DRM_VBLANK_NEXTONMISS delay if we are blitting/exchanging
 		 * instead of flipping.
 		 */
-		 if (vbl.request.sequence <= cur_msc)
-			 vbl.request.sequence += divisor;
+		if (tgt_msc <= cur_msc)
+			tgt_msc += divisor;
 
-		 /* Account for 1 frame extra pageflip delay if flip > 0 */
-		 if (wait->type == DRI2_FLIP)
-			 vbl.request.sequence -= 1;
+		/* Account for 1 frame extra pageflip delay if flip > 0 */
+		if (wait->type == DRI2_FLIP)
+			tgt_msc -= 1;
 	}
 
-	ret = common_drm_vblank_queue_event(pScrn, crtc, &vbl, __FUNCTION__,
-					    wait->type != DRI2_FLIP, wait);
+	ret = common_drm_queue_msc_event(pScrn, crtc, &tgt_msc, __FUNCTION__,
+					    wait->type != DRI2_FLIP,
+					    &wait->base);
 	if (ret)
 		goto blit_free;
 
-	*target_msc = vbl.reply.sequence + (wait->type == DRI2_FLIP);
+	*target_msc = tgt_msc + (wait->type == DRI2_FLIP);
 	wait->frame = *target_msc;
 
 	return TRUE;

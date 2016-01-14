@@ -23,10 +23,22 @@ armada_drv_la_LDFLAGS = -module -avoid-version
 armada_drv_la_LIBADD = $(DRMARMADA_LIBS) $(UDEV_LIBS) \
 			$(top_builddir)/common/libcommon.la
 armada_drv_ladir = @moduledir@/drivers
-armada_drv_la_SOURCES = armada_module.c \
+armada_drv_la_SOURCES = armada_accel.h \
+			armada_module.c \
 			armada_drm.c \
+			armada_drm.h \
 			armada_drm_xv.c \
-			common_drm.c
+			armada_fourcc.h \
+			armada_ioctl.h \
+			common_drm.c \
+			common_drm.h \
+			common_drm_helper.h
 if HAVE_DRI2
-armada_drv_la_SOURCES += common_drm_dri2.c
+armada_drv_la_SOURCES += \
+			common_drm_dri2.c \
+			common_drm_dri2.h
+endif
+
+if HAVE_PRESENT
+armada_drv_la_SOURCES += common_present.c
 endif

@@ -20,6 +20,9 @@
 
 #define ETNAVIV_DATE_RMK		20130625
 #define ETNAVIV_DATE_PENGUTRONIX	20150302
+#define ETNAVIV_DATE_PENGUTRONIX2	20150910
+#define ETNAVIV_DATE_PENGUTRONIX3	20151126
+#define ETNAVIV_DATE_PENGUTRONIX4	20151214
 #define ETNAVIV_DATE			ETNAVIV_DATE_PENGUTRONIX
 
 #include <stddef.h>
@@ -140,12 +143,24 @@ struct drm_etnaviv_gem_cpu_fini {
  * NOTE that reloc's must be sorted by order of increasing submit_offset,
  * otherwise EINVAL.
  */
-struct drm_etnaviv_gem_submit_reloc {
+struct drm_etnaviv_gem_submit_reloc_r20151214 {
 	uint32_t submit_offset;  /* in, offset from submit_bo */
-#if ETNAVIV_DATE != ETNAVIV_DATE_PENGUTRONIX
+	uint32_t reloc_idx;      /* in, index of reloc_bo buffer */
+	uint64_t reloc_offset;   /* in, offset from start of reloc_bo */
+	uint32_t flags;          /* in, placeholder for now */
+};
+
+struct drm_etnaviv_gem_submit_reloc_r20150302 {
+	uint32_t submit_offset;  /* in, offset from submit_bo */
+	uint32_t reloc_idx;      /* in, index of reloc_bo buffer */
+	uint64_t reloc_offset;   /* in, offset from start of reloc_bo */
+};
+
+/* Original API */
+struct drm_etnaviv_gem_submit_reloc_r20130625 {
+	uint32_t submit_offset;  /* in, offset from submit_bo */
 	uint32_t or;             /* in, value OR'd with result */
 	int32_t  shift;          /* in, amount of left shift (can be negative) */
-#endif
 	uint32_t reloc_idx;      /* in, index of reloc_bo buffer */
 	uint64_t reloc_offset;   /* in, offset from start of reloc_bo */
 };
@@ -165,7 +180,17 @@ struct drm_etnaviv_gem_submit_reloc {
 #define ETNA_SUBMIT_CMD_IB_TARGET_BUF   0x0002
 #define ETNA_SUBMIT_CMD_CTX_RESTORE_BUF 0x0003
 #endif
-struct drm_etnaviv_gem_submit_cmd {
+struct drm_etnaviv_gem_submit_cmd_r20150302 {
+	uint32_t type;           /* in, one of ETNA_SUBMIT_CMD_x */
+	uint32_t submit_idx;     /* in, index of submit_bo cmdstream buffer */
+	uint32_t submit_offset;  /* in, offset into submit_bo */
+	uint32_t size;           /* in, cmdstream size */
+	uint32_t pad;
+	uint32_t nr_relocs;      /* in, number of submit_reloc's */
+	uint64_t relocs;         /* in, ptr to array of submit_reloc's */
+};
+
+struct drm_etnaviv_gem_submit_cmd_r20130625 {
 	uint32_t type;           /* in, one of ETNA_SUBMIT_CMD_x */
 	uint32_t submit_idx;     /* in, index of submit_bo cmdstream buffer */
 	uint32_t submit_offset;  /* in, offset into submit_bo */
@@ -198,17 +223,35 @@ struct drm_etnaviv_gem_submit_bo {
  * one or more cmdstream buffers.  This allows for conditional execution
  * (context-restore), and IB buffers needed for per tile/bin draw cmds.
  */
-struct drm_etnaviv_gem_submit {
+struct drm_etnaviv_gem_submit_r20150910 {
+	uint32_t fence;          /* out */
 	uint32_t pipe;           /* in, ETNA_PIPE_x */
-#if ETNAVIV_DATE == ETNAVIV_DATE_PENGUTRONIX
+	uint32_t exec_state;     /* in, initial execution state (ETNA_PIPE_x) */
+	uint32_t nr_bos;         /* in, number of submit_bo's */
+	uint32_t nr_relocs;      /* in, number of submit_reloc's */
+	uint32_t stream_size;    /* in, cmdstream size */
+	uint64_t bos;            /* in, ptr to array of submit_bo's */
+	uint64_t relocs;         /* in, ptr to array of submit_reloc's */
+	uint64_t stream;         /* in, ptr to cmdstream */
+};
+
+struct drm_etnaviv_gem_submit_r20150302 {
+	uint32_t pipe;           /* in, ETNA_PIPE_x */
 	uint32_t exec_state;
-#endif
 	uint32_t fence;          /* out */
 	uint32_t nr_bos;         /* in, number of submit_bo's */
 	uint32_t nr_cmds;        /* in, number of submit_cmd's */
-#if ETNAVIV_DATE == ETNAVIV_DATE_PENGUTRONIX
 	uint32_t pad;
-#endif
+	uint64_t bos;            /* in, ptr to array of submit_bo's */
+	uint64_t cmds;           /* in, ptr to array of submit_cmd's */
+};
+
+/* Original submission structure */
+struct drm_etnaviv_gem_submit_r20130625 {
+	uint32_t pipe;           /* in, ETNA_PIPE_x */
+	uint32_t fence;          /* out */
+	uint32_t nr_bos;         /* in, number of submit_bo's */
+	uint32_t nr_cmds;        /* in, number of submit_cmd's */
 	uint64_t bos;            /* in, ptr to array of submit_bo's */
 	uint64_t cmds;           /* in, ptr to array of submit_cmd's */
 };
@@ -220,9 +263,18 @@ struct drm_etnaviv_gem_submit {
  * mainly just exists as a way to implement the gallium pipe_fence
  * APIs without requiring a dummy bo to synchronize on.
  */
-struct drm_etnaviv_wait_fence {
+struct drm_etnaviv_wait_fence_r20130625 {
 	uint32_t pipe;           /* in, ETNA_PIPE_x */
 	uint32_t fence;          /* in */
+	struct drm_etnaviv_timespec timeout;   /* in */
+};
+
+#define ETNA_WAIT_NONBLOCK      0x01
+struct drm_etnaviv_wait_fence_r20151126 {
+	__u32 pipe;           /* in */
+	__u32 fence;          /* in */
+	__u32 flags;          /* in, mask of ETNA_WAIT_x */
+	__u32 pad;
 	struct drm_etnaviv_timespec timeout;   /* in */
 };
 
@@ -235,9 +287,17 @@ struct drm_etnaviv_gem_userptr {
 	uint32_t handle;	/* out, non-zero handle */
 };
 
-struct drm_etnaviv_gem_wait {
+struct drm_etnaviv_gem_wait_r20130625 {
 	__u32 pipe;				/* in */
 	__u32 handle;				/* in, bo to be waited for */
+	struct drm_etnaviv_timespec timeout;	/* in */
+};
+
+struct drm_etnaviv_gem_wait_r20151126 {
+	__u32 pipe;				/* in */
+	__u32 handle;				/* in, bo to be waited for */
+	__u32 flags;				/* in, mask of ETNA_WAIT_x  */
+	__u32 pad;
 	struct drm_etnaviv_timespec timeout;	/* in */
 };
 

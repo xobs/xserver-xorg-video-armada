@@ -26,7 +26,6 @@ void __etnaviv_error(struct etnaviv *, const char *, const char *, int);
 Bool etnaviv_map_gpu(struct etnaviv *etnaviv, struct etnaviv_pixmap *vPix,
 	enum gpu_access access);
 
-struct etnaviv_format etnaviv_pict_format(PictFormatShort format, Bool force);
 Bool etnaviv_src_format_valid(struct etnaviv *, struct etnaviv_format fmt);
 Bool etnaviv_dst_format_valid(struct etnaviv *, struct etnaviv_format fmt);
 
@@ -63,6 +62,29 @@ static inline unsigned int etnaviv_tile_pitch(unsigned width, unsigned bpp)
 static inline size_t etnaviv_tile_height(unsigned height)
 {
 	return ALIGN(height, ETNAVIV_TILE_HEIGHT) / ETNAVIV_TILE_HEIGHT;
+}
+
+#define ETNAVIV_3D_WIDTH_ALIGN	16
+#define ETNAVIV_3D_HEIGHT_ALIGN	8
+
+static inline unsigned int etnaviv_3d_pitch(unsigned width, unsigned bpp)
+{
+	return etnaviv_pitch(ALIGN(width, ETNAVIV_3D_WIDTH_ALIGN), bpp);
+}
+
+static inline size_t etnaviv_3d_size(unsigned int pitch, unsigned int height)
+{
+	return pitch * ALIGN(height, ETNAVIV_3D_HEIGHT_ALIGN);
+}
+
+static inline uint32_t scale16(uint32_t val, int bits)
+{
+	val <<= (16 - bits);
+	while (bits < 16) {
+		val |= val >> bits;
+		bits <<= 1;
+	}
+	return val >> 8;
 }
 
 #endif

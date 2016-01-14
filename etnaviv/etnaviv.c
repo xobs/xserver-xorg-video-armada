@@ -34,13 +34,14 @@
 #include "cpu_access.h"
 #include "fbutil.h"
 #include "gal_extension.h"
-#include "glyph_cache.h"
 #include "mark.h"
 #include "pixmaputil.h"
 #include "unaccel.h"
 
 #include "etnaviv_accel.h"
 #include "etnaviv_dri2.h"
+#include "etnaviv_dri3.h"
+#include "etnaviv_render.h"
 #include "etnaviv_utils.h"
 #include "etnaviv_xv.h"
 
@@ -49,11 +50,13 @@ etnaviv_Key etnaviv_screen_index;
 int etnaviv_private_index = -1;
 
 enum {
-	OPTION_DRI,
+	OPTION_DRI2,
+	OPTION_DRI3,
 };
 
 const OptionInfoRec etnaviv_options[] = {
-	{ OPTION_DRI,		"DRI",		OPTV_BOOLEAN, {0}, TRUE },
+	{ OPTION_DRI2,		"DRI",		OPTV_BOOLEAN, {0}, TRUE },
+	{ OPTION_DRI3,		"DRI3",		OPTV_BOOLEAN, {0}, TRUE },
 	{ -1,			NULL,		OPTV_NONE,    {0}, FALSE }
 };
 
@@ -169,7 +172,6 @@ static void etnaviv_free_pixmap(PixmapPtr pixmap)
 			 * operations.  Place it on the busy_free_list.
 			 */
 			xorg_list_append(&vPix->busy_node, &etnaviv->busy_free_list);
-			vPix->free_time = currentTime.milliseconds;
 			break;
 		}
 	}
@@ -209,8 +211,7 @@ static struct etnaviv_pixmap *etnaviv_alloc_pixmap(PixmapPtr pixmap,
 /* Determine whether this GC and target Drawable can be accelerated */
 static Bool etnaviv_GC_can_accel(GCPtr pGC, DrawablePtr pDrawable)
 {
-	PixmapPtr pixmap = drawable_pixmap(pDrawable);
-	if (!etnaviv_get_pixmap_priv(pixmap))
+	if (!etnaviv_drawable(pDrawable))
 		return FALSE;
 
 	/* Must be full-planes */
@@ -481,23 +482,11 @@ static Bool etnaviv_CloseScreen(CLOSE_SCREEN_ARGS_DECL)
 {
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
-#ifdef RENDER
-	PictureScreenPtr ps = GetPictureScreenIfSet(pScreen);
-#endif
 	PixmapPtr pixmap;
 
 	DeleteCallback(&FlushCallback, etnaviv_flush_callback, pScrn);
 
-#ifdef RENDER
-	/* Restore the Pointers */
-	ps->Composite = etnaviv->Composite;
-	ps->Glyphs = etnaviv->Glyphs;
-	ps->UnrealizeGlyph = etnaviv->UnrealizeGlyph;
-	ps->Triangles = etnaviv->Triangles;
-	ps->Trapezoids = etnaviv->Trapezoids;
-	ps->AddTriangles = etnaviv->AddTriangles;
-	ps->AddTraps = etnaviv->AddTraps;
-#endif
+	etnaviv_render_close_screen(pScreen);
 
 	pScreen->CloseScreen = etnaviv->CloseScreen;
 	pScreen->GetImage = etnaviv->GetImage;
@@ -562,7 +551,6 @@ etnaviv_CopyWindow(WindowPtr pWin, DDXPointRec ptOldOrg, RegionPtr prgnSrc)
 #ifdef HAVE_DRI2
 Bool etnaviv_pixmap_flink(PixmapPtr pixmap, uint32_t *name)
 {
-	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pixmap->drawable.pScreen);
 	struct etnaviv_pixmap *vpix = etnaviv_get_pixmap_priv(pixmap);
 	Bool ret = FALSE;
 
@@ -573,16 +561,11 @@ Bool etnaviv_pixmap_flink(PixmapPtr pixmap, uint32_t *name)
 		*name = vpix->name;
 		ret = TRUE;
 	} else if (vpix->bo && !drm_armada_bo_flink(vpix->bo, name)) {
+		vpix->name = *name;
 		ret = TRUE;
-	} else {
-		struct drm_gem_flink flink = {
-			.handle = etna_bo_handle(vpix->etna_bo),
-		};
-
-		if (!drmIoctl(etnaviv->conn->fd, DRM_IOCTL_GEM_FLINK, &flink)) {
-			*name = flink.name;
-			ret = TRUE;
-		}
+	} else if (!etna_bo_flink(vpix->etna_bo, name)) {
+		vpix->name = *name;
+		ret = TRUE;
 	}
 
 	return ret;
@@ -674,6 +657,13 @@ static Bool etnaviv_alloc_etna_bo(ScreenPtr pScreen, struct etnaviv *etnaviv,
 		pitch = etnaviv_tile_pitch(w, bpp);
 		size = pitch * etnaviv_tile_height(h);
 		fmt.tile = 1;
+	} else if (usage_hint & CREATE_PIXMAP_USAGE_3D) {
+		/*
+		 * The Vivante 3D resolve engine requires the
+		 * width and height to be appropriately aligned.
+		 */
+		pitch = etnaviv_3d_pitch(w, bpp);
+		size = etnaviv_3d_size(pitch, h);
 	} else {
 		pitch = etnaviv_pitch(w, bpp);
 		size = pitch * h;
@@ -861,77 +851,6 @@ static void etnaviv_BlockHandler(BLOCKHANDLER_ARGS_DECL)
 		etnaviv_free_usermem(etnaviv);
 }
 
-#ifdef RENDER
-static void
-etnaviv_Composite(CARD8 op, PicturePtr pSrc, PicturePtr pMask, PicturePtr pDst,
-	INT16 xSrc, INT16 ySrc, INT16 xMask, INT16 yMask, INT16 xDst, INT16 yDst,
-	CARD16 width, CARD16 height)
-{
-	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pDst->pDrawable->pScreen);
-	Bool ret;
-
-	if (!etnaviv->force_fallback) {
-		ret = etnaviv_accel_Composite(op, pSrc, pMask, pDst,
-					      xSrc, ySrc, xMask, yMask,
-					      xDst, yDst, width, height);
-		if (ret)
-			return;
-	}
-	unaccel_Composite(op, pSrc, pMask, pDst, xSrc, ySrc,
-			  xMask, yMask, xDst, yDst, width, height);
-}
-
-static void etnaviv_Glyphs(CARD8 op, PicturePtr pSrc, PicturePtr pDst,
-	PictFormatPtr maskFormat, INT16 xSrc, INT16 ySrc, int nlist,
-	GlyphListPtr list, GlyphPtr * glyphs)
-{
-	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pDst->pDrawable->pScreen);
-
-	if (etnaviv->force_fallback ||
-	    !etnaviv_accel_Glyphs(op, pSrc, pDst, maskFormat,
-				  xSrc, ySrc, nlist, list, glyphs))
-		unaccel_Glyphs(op, pSrc, pDst, maskFormat,
-			       xSrc, ySrc, nlist, list, glyphs);
-}
-
-static const unsigned glyph_formats[] = {
-	PICT_a8r8g8b8,
-	PICT_a8,
-};
-
-static Bool etnaviv_CreateScreenResources(ScreenPtr pScreen)
-{
-	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
-	Bool ret;
-
-	pScreen->CreateScreenResources = etnaviv->CreateScreenResources;
-	ret = pScreen->CreateScreenResources(pScreen);
-	if (ret) {
-		size_t num = 1;
-
-		/*
-		 * If the 2D engine can do A8 targets, then enable
-		 * PICT_a8 for glyph cache acceleration.
-		 */
-		if (VIV_FEATURE(etnaviv->conn, chipMinorFeatures0,
-				2D_A8_TARGET)) {
-			xf86DrvMsg(etnaviv->scrnIndex, X_INFO,
-				   "etnaviv: A8 target supported\n");
-			num = 2;
-		} else {
-			xf86DrvMsg(etnaviv->scrnIndex, X_INFO,
-				   "etnaviv: A8 target not supported\n");
-		}
-
-		ret = glyph_cache_init(pScreen, etnaviv_accel_glyph_upload,
-				       glyph_formats, num,
-				       /* CREATE_PIXMAP_USAGE_TILE | */
-				       CREATE_PIXMAP_USAGE_GPU);
-	}
-	return ret;
-}
-#endif
-
 static Bool etnaviv_pre_init(ScrnInfoPtr pScrn, int drm_fd)
 {
 	struct etnaviv *etnaviv;
@@ -951,7 +870,17 @@ static Bool etnaviv_pre_init(ScrnInfoPtr pScrn, int drm_fd)
 	xf86ProcessOptions(pScrn->scrnIndex, pScrn->options, options);
 
 #ifdef HAVE_DRI2
-	etnaviv->dri2_enabled = xf86ReturnOptValBool(options, OPTION_DRI, TRUE);
+	etnaviv->dri2_enabled = xf86ReturnOptValBool(options, OPTION_DRI2,
+						     TRUE);
+#endif
+#ifdef HAVE_DRI3
+	/*
+	 * We default to DRI3 disabled, as we are unable to support
+	 * flips with etnaviv-allocated buffer objects, whereas DRI2
+	 * can (and does) provide support for this.
+	 */
+	etnaviv->dri3_enabled = xf86ReturnOptValBool(options, OPTION_DRI3,
+						     FALSE);
 #endif
 
 	etnaviv->scrnIndex = pScrn->scrnIndex;
@@ -969,9 +898,6 @@ static Bool etnaviv_pre_init(ScrnInfoPtr pScrn, int drm_fd)
 static Bool etnaviv_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 {
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(pScreen);
-#ifdef RENDER
-	PictureScreenPtr ps = GetPictureScreenIfSet(pScreen);
-#endif
 	struct etnaviv *etnaviv = pScrn->privates[etnaviv_private_index].ptr;
 
 	if (!etnaviv_CreateKey(&etnaviv_pixmap_index, PRIVATE_PIXMAP) ||
@@ -998,7 +924,7 @@ static Bool etnaviv_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 #ifdef HAVE_DRI2
 	if (!etnaviv->dri2_enabled) {
 		xf86DrvMsg(pScrn->scrnIndex, X_CONFIG,
-			   "direct rendering: disabled\n");
+			   "direct rendering: %s %s\n", "DRI2", "disabled");
 	} else {
 		const char *name;
 		drmVersionPtr version;
@@ -1014,11 +940,6 @@ static Bool etnaviv_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 
 			/* etnadrm fd, etnadrm buffer management */
 			dri_fd = etnaviv->conn->fd;
-			name = "etnadrm";
-		} else if (mgr) {
-			/* armada fd, armada buffer management */
-			dri_fd = GET_DRM_INFO(pScrn)->fd;
-			etnaviv->dri2_armada = TRUE;
 			name = "etnaviv";
 		}
 
@@ -1027,12 +948,26 @@ static Bool etnaviv_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 				   "direct rendering: unusuable devices\n");
 		} else if (!etnaviv_dri2_ScreenInit(pScreen, dri_fd, name)) {
 			xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
-				   "direct rendering: failed\n");
+				   "direct rendering: %s %s\n", "DRI2",
+				   "failed");
 			etnaviv->dri2_enabled = FALSE;
 		} else {
 			xf86DrvMsg(pScrn->scrnIndex, X_INFO,
-				   "direct rendering: DRI2 enabled\n");
+				   "direct rendering: %s %s\n", "DRI2",
+				   "enabled");
 		}
+	}
+#endif
+#ifdef HAVE_DRI3
+	if (!etnaviv->dri3_enabled) {
+		xf86DrvMsg(pScrn->scrnIndex, X_CONFIG,
+			   "direct rendering: %s %s\n", "DRI3", "disabled");
+	} else if (!etnaviv_dri3_ScreenInit(pScreen)) {
+		xf86DrvMsg(pScrn->scrnIndex, X_ERROR,
+			   "direct rendering: %s %s\n", "DRI3", "failed");
+	} else {
+		xf86DrvMsg(pScrn->scrnIndex, X_INFO,
+			   "direct rendering: %s %s\n", "DRI3", "enabled");
 	}
 #endif
 
@@ -1057,27 +992,8 @@ static Bool etnaviv_ScreenInit(ScreenPtr pScreen, struct drm_armada_bufmgr *mgr)
 	etnaviv->BlockHandler = pScreen->BlockHandler;
 	pScreen->BlockHandler = etnaviv_BlockHandler;
 
-#ifdef RENDER
-	if (!etnaviv->force_fallback) {
-		etnaviv->CreateScreenResources = pScreen->CreateScreenResources;
-		pScreen->CreateScreenResources = etnaviv_CreateScreenResources;
-	}
+	etnaviv_render_screen_init(pScreen);
 
-	etnaviv->Composite = ps->Composite;
-	ps->Composite = etnaviv_Composite;
-	etnaviv->Glyphs = ps->Glyphs;
-	ps->Glyphs = etnaviv_Glyphs;
-	etnaviv->UnrealizeGlyph = ps->UnrealizeGlyph;
-	etnaviv->Triangles = ps->Triangles;
-	ps->Triangles = unaccel_Triangles;
-	etnaviv->Trapezoids = ps->Trapezoids;
-	ps->Trapezoids = unaccel_Trapezoids;
-	etnaviv->AddTriangles = ps->AddTriangles;
-	ps->AddTriangles = unaccel_AddTriangles;
-	etnaviv->AddTraps = ps->AddTraps;
-	ps->AddTraps = unaccel_AddTraps;
-
-#endif
 	return TRUE;
 
 fail_accel:
@@ -1085,47 +1001,103 @@ fail_accel:
 	return FALSE;
 }
 
-/* Scanout pixmaps are never tiled. */
-static Bool etnaviv_import_dmabuf(ScreenPtr pScreen, PixmapPtr pPixmap, int fd)
+static void etnaviv_align_bo_size(ScreenPtr pScreen, int *width, int *height,
+	int bpp)
 {
-	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
-	struct etnaviv_format fmt = { .swizzle = DE_SWIZZLE_ARGB, };
-	struct etnaviv_pixmap *vpix;
-	struct etna_bo *bo;
+	*width = etnaviv_pitch(*width, bpp) * 8 / bpp;
+}
 
-	etnaviv_free_pixmap(pPixmap);
-
-	switch (pPixmap->drawable.bitsPerPixel) {
+static Bool etnaviv_format(struct etnaviv_format *fmt, unsigned int depth,
+	unsigned int bpp)
+{
+	static const struct etnaviv_format template =
+		{ .swizzle = DE_SWIZZLE_ARGB, };
+	*fmt = template;
+	switch (bpp) {
 	case 16:
-		if (pPixmap->drawable.depth == 15)
-			fmt.format = DE_FORMAT_A1R5G5B5;
+		if (depth == 15)
+			fmt->format = DE_FORMAT_A1R5G5B5;
 		else
-			fmt.format = DE_FORMAT_R5G6B5;
-		break;
+			fmt->format = DE_FORMAT_R5G6B5;
+		return TRUE;
 
 	case 32:
-		fmt.format = DE_FORMAT_A8R8G8B8;
-		break;
+		fmt->format = DE_FORMAT_A8R8G8B8;
+		return TRUE;
 
 	default:
-		return TRUE;
+		return FALSE;
 	}
+}
+
+static struct etnaviv_pixmap *etnaviv_pixmap_attach_dmabuf(
+	struct etnaviv *etnaviv, PixmapPtr pixmap, struct etnaviv_format fmt,
+	int fd)
+{
+	struct etnaviv_pixmap *vpix;
+	struct etna_bo *bo;
 
 	bo = etna_bo_from_dmabuf(etnaviv->conn, fd, PROT_READ | PROT_WRITE);
 	if (!bo) {
 		xf86DrvMsg(etnaviv->scrnIndex, X_ERROR,
 			   "etnaviv: gpu dmabuf map failed: %s\n",
 			   strerror(errno));
-		return FALSE;
+		return NULL;
 	}
 
-	vpix = etnaviv_alloc_pixmap(pPixmap, fmt);
+	vpix = etnaviv_alloc_pixmap(pixmap, fmt);
 	if (!vpix) {
 		etna_bo_del(etnaviv->conn, bo, NULL);
-		return FALSE;
+		return NULL;
 	}
 
 	vpix->etna_bo = bo;
+
+	etnaviv_set_pixmap_priv(pixmap, vpix);
+
+	return vpix;
+}
+
+PixmapPtr etnaviv_pixmap_from_dmabuf(ScreenPtr pScreen, int fd,
+        CARD16 width, CARD16 height, CARD16 stride, CARD8 depth, CARD8 bpp)
+{
+	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
+	struct etnaviv_format fmt;
+	PixmapPtr pixmap;
+
+	if (!etnaviv_format(&fmt, depth, bpp))
+		return NullPixmap;
+
+	pixmap = etnaviv->CreatePixmap(pScreen, 0, 0, depth, 0);
+	if (pixmap == NullPixmap)
+		return pixmap;
+
+	pScreen->ModifyPixmapHeader(pixmap, width, height, 0, 0, stride, NULL);
+
+	if (!etnaviv_pixmap_attach_dmabuf(etnaviv, pixmap, fmt, fd)) {
+		etnaviv->DestroyPixmap(pixmap);
+		return NullPixmap;
+	}
+
+	return pixmap;
+}
+
+/* Scanout pixmaps are never tiled. */
+static Bool etnaviv_import_dmabuf(ScreenPtr pScreen, PixmapPtr pPixmap, int fd)
+{
+	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
+	struct etnaviv_pixmap *vpix;
+	struct etnaviv_format fmt;
+
+	etnaviv_free_pixmap(pPixmap);
+
+	if (!etnaviv_format(&fmt, pPixmap->drawable.depth,
+			    pPixmap->drawable.bitsPerPixel))
+		return TRUE;
+
+	vpix = etnaviv_pixmap_attach_dmabuf(etnaviv, pPixmap, fmt, fd);
+	if (!vpix)
+		return FALSE;
 
 	/*
 	 * Pixmaps imported via dmabuf are write-combining, so don't
@@ -1134,25 +1106,26 @@ static Bool etnaviv_import_dmabuf(ScreenPtr pScreen, PixmapPtr pPixmap, int fd)
 	 */
 	vpix->state |= ST_DMABUF;
 
-	etnaviv_set_pixmap_priv(pPixmap, vpix);
-
 #ifdef DEBUG_PIXMAP
 	dbg("Pixmap %p: vPix=%p etna_bo=%p format=%u/%u/%u\n",
-	    pixmap, vPix, bo, fmt.format, fmt.swizzle, fmt.tile);
+	    pixmap, vPix, vPix->etna_bo, fmt.format, fmt.swizzle, fmt.tile);
 #endif
 
 	return TRUE;
 }
 
+
 static void etnaviv_attach_name(ScreenPtr pScreen, PixmapPtr pPixmap,
 	uint32_t name)
 {
+#ifdef HAVE_DRI2
 	struct etnaviv *etnaviv = etnaviv_get_screen_priv(pScreen);
 	struct etnaviv_pixmap *vPix = etnaviv_get_pixmap_priv(pPixmap);
 
 	/* If we are using our KMS DRM for buffer management, save its name */
 	if (etnaviv->dri2_armada && vPix)
 		vPix->name = name;
+#endif
 }
 
 static int etnaviv_export_name(ScreenPtr pScreen, uint32_t name)
@@ -1184,6 +1157,7 @@ static int etnaviv_export_name(ScreenPtr pScreen, uint32_t name)
 const struct armada_accel_ops etnaviv_ops = {
 	.pre_init	= etnaviv_pre_init,
 	.screen_init	= etnaviv_ScreenInit,
+	.align_bo_size	= etnaviv_align_bo_size,
 	.import_dmabuf	= etnaviv_import_dmabuf,
 	.attach_name	= etnaviv_attach_name,
 	.free_pixmap	= etnaviv_free_pixmap,

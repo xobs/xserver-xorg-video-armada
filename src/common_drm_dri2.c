@@ -64,9 +64,31 @@ static Bool common_dri2_add_reslist(XID id, RESTYPE type,
 	return TRUE;
 }
 
+static void common_dri2_event(struct common_drm_event *event, uint64_t msc,
+	unsigned tv_sec, unsigned tv_usec)
+{
+	struct common_dri2_wait *wait = container_of(event, struct common_dri2_wait, base);
+	DrawablePtr draw;
+
+	if (wait->drawable_id &&
+	    dixLookupDrawable(&draw, wait->drawable_id, serverClient, M_ANY,
+			      DixWriteAccess) == Success) {
+		if (wait->event_func) {
+			wait->event_func(wait, draw, msc, tv_sec, tv_usec);
+			return;
+		}
+
+		xf86DrvMsg(xf86ScreenToScrn(draw->pScreen)->scrnIndex,
+			   X_WARNING, "%s: unknown vblank event received\n",
+			   __FUNCTION__);
+	}
+	common_dri2_wait_free(wait);
+}
+
 _X_EXPORT
 struct common_dri2_wait *__common_dri2_wait_alloc(ClientPtr client,
-	DrawablePtr draw, enum common_dri2_event_type type, size_t size)
+	DrawablePtr draw, xf86CrtcPtr crtc, enum common_dri2_event_type type,
+	size_t size)
 {
 	struct common_dri2_wait *wait;
 
@@ -75,6 +97,8 @@ struct common_dri2_wait *__common_dri2_wait_alloc(ClientPtr client,
 
 	wait = calloc(1, size);
 	if (wait) {
+		wait->base.crtc = crtc;
+		wait->base.handler = common_dri2_event;
 		wait->drawable_id = draw->id;
 		wait->client = client;
 		wait->type = type;
@@ -102,27 +126,6 @@ void common_dri2_wait_free(struct common_dri2_wait *wait)
 	xorg_list_del(&wait->client_list);
 	xorg_list_del(&wait->drawable_list);
 	free(wait);
-}
-
-_X_EXPORT
-xf86CrtcPtr common_dri2_drawable_crtc(DrawablePtr pDraw)
-{
-	ScrnInfoPtr pScrn = xf86ScreenToScrn(pDraw->pScreen);
-	xf86CrtcPtr crtc;
-	BoxRec box, crtcbox;
-
-	box.x1 = pDraw->x;
-	box.y1 = pDraw->y;
-	box.x2 = box.x1 + pDraw->width;
-	box.y2 = box.y1 + pDraw->height;
-
-	crtc = common_drm_covering_crtc(pScrn, &box, NULL, &crtcbox);
-
-	/* Make sure the CRTC is valid and this is the real front buffer */
-	if (crtc && crtc->rotatedData)
-		crtc = NULL;
-
-	return crtc;
 }
 
 _X_EXPORT
@@ -266,10 +269,7 @@ void common_dri2_DestroyBuffer(DrawablePtr pDraw, DRI2Buffer2Ptr buffer)
 _X_EXPORT
 int common_dri2_GetMSC(DrawablePtr draw, CARD64 *ust, CARD64 *msc)
 {
-	ScrnInfoPtr pScrn = xf86ScreenToScrn(draw->pScreen);
-	xf86CrtcPtr crtc = common_dri2_drawable_crtc(draw);
-	drmVBlank vbl;
-	int ret;
+	xf86CrtcPtr crtc = common_drm_drawable_covering_crtc(draw);
 
 	/* Drawable not displayed, make up a value */
 	if (!crtc) {
@@ -278,21 +278,14 @@ int common_dri2_GetMSC(DrawablePtr draw, CARD64 *ust, CARD64 *msc)
 		return TRUE;
 	}
 
-	ret = common_drm_vblank_get(pScrn, crtc, &vbl, __FUNCTION__);
-	if (ret)
-		return FALSE;
-
-	*ust = ((CARD64)vbl.reply.tval_sec * 1000000) + vbl.reply.tval_usec;
-	*msc = vbl.reply.sequence;
-
-	return TRUE;
+	return common_drm_get_msc(crtc, ust, msc) == Success;
 }
 
 static void common_dri2_waitmsc(struct common_dri2_wait *wait,
-	DrawablePtr draw, unsigned frame, unsigned tv_sec, unsigned tv_usec)
+	DrawablePtr draw, uint64_t msc, unsigned tv_sec, unsigned tv_usec)
 {
 	if (wait->client)
-		DRI2WaitMSCComplete(wait->client, draw, frame, tv_sec, tv_usec);
+		DRI2WaitMSCComplete(wait->client, draw, msc, tv_sec, tv_usec);
 	common_dri2_wait_free(wait);
 }
 
@@ -303,34 +296,22 @@ Bool common_dri2_ScheduleWaitMSC(ClientPtr client, DrawablePtr draw,
 	ScrnInfoPtr pScrn = xf86ScreenToScrn(draw->pScreen);
 	xf86CrtcPtr crtc;
 	struct common_dri2_wait *wait;
-	drmVBlank vbl;
-	CARD64 cur_msc;
+	CARD64 cur_msc, cur_ust;
 	int ret;
 
-	/*
-	 * Truncate to match kernel interfaces; means occasional
-	 * overflow misses, but that's generally not a big deal.
-	 */
-	target_msc &= 0xffffffff;
-	divisor &= 0xffffffff;
-	remainder &= 0xffffffff;
-
-	crtc = common_dri2_drawable_crtc(draw);
+	crtc = common_drm_drawable_covering_crtc(draw);
 	if (!crtc)
 		goto complete;
 
-	wait = common_dri2_wait_alloc(client, draw, DRI2_WAITMSC);
+	wait = common_dri2_wait_alloc(client, draw, crtc, DRI2_WAITMSC);
 	if (!wait)
 		goto complete;
 
 	wait->event_func = common_dri2_waitmsc;
 
 	/* Get current count */
-	ret = common_drm_vblank_get(pScrn, crtc, &vbl, __FUNCTION__);
-	if (ret)
+	if (common_drm_get_msc(crtc, &cur_ust, &cur_msc) != Success)
 		goto del_wait;
-
-	cur_msc = vbl.reply.sequence;
 
 	/*
 	 * If the divisor is zero, or cur_msc is smaller than target_msc, we
@@ -339,15 +320,13 @@ Bool common_dri2_ScheduleWaitMSC(ClientPtr client, DrawablePtr draw,
 	if (divisor == 0 || cur_msc < target_msc) {
 		if (cur_msc >= target_msc)
 			target_msc = cur_msc;
-
-		vbl.request.sequence = target_msc;
 	} else {
 		/*
 		 * If we get here, target_msc has already passed or we
 		 * don't have one, so queue an event that will satisfy
 		 * the divisor/remainder equation.
 		 */
-		vbl.request.sequence = cur_msc - (cur_msc % divisor) + remainder;
+		target_msc = cur_msc - (cur_msc % divisor) + remainder;
 
 		/*
 		 * If calculated remainder is larger than requested
@@ -356,15 +335,15 @@ Bool common_dri2_ScheduleWaitMSC(ClientPtr client, DrawablePtr draw,
 		 * the next time that will happen.
 		 */
 		if ((cur_msc & divisor) >= remainder)
-			vbl.request.sequence += divisor;
+			target_msc += divisor;
 	}
 
-	ret = common_drm_vblank_queue_event(pScrn, crtc, &vbl, __FUNCTION__,
-					    FALSE, wait);
+	ret = common_drm_queue_msc_event(pScrn, crtc, &target_msc, __FUNCTION__,
+					 FALSE, &wait->base);
 	if (ret)
 		goto del_wait;
 
-	wait->frame = vbl.reply.sequence;
+	wait->frame = target_msc;
 	DRI2BlockClient(client, draw);
 	return TRUE;
 
@@ -375,28 +354,6 @@ Bool common_dri2_ScheduleWaitMSC(ClientPtr client, DrawablePtr draw,
 	DRI2WaitMSCComplete(client, draw, target_msc, 0, 0);
 
 	return TRUE;
-}
-
-_X_EXPORT
-void common_dri2_event(int fd, unsigned frame, unsigned tv_sec,
-	unsigned tv_usec, void *event)
-{
-	struct common_dri2_wait *wait = event;
-	DrawablePtr draw;
-
-	if (wait->drawable_id &&
-	    dixLookupDrawable(&draw, wait->drawable_id, serverClient, M_ANY,
-			      DixWriteAccess) == Success) {
-		if (wait->event_func) {
-			wait->event_func(wait, draw, frame, tv_sec, tv_usec);
-			return;
-		}
-
-		xf86DrvMsg(xf86ScreenToScrn(draw->pScreen)->scrnIndex,
-			   X_WARNING, "%s: unknown vblank event received\n",
-			   __FUNCTION__);
-	}
-	common_dri2_wait_free(wait);
 }
 
 static int common_dri2_client_gone(void *data, XID id)

@@ -23,6 +23,10 @@ SUBDIRS = common man src
 
 if HAVE_ACCEL_ETNAVIV
 SUBDIRS += etnaviv
+else
+if HAVE_ACCEL_ETNADRM
+SUBDIRS += etnaviv
+endif
 endif
 if HAVE_ACCEL_ETNADRM
 SUBDIRS += etnaviv

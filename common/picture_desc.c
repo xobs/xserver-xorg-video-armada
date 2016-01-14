@@ -1,3 +1,7 @@
+#ifdef HAVE_CONFIG_H
+#include "config.h"
+#endif
+
 #include "picturestr.h"
 #include "pixmaputil.h"
 #include "pictureutil.h"

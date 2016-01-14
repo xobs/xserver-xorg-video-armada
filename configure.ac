@@ -52,6 +52,10 @@ m4_ifndef([XORG_DRIVER_CHECK_EXT],
   Hint: either install from source, git://anongit.freedesktop.org/xorg/xserver or,
   depending on your distribution, try package 'xserver-xorg-dev' or 'xorg-x11-server-devel'])])
 
+# Make sure to not include fallback X.Org strndup if libc provides it
+AC_CHECK_FUNCS([strndup], [HAVE_STRNDUP=yes], [HAVE_STRNDUP=no])
+AM_CONDITIONAL(NEED_STRNDUP, [test x$HAVE_STRNDUP = xno])
+
 # Checks for programs.
 AC_DISABLE_STATIC
 AC_PROG_LIBTOOL
@@ -172,12 +176,15 @@ AS_IF([test x$ACCEL_ETNAVIV != xno || test x$ACCEL_ETNADRM != xno],
                 [AS_IF([test x$ACCEL_ETNAVIV = xauto], [ACCEL_ETNAVIV=yes])
 		 AS_IF([test x$ACCEL_ETNADRM = xauto], [ACCEL_ETNADRM=yes])],
                 [ACCEL_ETNAVIV=no ACCEL_ETNADRM=no])
-   AC_CHECK_LIB([etnaviv], [etna_bo_from_dmabuf],
-                [DUMMY=y],
-                [AC_MSG_ERROR([etnaviv support requires etna_bo_from_dmabuf()])])
-   AC_CHECK_LIB([etnaviv], [etna_bo_from_usermem_prot],
-                [DUMMY=y],
-                [AC_MSG_ERROR([etnaviv support requires etna_bo_from_usermem_prot()])])
+   AS_IF([test x$ACCEL_ETNAVIV != xno],
+         [
+      AC_CHECK_LIB([etnaviv], [etna_bo_from_dmabuf],
+                   [DUMMY=y],
+                   [AC_MSG_ERROR([etnaviv support requires etna_bo_from_dmabuf()])])
+      AC_CHECK_LIB([etnaviv], [etna_bo_from_usermem_prot],
+                   [DUMMY=y],
+                   [AC_MSG_ERROR([etnaviv support requires etna_bo_from_usermem_prot()])])
+   ])
    LDFLAGS="$saved_LDFLAGS"
    CFLAGS="$saved_CFLAGS"
    AS_IF([test x$PKGCFG_ETNAVIV != xyes], [ETNAVIV_LIBS+=" -letnaviv"])
@@ -200,6 +207,16 @@ AC_ARG_ENABLE(dri2, AC_HELP_STRING([--disable-dri2],
 		[Disable DRI support [[default=auto]]]),
 		[DRI2="$enableval"],
 		[DRI2=auto])
+
+AC_ARG_ENABLE(dri3, AC_HELP_STRING([--disable-dri3],
+		[Disable DRI3 support [[default=auto]]]),
+		[DRI3="$enableval"],
+		[DRI3=auto])
+
+AC_ARG_ENABLE(present, AC_HELP_STRING([--disable-present],
+		[Disable PRESENT support [[default=auto]]]),
+		[PRESENT="$enableval"],
+		[PRESENT=auto])
 
 # Checks for pkg-config packages
 PKG_CHECK_MODULES(XORG, [xorg-server >= 1.9.99.1 xproto fontsproto])
@@ -237,6 +254,35 @@ AC_MSG_RESULT([$DRI2])
 if test x$DRI2 = xyes; then
    AC_DEFINE(HAVE_DRI2,1,[Enable DRI2 driver support])
 fi
+
+PKG_CHECK_MODULES(DRI3, [dri3proto >= 1.0], , DRI3=no)
+if test x$DRI3 != xno; then
+   save_CFLAGS=$CFLAGS
+   CFLAGS="$XORG_CFLAGS $DRM_CFLAGS $DRI_CFLAGS $DRI2_CFLAGS $DRI3_CFLAGS"
+   AC_CHECK_HEADERS([dri3.h], DRI3=yes, DRI3=no, [#include <dixstruct.h>])
+   CFLAGS=$save_CFLAGS
+fi
+AC_MSG_CHECKING([whether to include DRI3 support])
+AM_CONDITIONAL(HAVE_DRI3, test x$DRI3 = xyes)
+AC_MSG_RESULT([$DRI3])
+if test x$DRI3 = xyes; then
+   AC_DEFINE(HAVE_DRI3,1,[Enable DRI3 driver support])
+fi
+
+PKG_CHECK_MODULES(PRESENT, [presentproto >= 1.0], , PRESENT=no)
+if test x$PRESENT != xno; then
+   save_CFLAGS=$CFLAGS
+   CFLAGS="$XORG_CFLAGS $PRESENT_CFLAGS"
+   AC_CHECK_HEADERS([present.h], PRESENT=yes, PRESENT=no, [#include <dixstruct.h>])
+   CFLAGS=$save_CFLAGS
+fi
+AC_MSG_CHECKING([whether to include PRESENT support])
+AM_CONDITIONAL(HAVE_PRESENT, test x$PRESENT = xyes)
+AC_MSG_RESULT([$PRESENT])
+if test x$PRESENT = xyes; then
+   AC_DEFINE(HAVE_PRESENT,1,[Enable PRESENT driver support])
+fi
+
 
 # Checks for header files.
 AC_HEADER_STDC
