@@ -1,6 +1,8 @@
-xf86-video-armada (0.0.1-r14) UNRELEASED; urgency=medium
+xf86-video-armada (0.0.1-r14) unstable; urgency=medium
 
+  [ Sean Cross ]
   * Add TV and eDP connector names
+  * Rebase to latest upstream
 
  -- Sean Cross <xobs@kosagi.com>  Tue, 12 Jan 2016 15:51:11 +0800
 
