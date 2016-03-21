@@ -1,6 +1,8 @@
-xf86-video-armada (0.0.1-r15) UNRELEASED; urgency=medium
+xf86-video-armada (0.0.1-r16) unstable; urgency=medium
 
+  [ Sean Cross ]
   * Add in 2D, and prep for 3D acceleration
+  * Combine etnaviv and etnadrm again
 
  -- Sean Cross <xobs@kosagi.com>  Thu, 14 Jan 2016 20:58:45 +0800
 
