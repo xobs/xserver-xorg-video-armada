@@ -35,6 +35,10 @@
 #include <libudev.h>
 #endif
 
+#if ABI_VIDEODRV_VERSION >= SET_ABI_VERSION(22,0)
+#define HAVE_NOTIFY_FD	1
+#endif
+
 enum {
 	OPTION_HW_CURSOR,
 	OPTION_HOTPLUG,
@@ -1318,6 +1322,15 @@ Bool common_drm_PreScreenInit(ScreenPtr pScreen)
 	return TRUE;
 }
 
+#if HAVE_NOTIFY_FD
+static void
+drmmode_notify_fd(int fd, int notify, void *data)
+{
+	struct common_drm_info *drm = data;
+
+	drmHandleEvent(drm->fd, &drm->event_context);
+}
+#else
 static void common_drm_wakeup_handler(pointer data, int err, pointer p)
 {
 	struct common_drm_info *drm = data;
@@ -1329,6 +1342,7 @@ static void common_drm_wakeup_handler(pointer data, int err, pointer p)
 	if (FD_ISSET(drm->fd, read_mask))
 		drmHandleEvent(drm->fd, &drm->event_context);
 }
+#endif
 
 Bool common_drm_PostScreenInit(ScreenPtr pScreen)
 {
@@ -1396,9 +1410,13 @@ Bool common_drm_PostScreenInit(ScreenPtr pScreen)
 	xf86DPMSInit(pScreen, xf86DPMSSet, 0);
 
 	/* Setup the synchronisation feedback */
+#if HAVE_NOTIFY_FD
+	SetNotifyFd(drm->fd, drmmode_notify_fd, X_NOTIFY_READ, drm);
+#else
 	AddGeneralSocket(drm->fd);
 	RegisterBlockAndWakeupHandlers((BlockHandlerProcPtr)NoopDDA,
 				       common_drm_wakeup_handler, drm);
+#endif
 
 #ifdef HAVE_UDEV
 	if (!common_drm_udev_init(pScreen)) {
