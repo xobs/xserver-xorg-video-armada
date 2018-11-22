@@ -1,3 +1,10 @@
+xf86-video-armada (0.0.1-r17) unstable; urgency=medium
+
+  [ Wade Cline ]
+  * Add support for xserver >=1.20
+
+ -- Wade Cline <wadecline@hotmail.com>  Thu, 22 Nov 2018 14:48:40 -0800
+
 xf86-video-armada (0.0.1-r16) unstable; urgency=medium
 
   [ Sean Cross ]
