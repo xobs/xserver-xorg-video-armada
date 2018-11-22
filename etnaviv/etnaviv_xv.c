@@ -67,9 +67,6 @@ static XF86VideoFormatRec etnaviv_formats[] = {
 	}, {
 		.depth = 16,
 		.class = TrueColor,
-	}, {
-		.depth = 24,
-		.class = TrueColor,
 	},
 };
 

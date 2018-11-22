@@ -192,15 +192,6 @@ static void unaccel_fixup_tile(DrawablePtr pDraw, PixmapPtr *ppPix)
 {
 	PixmapPtr pNew, pPixmap = *ppPix;
 
-	if (pPixmap->drawable.bitsPerPixel != pDraw->bitsPerPixel) {
-		prepare_cpu_drawable(&pPixmap->drawable, CPU_ACCESS_RO);
-		pNew = fb24_32ReformatTile(pPixmap, pDraw->bitsPerPixel);
-		finish_cpu_drawable(&pPixmap->drawable, CPU_ACCESS_RO);
-
-		pDraw->pScreen->DestroyPixmap(pPixmap);
-		*ppPix = pPixmap = pNew;
-	}
-
 	if (FbEvenTile(pPixmap->drawable.width * pPixmap->drawable.bitsPerPixel)) {
 		prepare_cpu_drawable(&pPixmap->drawable, CPU_ACCESS_RW);
 		fbPadPixmap(pPixmap);

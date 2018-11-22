@@ -253,32 +253,6 @@ static GCOps vivante_unaccel_GCOps = {
 static void
 vivante_ValidateGC(GCPtr pGC, unsigned long changes, DrawablePtr pDrawable)
 {
-#ifdef FB_24_32BIT
-	if (changes & GCTile && fbGetRotatedPixmap(pGC)) {
-		pGC->pScreen->DestroyPixmap(fbGetRotatedPixmap(pGC));
-		fbGetRotatedPixmap(pGC) = NULL;
-	}
-	if (pGC->fillStyle == FillTiled) {
-		PixmapPtr pOldTile = pGC->tile.pixmap;
-		PixmapPtr pNewTile;
-
-		if (pOldTile->drawable.bitsPerPixel != pDrawable->bitsPerPixel) {
-			pNewTile = fbGetRotatedPixmap(pGC);
-			if (!pNewTile || pNewTile->drawable.bitsPerPixel != pDrawable->bitsPerPixel) {
-				if (pNewTile)
-					pGC->pScreen->DestroyPixmap(pNewTile);
-				prepare_cpu_drawable(&pOldTile->drawable, CPU_ACCESS_RO);
-				pNewTile = fb24_32ReformatTile(pOldTile, pDrawable->bitsPerPixel);
-				finish_cpu_drawable(&pOldTile->drawable, CPU_ACCESS_RO);
-			}
-			if (pNewTile) {
-				fbGetRotatedPixmap(pGC) = pOldTile;
-				pGC->tile.pixmap = pNewTile;
-				changes |= GCTile;
-			}
-		}
-	}
-#endif
 	if (changes & GCTile) {
 		if (!pGC->tileIsPixel &&
 		    FbEvenTile(pGC->tile.pixmap->drawable.width *

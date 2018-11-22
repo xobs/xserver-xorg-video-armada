@@ -318,7 +318,6 @@ static XF86VideoEncodingRec OverlayEncodings[] = {
 static XF86VideoFormatRec OverlayFormats[] = {
 	{ 8,  PseudoColor },
 	{ 16, TrueColor },
-	{ 24, TrueColor },
 	{ 32, TrueColor },
 };
 

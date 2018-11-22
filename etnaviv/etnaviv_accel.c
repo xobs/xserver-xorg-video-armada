@@ -334,7 +334,6 @@ static uint32_t etnaviv_fg_col(struct etnaviv *etnaviv, GCPtr pGC)
 			 scale16((pixel & 0x07e0) >> 5, 6) << 8 |
 			 scale16((pixel & 0x001f), 5);
 		break;
-	case 24: /* A8R8G8B8 */
 	default:
 		colour = pixel;
 		break;

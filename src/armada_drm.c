@@ -649,7 +649,6 @@ static Bool armada_drm_PreInit(ScrnInfoPtr pScrn, int flags)
 {
 	struct common_drm_device *drm_dev;
 	rgb defaultWeight = { 0, 0, 0 };
-	int flags24;
 
 	if (pScrn->numEntities != 1)
 		return FALSE;
@@ -673,8 +672,7 @@ static Bool armada_drm_PreInit(ScrnInfoPtr pScrn, int flags)
 	pScrn->chipset = "fbdev";
 	pScrn->displayWidth = 640;
 
-	flags24 = Support24bppFb | Support32bppFb | SupportConvert24to32;
-	if (!xf86SetDepthBpp(pScrn, 0, 0, 0, flags24))
+	if (!xf86SetDepthBpp(pScrn, 0, 0, 0, Support32bppFb))
 		goto fail;
 
 	switch (pScrn->depth) {
