@@ -42,7 +42,7 @@ static pointer etnaviv_setup(pointer module, pointer opts, int *errmaj,
 			   dev_names[i], strerror(errno));
 	}
 
-	*errmaj = LDR_NOHARDWARE;
+	*errmaj = LDR_MODSPECIFIC;
 	*errmin = 0;
 
 	return NULL;

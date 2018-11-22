@@ -27,7 +27,7 @@ static pointer etnadrm_setup(pointer module, pointer opts, int *errmaj,
 		return (pointer) 1;
 	}
 
-	*errmaj = LDR_NOHARDWARE;
+	*errmaj = LDR_MODSPECIFIC;
 	*errmin = 0;
 
 	return NULL;
